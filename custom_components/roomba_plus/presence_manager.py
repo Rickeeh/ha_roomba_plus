@@ -23,16 +23,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 try:
     from roombapy import RoombaConnectionError
 except ImportError:  # pragma: no cover - environment
     RoombaConnectionError = Exception  # type: ignore[assignment,misc]
+
+try:
+    from roombapy_prime import CloudError
+except ImportError:  # pragma: no cover - environment
+    CloudError = Exception  # type: ignore[assignment,misc]
 
 from .const import (
     CLEANING_PHASES,
@@ -63,6 +70,22 @@ _PRESENCE_UNUSABLE = frozenset({"unavailable", "unknown"})
 # and mission logic disagreeing about whether the robot is cleaning.
 _ACTIVE_CLEANING_PHASES = CLEANING_PHASES
 
+#: Pauses before the next attempt when the robot could not be reached
+#: (4.3.6): a minute, five, a quarter of an hour, then every half hour.
+#: A Classic robot that reconnects is tried at once instead.
+RETRY_DELAYS_S: Final = (60, 300, 900, 1800)
+
+
+class SchedulesUnavailable(Exception):
+    """The Prime cloud did not return the schedules to pause or resume."""
+
+
+#: What an unreachable robot raises when its schedules are changed:
+#: Classic's local connection, Prime's cloud, or a Prime read that came
+#: back empty-handed. Each leaves the ownership flags as they were and
+#: is tried again (PR #208 by @mdarocha for Classic, 4.3.6 for Prime).
+_UNREACHABLE: Final = (RoombaConnectionError, CloudError, SchedulesUnavailable)
+
 
 def _event_dt(item: datetime | tuple[datetime, bool]) -> datetime:
     """Return the datetime from a _clean_events entry.
@@ -89,6 +112,16 @@ class PresenceManager:
         # presence-managed holds from manual ScheduleHoldSwitch toggles.
         self._managed_hold: bool = False
         self._did_unfreeze: bool = False  # True only when PM actually performed the unfreeze
+        #: Which Prime schedules WE switched off, so a resume does not
+        #: enable one the user had turned off themselves. Declared here
+        #: since 4.3.6: it was first set at the end of `_away_delay`,
+        #: which a Prime robot could not reach without it -- the first
+        #: pause or resume raised AttributeError (found by @mdarocha).
+        self._paused_schedule_ids: set[str] = set()
+        #: The next attempt after the robot could not be reached, and
+        #: how many have failed in a row (4.3.6).
+        self._cancel_retry_timer: Callable[[], None] | None = None
+        self._failed_attempts: int = 0
         # R1: initialised here so record_clean_event/presence_windows never need hasattr
         #: Both formats, which `_event_dt` above already handles.
         #:
@@ -126,6 +159,13 @@ class PresenceManager:
         unsub = self._hass.bus.async_listen("state_changed", _on_state_changed)
         self._cancel_listeners.append(unsub)
 
+        # A CLASSIC ROBOT SAYS WHEN IT IS BACK, so a change it missed is
+        # applied then rather than at the next timed attempt.
+        roomba = getattr(getattr(self._entry, "runtime_data", None), "roomba", None)
+        register = getattr(roomba, "register_on_connection_state_callback", None)
+        if callable(register):
+            self._cancel_listeners.append(register(self._on_connection_state))
+
         # Evaluate on setup so initial state is applied immediately
         self._hass.async_create_task(self._evaluate_presence())
         _LOGGER.debug(
@@ -134,31 +174,36 @@ class PresenceManager:
 
     # ── Core logic ────────────────────────────────────────────────────────────
 
-    async def _evaluate_presence(self) -> None:
-        """Check all tracked persons and act on the result."""
+    def _all_away(self) -> bool | None:
+        """Whether every tracked person is away; None without any."""
         person_ids: list[str] = self._entry.options.get(CONF_PRESENCE_ENTITIES, [])
         if not person_ids:
-            return  # safety guard: no entities configured
-        all_away = all(
+            return None
+        return all(
             (st := self._hass.states.get(eid)) is not None
             and st.state not in _PRESENCE_UNUSABLE  # unusable → treat as "might be home"
             and st.state not in _HOME_STATES
             for eid in person_ids
         )
+
+    async def _evaluate_presence(self) -> None:
+        """Check all tracked persons and act on the result."""
+        all_away = self._all_away()
+        if all_away is None:
+            return  # safety guard: no entities configured
+        # A presence change decides afresh; an attempt still waiting for
+        # the robot is superseded by it.
+        self._cancel_retry()
         # Runs as a fire-and-forget task, so an unreachable robot would
         # otherwise surface only as "Task exception was never retrieved".
-        # Ownership flags are untouched on failure; the next presence
-        # change retries.
+        # Ownership flags are untouched on failure (PR #208).
         try:
             if all_away:
                 await self._handle_all_away()
             else:
                 await self._handle_someone_home()
-        except RoombaConnectionError as err:
-            _LOGGER.warning(
-                "PresenceManager: robot unreachable, schedule change skipped: %s",
-                err,
-            )
+        except _UNREACHABLE as err:
+            self._robot_unreachable("schedule change skipped", err)
 
     async def _handle_all_away(self) -> None:
         """All persons away — start delay before unfreezing schedule."""
@@ -207,27 +252,101 @@ class PresenceManager:
                 # and cleaning must not start after it.
                 return
 
+        try:
+            await self._act_on_all_away()
+        except _UNREACHABLE as err:
+            self._robot_unreachable("schedules not resumed", err)
+        self._away_task = None
+
+    async def _act_on_all_away(self) -> None:
+        """Everyone has been away long enough: resume or ask."""
         mode = self._entry.options.get(CONF_PRESENCE_MODE, DEFAULT_PRESENCE_MODE)
         if mode == "away_only":
-            try:
-                await self._set_schedules_paused(False)
-            except RoombaConnectionError as err:
-                _LOGGER.warning(
-                    "PresenceManager: robot unreachable, schedules not "
-                    "resumed: %s",
-                    err,
-                )
-                self._away_task = None
-                return
+            await self._set_schedules_paused(False)
             self._managed_hold = False
             self._did_unfreeze = True  # remember we performed the unfreeze
         else:
             # always_ask: fire event and let user automation handle it
             self._hass.bus.async_fire(EVENT_ALL_AWAY, {})
-        self._away_task = None
-        #: Which schedules WE switched off, so a resume does not enable
-        #: one the user had turned off themselves.
-        self._paused_schedule_ids: set[str] = set()
+
+    # ── An unreachable robot (4.3.6) ──────────────────────────────────────────
+
+    def _robot_unreachable(self, what: str, err: BaseException) -> None:
+        """Log the first failure, and try again later.
+
+        Before 4.3.6 the next attempt came only with the next presence
+        change: with everyone away for the day, the schedules stayed
+        paused after one missed write.
+        """
+        delay = RETRY_DELAYS_S[min(self._failed_attempts, len(RETRY_DELAYS_S) - 1)]
+        if self._failed_attempts == 0:
+            _LOGGER.warning(
+                "PresenceManager: robot unreachable, %s; trying again in %d s: %s",
+                what, delay, err,
+            )
+        else:
+            _LOGGER.debug(
+                "PresenceManager: robot still unreachable (%d), %s: %s",
+                self._failed_attempts + 1, what, err,
+            )
+        self._failed_attempts += 1
+        self._cancel_retry()
+        self._cancel_retry_timer = async_call_later(
+            self._hass, delay, self._on_retry_timer
+        )
+
+    def _robot_reached(self) -> None:
+        """A schedule change went through; say so after a failure."""
+        if self._failed_attempts:
+            _LOGGER.info(
+                "PresenceManager: robot reachable again, schedule change "
+                "applied after %d failed attempt(s)",
+                self._failed_attempts,
+            )
+        self._failed_attempts = 0
+        self._cancel_retry()
+
+    def _cancel_retry(self) -> None:
+        if self._cancel_retry_timer is not None:
+            self._cancel_retry_timer()
+            self._cancel_retry_timer = None
+
+    @callback
+    def _on_retry_timer(self, _now: Any) -> None:
+        self._cancel_retry_timer = None
+        self._hass.async_create_task(
+            self._retry(), name="roomba_plus_presence_retry"
+        )
+
+    @callback
+    def _on_connection_state(self, state: str, _error: str | None = None) -> None:
+        """roombapy calls this on every transition, on the event loop."""
+        if state == "connected" and self._cancel_retry_timer is not None:
+            self._cancel_retry()
+            self._hass.async_create_task(
+                self._retry(), name="roomba_plus_presence_retry"
+            )
+
+    async def _retry(self) -> None:
+        """Apply what presence asks for now, without serving the delays again.
+
+        Everyone away: resume, unless a fresh away delay is running or
+        it is already done. Someone home: the arrival path, which only
+        pauses what this manager resumed.
+        """
+        all_away = self._all_away()
+        if all_away is None:
+            return
+        try:
+            if all_away:
+                if self._away_task is not None and not self._away_task.done():
+                    return
+                if not self._did_unfreeze:
+                    await self._act_on_all_away()
+            else:
+                await self._handle_someone_home()
+        except _UNREACHABLE as err:
+            self._robot_unreachable("schedule change skipped", err)
 
     async def _handle_someone_home(self) -> None:
         """A person arrived — cancel delay and re-freeze if WE unfroze it."""
@@ -312,6 +431,7 @@ class PresenceManager:
         data = self._entry.runtime_data
         if getattr(data, "prime_robot", None) is None:
             await self._set_sched_hold(paused)
+            self._robot_reached()
             return
 
         # LATE ON PURPOSE: prime_schedule_switch imports back into the
@@ -321,7 +441,13 @@ class PresenceManager:
         )
 
         containers = await async_read_schedule_containers(self._entry)
+        if containers is None:
+            # A FAILED READ IS NOT "NO SCHEDULES". Returning here made the
+            # callers record a pause or resume that never happened, and
+            # nothing tried again (4.3.6).
+            raise SchedulesUnavailable("the schedules could not be read")
         if not containers:
+            self._robot_reached()
             return
 
         # ONLY SCHEDULES WE PAUSED GET RESUMED. Turning everything back
@@ -331,6 +457,9 @@ class PresenceManager:
         # why.
         for container_id, schedules in containers:
             changed = False
+            # FORGOTTEN ONLY ONCE WRITTEN: a resume that fails must leave
+            # the ids for the next attempt, or those schedules stay off.
+            resumed: set[str] = set()
             for schedule in schedules or []:
                 options = getattr(schedule, "options", None)
                 if options is None or getattr(options, "deleted", None):
@@ -345,7 +474,7 @@ class PresenceManager:
                     changed = True
                 elif sid in self._paused_schedule_ids:
                     options.enabled = True
-                    self._paused_schedule_ids.discard(sid)
+                    resumed.add(sid)
                     changed = True
             if changed:
                 assert data.prime_robot is not None  # noqa: S101 - branched above
@@ -354,6 +483,8 @@ class PresenceManager:
                     # string. No household means no schedules to pause.
                     data.prime_household_id or "", container_id, schedules
                 )
+                self._paused_schedule_ids -= resumed
+        self._robot_reached()
 
     async def _set_sched_hold(self, value: bool) -> None:
         """Write schedHold preference to the robot.
@@ -559,5 +690,6 @@ class PresenceManager:
         if self._away_task and not self._away_task.done():
             self._away_task.cancel()
         self._away_task = None
+        self._cancel_retry()
 
         _LOGGER.debug("PresenceManager: cancelled")

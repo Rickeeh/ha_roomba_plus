@@ -103,11 +103,16 @@ _KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-_]*[a-z0-9]$|^[a-z0-9]$")
 
 #: Levels whose keys are HA identifiers rather than free-form names.
 #:
-#: Only leaf dictionaries under `state` and `data` are constrained:
-#: `entity.sensor.<key>.state.<STATE>` and
-#: `config.step.<step>.data.<FIELD>`. The names above them are HA's own
-#: and already valid.
-_CONSTRAINED_PARENTS = ("state", "data")
+#: Leaf dictionaries under `state`, `data` and `options` are
+#: constrained: `entity.sensor.<key>.state.<STATE>`,
+#: `config.step.<step>.data.<FIELD>` and
+#: `selector.<selector>.options.<VALUE>`. The names above them are HA's
+#: own and already valid.
+#:
+#: `options` was missing until 4.3.6, and the account picker's
+#: `__other__` and `__none__` (4.3.0b1) failed hassfest on every run
+#: since while this check passed.
+_CONSTRAINED_PARENTS = ("state", "data", "options")
 
 
 def _check_key_syntax(node: object, path: tuple[str, ...]) -> list[str]:
@@ -130,15 +135,11 @@ def _report_key_syntax() -> int:
         for problem in _check_key_syntax(data, ()):
             failures.append(f"  {path.name}: {problem}")
 
+    # THE FAILURES WERE NEVER PRINTED. A merge had put the untranslated
+    # check in front of this report and a `return 0` above it, so a bad
+    # key would have raised NameError rather than said which (4.3.6).
     if not failures:
-        untranslated = check_untranslated()
-    if untranslated:
-        print("Untranslated values found:")
-        for line in untranslated:
-            print(f"  - {line}")
-        return 1
-
-    return 0
+        return 0
 
     print(f"\n{len(failures)} translation key(s) Home Assistant will reject:\n")
     print("\n".join(failures))
@@ -215,6 +216,16 @@ def check_untranslated() -> list[str]:
     return problems
 
 
+def _report_untranslated() -> int:
+    untranslated = check_untranslated()
+    if untranslated:
+        print("Untranslated values found:")
+        for line in untranslated:
+            print(f"  - {line}")
+        return 1
+    return 0
+
+
 def _flatten(data: dict, prefix: str = "") -> dict:
     out: dict = {}
     for key, value in data.items():
@@ -232,4 +243,5 @@ if __name__ == "__main__":
     # broke CI and watching this script pass.
     _counts = main()
     _syntax = _report_key_syntax()
-    sys.exit(_counts or _syntax)
+    _untranslated = _report_untranslated()
+    sys.exit(_counts or _syntax or _untranslated)

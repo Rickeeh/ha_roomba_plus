@@ -1423,3 +1423,39 @@ def test_base_suggested_object_id_handles_fav_id_with_underscores():
     result = IRobotEntity.suggested_object_id.fget(obj)
     # Must return the WHOLE suffix "fav_my_fav_routine", not just "routine"
     assert result == "fav_my_fav_routine"
+
+
+class TestSelectorOptionKeysAreChecked:
+    """4.3.6: the account picker's `__other__` and `__none__` failed
+    hassfest on every run since 4.3.0b1, because the key check looked at
+    `state` and `data` only and its failure report was unreachable."""
+
+    @staticmethod
+    def _module():
+        from importlib import util
+        import pathlib
+
+        spec = util.spec_from_file_location(
+            "ct", pathlib.Path("scripts/check_translations.py")
+        )
+        module = util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_a_bad_option_key_is_found(self):
+        module = self._module()
+        data = {"selector": {"known_account": {"options": {"__other__": "x", "ok_1": "y"}}}}
+
+        assert module._check_key_syntax(data, ()) == [
+            "selector.known_account.options.__other__: '__other__'"
+        ]
+
+    def test_a_bad_key_fails_the_report(self, monkeypatch, tmp_path, capsys):
+        module = self._module()
+        bad = tmp_path / "strings.json"
+        bad.write_text('{"selector": {"a": {"options": {"__none__": "x"}}}}')
+        monkeypatch.setattr(module, "STRINGS_PATH", bad)
+        monkeypatch.setattr(module, "TRANSLATIONS_DIR", tmp_path / "none")
+
+        assert module._report_key_syntax() == 1
+        assert "__none__" in capsys.readouterr().out

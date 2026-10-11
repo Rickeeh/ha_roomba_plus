@@ -9,6 +9,16 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.3.6 — from v4.3.5
+
+**Presence scheduling on a Prime robot starts working.** It failed at its
+first pause or resume before, so it never changed anything. With it
+switched on, your schedules are now switched off in the iRobot app while
+somebody is home and back on once everyone has been away for the set
+time; only the schedules Roomba+ switched off are switched back on.
+
+---
+
 ## v4.3.4 — from v4.3.3
 
 **A mission started with the robot's own button no longer carries the

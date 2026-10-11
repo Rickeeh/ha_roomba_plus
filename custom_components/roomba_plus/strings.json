@@ -2346,8 +2346,8 @@
     },
     "known_account": {
       "options": {
-        "__other__": "Another iRobot account",
-        "__none__": "No cloud features for this robot (local control only)"
+        "other_account": "Another iRobot account",
+        "no_account": "No cloud features for this robot (local control only)"
       }
     },
     "map_rotation": {

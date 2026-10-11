@@ -503,3 +503,23 @@ def test_every_time_span_sensor_is_a_duration():
                 if dc is None or ast.unparse(dc) != "SensorDeviceClass.DURATION":
                     missing.append(f"{fname}:{n.lineno} {ast.unparse(kw['key'])}")
     assert not missing, missing
+
+
+class TestTheManifestNamesTheMqttLogger:
+    """4.3.6: roombapy 2.x and roombapy-prime talk MQTT through aiomqtt,
+    which logs as `mqtt` and hands that logger to paho. The manifest named
+    only `paho_mqtt`, so Home Assistant could not tie those log lines to
+    Roomba+ (the same point was raised on home-assistant/core#184198)."""
+
+    def test_the_aiomqtt_logger_is_declared(self):
+        import json
+        import pathlib
+
+        from aiomqtt.client import MQTT_LOGGER
+
+        manifest = json.loads(
+            pathlib.Path("custom_components/roomba_plus/manifest.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert MQTT_LOGGER.name in manifest["loggers"]

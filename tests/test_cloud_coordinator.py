@@ -150,7 +150,7 @@ def _make_coordinator_v250_coordinator() -> IrobotCloudCoordinator:
         hass=hass,
         config_entry=entry,
         blid="test_blid",
-        username="user@test.com",
+        username="user@example.com",
         password="secret",
         has_pmaps=True,
         mission_store=None,
@@ -1701,7 +1701,7 @@ class TestReviewRemainderErrorPaths:
         coord.hass = MagicMock()
         coord.config_entry = MagicMock(entry_id="E1")
         coord._entry_id = "E1"
-        coord._username, coord._password = "user@test.com", "pass123"
+        coord._username, coord._password = "user@example.com", "pass123"
         with patch(
             "custom_components.roomba_plus.cloud_coordinator.async_acquire",
             new=AsyncMock(side_effect=AuthError(

@@ -34,6 +34,16 @@ PNG_MAGIC = b"\x89PNG"
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
+def _pixels(img):
+    """Every pixel of an image, without Pillow 12's deprecation warning.
+
+    `getdata()` goes in Pillow 14 (October 2027); `get_flattened_data()`
+    only exists from Pillow 12, and Home Assistant 2025.5 ships 11.
+    """
+    flat = getattr(img, "get_flattened_data", None)
+    return list(flat() if flat is not None else img.getdata())
+
+
 def _make_renderer(**kwargs) -> MapRenderer:
     cfg = RendererConfig(**kwargs)
     return MapRenderer(cfg)
@@ -713,14 +723,11 @@ class TestInferenceSuggestionsLayer:
         import io
         img = Image.open(io.BytesIO(png)).convert("RGBA")
         # `getdata()` is deprecated and goes away in Pillow 14
-        # (2027-10-15). NOT SWITCHED YET: the replacement,
-        # `get_flattened_data()`, does not exist in the Pillow this
-        # project pins, so the call could not be tested here -- and
-        # writing an untestable call from a deprecation notice is
-        # exactly what broke 4.1.3.
-        #
-        # Revisit when the pin moves past Pillow 12.
-        pixels = list(img.getdata())
+        # (2027-10-15). `_pixels()` uses `get_flattened_data()` where it
+        # exists. Both paths are tested now: the Home Assistant 2026 run
+        # has Pillow 12, the 2025.5 run Pillow 11 (4.3.6). An untested
+        # call written from a deprecation notice is what broke 4.1.3.
+        pixels = _pixels(img)
         white_pixel = (255, 255, 255, 255)
         all_white = all(p == white_pixel for p in pixels)
         assert not all_white

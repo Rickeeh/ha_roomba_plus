@@ -175,7 +175,7 @@ def _make_coordinator_with_archive(mission_archive) -> IrobotCloudCoordinator:
     """
     coord = object.__new__(IrobotCloudCoordinator)
     coord.data = None
-    coord.blid = "31B8091051311850"
+    coord.blid = "0123456789ABCDEF"
     coord._has_pmaps = False
     coord._mission_store = None
     coord._mission_archive = mission_archive

@@ -9,6 +9,16 @@ import pytest
 from tests.conftest import hass_mock
 
 
+def _pixels(img):
+    """Every pixel of an image, without Pillow 12's deprecation warning.
+
+    `getdata()` goes in Pillow 14 (October 2027); `get_flattened_data()`
+    only exists from Pillow 12, and Home Assistant 2025.5 ships 11.
+    """
+    flat = getattr(img, "get_flattened_data", None)
+    return list(flat() if flat is not None else img.getdata())
+
+
 def _geometry(ring):
     return MagicMock(coordinates=[ring])
 
@@ -2611,7 +2621,7 @@ class TestZonesAreActuallyDrawn:
             ]
         })
 
-        assert list(without.getdata()) != list(with_zone.getdata())
+        assert _pixels(without) != _pixels(with_zone)
 
     def test_the_zone_outline_is_its_own_colour(self):
         """Blue, so it reads as a marked-out part of a room rather than
@@ -2623,13 +2633,13 @@ class TestZonesAreActuallyDrawn:
             ]
         })
 
-        assert (120, 190, 255) in set(img.getdata())
+        assert (120, 190, 255) in set(_pixels(img))
 
     def test_no_zones_renders_nothing_extra(self):
         """A robot with no saved zones must not gain stray lines."""
         img = self._rendered({})
 
-        assert (120, 190, 255) not in set(img.getdata())
+        assert (120, 190, 255) not in set(_pixels(img))
 
 
 # ── formerly tests/test_coverage_mid_gaps_2.py ──────────────────────────────────

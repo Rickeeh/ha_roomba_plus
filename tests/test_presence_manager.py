@@ -1163,7 +1163,7 @@ class TestTheCleanDelayIsHonoured:
 
         from custom_components.roomba_plus.presence_manager import PresenceManager
 
-        manager = object.__new__(PresenceManager)
+        manager = PresenceManager(MagicMock(), MagicMock())
         entry = MagicMock()
         entry.options = {
             "clean_delay_min": clean_delay,
@@ -1240,7 +1240,7 @@ class TestPrimePausesSchedulesInsteadOfHolding:
 
         from custom_components.roomba_plus.presence_manager import PresenceManager
 
-        mgr = object.__new__(PresenceManager)
+        mgr = PresenceManager(MagicMock(), MagicMock())
         robot = AsyncMock()
         entry = MagicMock()
         entry.runtime_data = SimpleNamespace(
@@ -1248,7 +1248,6 @@ class TestPrimePausesSchedulesInsteadOfHolding:
         )
         mgr._entry = entry
         mgr._hass = MagicMock()
-        mgr._paused_schedule_ids = set()
         mgr._set_sched_hold = AsyncMock()
         return mgr, robot, schedules
 
@@ -1319,11 +1318,10 @@ class TestPrimePausesSchedulesInsteadOfHolding:
 
         from custom_components.roomba_plus.presence_manager import PresenceManager
 
-        mgr = object.__new__(PresenceManager)
+        mgr = PresenceManager(MagicMock(), MagicMock())
         entry = MagicMock()
         entry.runtime_data = SimpleNamespace(prime_robot=None)
         mgr._entry = entry
-        mgr._paused_schedule_ids = set()
         mgr._set_sched_hold = AsyncMock()
 
         await PresenceManager._set_schedules_paused(mgr, True)
@@ -1355,7 +1353,7 @@ class TestPresenceOnPrimeDoesNotReachForALocalRobot:
             PresenceManager,
         )
 
-        manager = PresenceManager.__new__(PresenceManager)
+        manager = PresenceManager(MagicMock(), MagicMock())
         manager._hass = MagicMock()
         manager._away_task = None
         manager._did_unfreeze = did_unfreeze
@@ -1486,7 +1484,8 @@ class TestPresenceManagerFlow:
 
 
 class TestRobotUnreachable:
-    """A write to an unreachable robot must not escape the presence tasks."""
+    """A write to an unreachable robot must not escape the presence tasks
+    (PR #208, @mdarocha), and is tried again (4.3.6)."""
 
     @staticmethod
     def _fail_writes(manager):
@@ -1496,8 +1495,24 @@ class TestRobotUnreachable:
             side_effect=RoombaConnectionError("not connected")
         )
 
+    @staticmethod
+    def _timer(monkeypatch):
+        """async_call_later, recorded instead of scheduled."""
+        from custom_components.roomba_plus import presence_manager as pm_mod
+
+        calls = []
+        cancel = MagicMock()
+
+        def _later(_hass, delay, action):
+            calls.append((delay, action))
+            return cancel
+
+        monkeypatch.setattr(pm_mod, "async_call_later", _later)
+        return calls, cancel
+
     @pytest.mark.asyncio
-    async def test_away_delay_logs_and_keeps_flags(self, caplog):
+    async def test_away_delay_logs_and_keeps_flags(self, caplog, monkeypatch):
+        calls, _cancel = self._timer(monkeypatch)
         manager, _hass = _make_manager({"person.alice": "not_home"}, sched_hold=True)
         self._fail_writes(manager)
         manager._away_task = object()
@@ -1508,6 +1523,7 @@ class TestRobotUnreachable:
         assert manager._away_task is None
         assert manager._did_unfreeze is False
         assert manager._managed_hold is False
+        assert [delay for delay, _ in calls] == [60]
 
         # The next attempt retries and succeeds once the robot is back.
         roomba = manager._entry.runtime_data.roomba
@@ -1515,9 +1531,11 @@ class TestRobotUnreachable:
         await manager._away_delay(0)
         assert roomba.preference_calls == [("schedHold", False)]
         assert manager._did_unfreeze is True
+        assert manager._failed_attempts == 0
 
     @pytest.mark.asyncio
-    async def test_arrival_logs_and_keeps_flags(self, caplog):
+    async def test_arrival_logs_and_keeps_flags(self, caplog, monkeypatch):
+        self._timer(monkeypatch)
         manager, _hass = _make_manager({"person.alice": "home"})
         self._fail_writes(manager)
         manager._did_unfreeze = True
@@ -1527,3 +1545,170 @@ class TestRobotUnreachable:
         assert "robot unreachable" in caplog.text
         assert manager._did_unfreeze is True
         assert manager._managed_hold is False
+
+    @pytest.mark.asyncio
+    async def test_the_retry_resumes_without_waiting_the_delays_again(
+        self, monkeypatch
+    ):
+        """4.3.6: with everyone away all day, one missed write left the
+        schedules paused until somebody came home."""
+        calls, _cancel = self._timer(monkeypatch)
+        manager, _hass = _make_manager({"person.alice": "not_home"}, sched_hold=True)
+        self._fail_writes(manager)
+        await manager._away_delay(0)
+        assert manager._did_unfreeze is False
+
+        roomba = manager._entry.runtime_data.roomba
+        roomba.set_preference = _FakeRoomba.set_preference.__get__(roomba)
+        sleep = AsyncMock()
+        monkeypatch.setattr(
+            "custom_components.roomba_plus.presence_manager.asyncio.sleep", sleep
+        )
+        await manager._retry()
+
+        assert roomba.preference_calls == [("schedHold", False)]
+        assert manager._did_unfreeze is True
+        sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_the_pauses_grow_and_only_the_first_failure_warns(
+        self, caplog, monkeypatch
+    ):
+        import logging
+
+        calls, _cancel = self._timer(monkeypatch)
+        manager, _hass = _make_manager({"person.alice": "not_home"}, sched_hold=True)
+        self._fail_writes(manager)
+        with caplog.at_level(logging.DEBUG):
+            for _ in range(6):
+                await manager._retry()
+
+        assert [delay for delay, _ in calls] == [60, 300, 900, 1800, 1800, 1800]
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_classic_robot_that_reconnects_is_tried_at_once(
+        self, monkeypatch
+    ):
+        _calls, cancel = self._timer(monkeypatch)
+        manager, hass = _make_manager({"person.alice": "not_home"}, sched_hold=True)
+        hass.async_create_task = MagicMock(side_effect=lambda coro, **_kw: coro.close())
+        manager._robot_unreachable("test", RuntimeError("x"))
+
+        manager._on_connection_state("disconnected")
+        hass.async_create_task.assert_not_called()
+
+        manager._on_connection_state("connected")
+        cancel.assert_called_once()
+        hass.async_create_task.assert_called_once()
+
+    def test_start_listens_for_the_reconnect(self):
+        manager, hass = _make_manager({"person.alice": "home"})
+        hass.async_create_task = MagicMock(side_effect=lambda coro, **_kw: coro.close())
+        hass.bus = MagicMock()
+        roomba = manager._entry.runtime_data.roomba
+        roomba.register_on_connection_state_callback = MagicMock(return_value="unsub")
+
+        manager.start()
+
+        roomba.register_on_connection_state_callback.assert_called_once_with(
+            manager._on_connection_state
+        )
+        assert "unsub" in manager._cancel_listeners
+
+    def test_cancel_stops_a_waiting_attempt(self, monkeypatch):
+        _calls, cancel = self._timer(monkeypatch)
+        manager, _hass = _make_manager({"person.alice": "home"})
+        manager._robot_unreachable("test", RuntimeError("x"))
+
+        manager.cancel()
+
+        cancel.assert_called_once()
+        assert manager._cancel_retry_timer is None
+
+
+class TestPrimeSchedulesAfterAFailure:
+    """4.3.6: the Prime path of what PR #208 fixed for Classic."""
+
+    @staticmethod
+    def _manager(read):
+        from types import SimpleNamespace
+
+        manager = PresenceManager(MagicMock(), MagicMock())
+        robot = AsyncMock()
+        manager._entry.runtime_data = SimpleNamespace(
+            roomba=None, prime_robot=robot, prime_household_id="HH"
+        )
+        manager._entry.options = {"presence_mode": "away_only", "clean_delay_min": 0}
+        manager._robot_unreachable = MagicMock()
+        return manager, robot, read
+
+    @staticmethod
+    def _schedule(sid, enabled):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            schedule_id=sid, options=SimpleNamespace(enabled=enabled, deleted=False)
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_fresh_manager_can_resume_and_pause(self, monkeypatch):
+        """The set used to appear only after the first away cycle had
+        finished, which needed the set: AttributeError on every Prime
+        robot (found by @mdarocha)."""
+        from custom_components.roomba_plus import prime_schedule_switch
+
+        sched = self._schedule("s1", True)
+        monkeypatch.setattr(
+            prime_schedule_switch, "async_read_schedule_containers",
+            AsyncMock(return_value=[("c1", [sched])]),
+        )
+        manager, robot, _ = self._manager(None)
+
+        await manager._set_schedules_paused(False)
+        await manager._set_schedules_paused(True)
+
+        assert manager._paused_schedule_ids == {"s1"}
+        assert sched.options.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_a_failed_read_is_not_a_resume(self, monkeypatch):
+        from custom_components.roomba_plus import prime_schedule_switch
+
+        monkeypatch.setattr(
+            prime_schedule_switch, "async_read_schedule_containers",
+            AsyncMock(return_value=None),
+        )
+        manager, _robot, _ = self._manager(None)
+
+        await manager._away_delay(0)
+
+        assert manager._did_unfreeze is False
+        manager._robot_unreachable.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_write_keeps_what_is_to_be_resumed(self, monkeypatch):
+        from roombapy_prime import RestConnectionError
+
+        from custom_components.roomba_plus import prime_schedule_switch
+
+        sched = self._schedule("s1", False)
+        monkeypatch.setattr(
+            prime_schedule_switch, "async_read_schedule_containers",
+            AsyncMock(return_value=[("c1", [sched])]),
+        )
+        manager, robot, _ = self._manager(None)
+        manager._paused_schedule_ids = {"s1"}
+        robot.update_schedules.side_effect = RestConnectionError("offline")
+
+        await manager._away_delay(0)
+
+        assert manager._paused_schedule_ids == {"s1"}
+        assert manager._did_unfreeze is False
+        manager._robot_unreachable.assert_called_once()
+
+        robot.update_schedules.side_effect = None
+        await manager._away_delay(0)
+        assert manager._paused_schedule_ids == set()
+        assert manager._did_unfreeze is True

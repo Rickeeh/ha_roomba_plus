@@ -131,7 +131,7 @@ class TestAKnownAccountIsOffered:
         _known_entry(hass)
         result = await _account_path(hass)
         assert result["step_id"] == "known_account"
-        assert _option_values(result) == [USER, "__other__"]   # no "no cloud" here
+        assert _option_values(result) == [USER, "other_account"]   # no "no cloud" here
 
     @pytest.mark.asyncio
     async def test_choosing_it_logs_in_once_and_lists_the_robots(self, hass, login):
@@ -154,7 +154,7 @@ class TestAKnownAccountIsOffered:
         _known_entry(hass)
         result = await _account_path(hass)
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"account": "__other__"}
+            result["flow_id"], {"account": "other_account"}
         )
         assert result["step_id"] == "prime_account"
         login.assert_not_awaited()
@@ -358,7 +358,7 @@ class TestNoHomeButtonForAKnownAccount:
         button.assert_not_called()
         login.assert_not_awaited()         # nothing over the network yet
         assert result["step_id"] == "known_account"
-        assert _option_values(result) == [USER, "__other__", "__none__"]
+        assert _option_values(result) == [USER, "other_account", "no_account"]
 
         result = await self._answer(hass, result, USER)
         assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -371,7 +371,7 @@ class TestNoHomeButtonForAKnownAccount:
         _known_entry(hass)
         self._held(hass)
         result, _button = await self._dhcp_flow(hass)
-        result = await self._answer(hass, result, "__none__")
+        result = await self._answer(hass, result, "no_account")
         assert result["type"] is FlowResultType.CREATE_ENTRY
         assert CONF_IROBOT_USERNAME not in result["data"]
         assert result["data"]["password"] == ":1:classic"
@@ -382,7 +382,7 @@ class TestNoHomeButtonForAKnownAccount:
         _known_entry(hass)
         self._held(hass)
         result, _button = await self._dhcp_flow(hass)
-        result = await self._answer(hass, result, "__other__")
+        result = await self._answer(hass, result, "other_account")
         assert result["step_id"] == "cloud_credentials"
 
     @pytest.mark.asyncio
@@ -500,7 +500,7 @@ def test_the_account_choice_is_translated(lang):
     check cannot see them."""
     data = json.loads(pathlib.Path(
         f"custom_components/roomba_plus/translations/{lang}.json").read_text(encoding="utf-8"))
-    assert set(data["selector"]["known_account"]["options"]) == {"__other__", "__none__"}
+    assert set(data["selector"]["known_account"]["options"]) == {"other_account", "no_account"}
     step = data["config"]["step"]["integration_discovery_confirm"]
     assert {"{name}", "{model}", "{account}"} <= set(
         __import__("re").findall(r"\{\w+\}", step["description"]))
@@ -516,7 +516,7 @@ class TestOnePasswordChangeForTheWholeAccount:
         other_pw = _known_entry(hass, blid="R4", password="different")
         other_user = MockConfigEntry(
             domain=DOMAIN, unique_id="R5",
-            data={CONF_BLID: "R5", CONF_IROBOT_USERNAME: "someone@else.com",
+            data={CONF_BLID: "R5", CONF_IROBOT_USERNAME: "someone@example.org",
                   CONF_IROBOT_PASSWORD: "old"},
         )
         other_user.add_to_hass(hass)
@@ -544,7 +544,7 @@ class TestOnePasswordChangeForTheWholeAccount:
         account switched every robot of the old one along with it."""
         same, _other_pw, _other_user = self._entries(hass)
         with patch.object(hass.config_entries, "async_schedule_reload") as reload:
-            assert cf._async_update_account_siblings(hass, same[0], "new@owner.com", "new") == 0
+            assert cf._async_update_account_siblings(hass, same[0], "new@example.net", "new") == 0
         reload.assert_not_called()
         assert [e.data[CONF_IROBOT_USERNAME] for e in same[1:]] == [USER, USER]
 

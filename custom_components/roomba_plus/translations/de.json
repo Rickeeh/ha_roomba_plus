@@ -2346,8 +2346,8 @@
     },
     "known_account": {
       "options": {
-        "__other__": "Anderes iRobot-Konto",
-        "__none__": "Keine Cloud-Funktionen für diesen Roboter (nur lokale Steuerung)"
+        "other_account": "Anderes iRobot-Konto",
+        "no_account": "Keine Cloud-Funktionen für diesen Roboter (nur lokale Steuerung)"
       }
     },
     "map_rotation": {

@@ -453,7 +453,7 @@ def _make_reauth_flow(reauth_entry_data=None):
     flow.flow_id = "test_flow_id"
     flow.handler = "roomba_plus"
     reauth_entry = MagicMock()
-    reauth_entry.data = reauth_entry_data or {CONF_BLID: "31B8091051311850"}
+    reauth_entry.data = reauth_entry_data or {CONF_BLID: "0123456789ABCDEF"}
     flow._get_reauth_entry = MagicMock(return_value=reauth_entry)
     return flow, reauth_entry
 
@@ -465,7 +465,7 @@ class TestReauthEntryPoint:
         form — it routes straight to reauth_confirm."""
         from custom_components.roomba_plus.const import CONF_BLID
         flow, _entry = _make_reauth_flow()
-        result = await flow.async_step_reauth({CONF_BLID: "31B8091051311850"})
+        result = await flow.async_step_reauth({CONF_BLID: "0123456789ABCDEF"})
         assert result["type"] == "form"
         assert result["step_id"] == "reauth_confirm"
 
@@ -475,7 +475,7 @@ class TestReauthConfirmForm:
     async def test_initial_call_shows_form_prefilled_with_current_username(self):
         from custom_components.roomba_plus.const import CONF_BLID, CONF_IROBOT_USERNAME
         flow, _entry = _make_reauth_flow(reauth_entry_data={
-            CONF_BLID: "31B8091051311850",
+            CONF_BLID: "0123456789ABCDEF",
             CONF_IROBOT_USERNAME: "old@example.com",
         })
         result = await flow.async_step_reauth_confirm()
@@ -498,7 +498,7 @@ class TestReauthConfirmForm:
         new one) and reload it — the actual point of using
         async_update_reload_and_abort() over async_create_entry()."""
         flow, reauth_entry = _make_reauth_flow(reauth_entry_data={
-            CONF_BLID: "31B8091051311850",
+            CONF_BLID: "0123456789ABCDEF",
             CONF_IROBOT_USERNAME: "old@example.com",
             CONF_IROBOT_PASSWORD: "old_password",
         })

@@ -522,7 +522,9 @@ class RoombaData:
     #: The robot's last `lastCommand` that was not given inside a
     #: mission (const.IN_MISSION_COMMANDS), 4.3.5. A pause, resume or
     #: skip replaces `lastCommand` with a command that names no rooms;
-    #: this still holds the mission's own. Not kept across restarts.
+    #: this still holds the mission's own. After a restart it is taken
+    #: from the robot's cached state (4.3.6), unless that is already a
+    #: pause, resume or skip.
     mission_command: dict[str, Any] | None = None
 
     # v3.2.1 — MQTT-watchdog resume grace: wall-clock timestamp of the last

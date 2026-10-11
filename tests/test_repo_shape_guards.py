@@ -814,3 +814,150 @@ def test_a_changed_cached_tree_is_found(change: str) -> None:
     finally:
         del conftest._PARSED_TREES[source]
         del conftest._FINGERPRINTS[source]
+
+
+# ── scripts/check_private_data.py (4.3.6) ─────────────────────────────────────
+#
+# The values that must be found are assembled at run time, so this file
+# does not carry them itself -- the check reads this file's added lines
+# too.
+
+
+
+from importlib import util
+import pathlib
+import sys
+
+import pytest
+
+
+def _private_data_module():
+    spec = util.spec_from_file_location(
+        "check_private_data", pathlib.Path("scripts/check_private_data.py")
+    )
+    module = util.module_from_spec(spec)
+    # Registered first: dataclasses look their module up by name.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+CPD = _private_data_module()
+
+
+def _joined(*parts: str) -> str:
+    return "".join(parts)
+
+
+class TestPrivateDataIsFound:
+    @pytest.mark.parametrize(
+        ("line", "category"),
+        [
+            (_joined("host = '192", ".168.1.20'"), "private IPv4 address"),
+            (_joined("host: 10", ".30.0.6"), "private IPv4 address"),
+            (_joined("172", ".20.1.1"), "private IPv4 address"),
+            (_joined("mac = '50:14:79:", "1a:2b:3c'"), "MAC address"),
+            (_joined("blid = '31B809", "1051311850'"), "robot id (BLID)"),
+            (_joined("pw = ':1:16", "00000000:AbCdEfGhIjKlMnOp'"), "robot password"),
+            (_joined("user = 'jane", "@gmail.com'"), "e-mail address"),
+            (_joined("key = 'AKIA", "ABCDEFGHIJKLMNOP'"), "AWS access key"),
+            (_joined("t = 'ghp_", "a" * 30, "'"), "GitHub token"),
+            (_joined("Authorization: Bearer ", "x" * 30), "bearer token"),
+        ],
+    )
+    def test_each_kind(self, line, category):
+        assert CPD.categories(line) == [category]
+
+    def test_a_robot_id_in_a_test_is_found(self):
+        """The case that made this check: a robot id from a log, pasted
+        into a test as a value."""
+        line = _joined('    coord.blid = "31B80910', '51311850"')
+        assert CPD.categories(line) == ["robot id (BLID)"]
+
+
+class TestPrivateDataLooksAlikesPass:
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "host = '192.0.2.10'",          # RFC 5737 documentation range
+            "host = '203.0.113.7'",
+            "version 2026.10.0 and 3.14.6",  # versions, not addresses
+            "mac = 'aa:bb:cc:dd:ee:ff'",
+            "mac = '00:11:22:33:44:55'",
+            "blid = '0123456789ABCDEF'",
+            "x = 5549999999999999",          # a float's digits, no letter
+            "sha = 'deadbeefcafebabe'",      # lower case: a hash, not a BLID
+            "pw = ':1:1234567890:RobotSecretValue'",
+            "user = 'user@example.com'",
+            "user = 'u@x.invalid'",
+            "Co-Authored-By: Claude <noreply@anthropic.com>",
+            "icons icon@2x.png and a pin ....git@v0.1.11a6",
+            '"macaddress": "501479*"',       # a DHCP prefix in the manifest
+        ],
+    )
+    def test_placeholders_and_look_alikes(self, line):
+        assert CPD.categories(line) == []
+
+
+class TestPrivateDataReadsAddedLines:
+    DIFF = "\n".join([
+        "diff --git a/tests/x.py b/tests/x.py",
+        "--- a/tests/x.py",
+        "+++ b/tests/x.py",
+        "@@ -1,2 +1,3 @@",
+        " kept = 1",
+        "-removed = '" + _joined("10", ".0.0.9") + "'",
+        "+added = '" + _joined("10", ".0.0.9") + "'",
+        "+fine = 2",
+        "diff --git a/old.py b/old.py",
+        "--- a/old.py",
+        "+++ /dev/null",
+        "@@ -1 +0,0 @@",
+        "-gone = '" + _joined("10", ".0.0.9") + "'",
+    ])
+
+    def test_only_added_lines_with_their_numbers(self):
+        assert list(CPD.added_lines(self.DIFF)) == [
+            ("tests/x.py", 2, "added = '" + _joined("10", ".0.0.9") + "'"),
+            ("tests/x.py", 3, "fine = 2"),
+        ]
+
+    def test_a_finding_names_place_and_kind_not_the_value(self):
+        (finding,) = CPD.find(CPD.added_lines(self.DIFF))
+        assert finding == CPD.Finding("tests/x.py", 2, "private IPv4 address")
+        assert "10" not in repr(finding.category)
+
+    def test_allowed_paths_are_skipped(self):
+        line = ("custom_components/roomba_plus/fonts/LICENSE.txt", 1,
+                _joined("Author <someone", "@sourceforge.net>"))
+        assert CPD.find([line]) == []
+
+
+class TestPrivateDataCommandLine:
+    def test_a_finding_fails_and_the_value_is_not_printed(self, monkeypatch, capsys):
+        value = _joined("192", ".168.7.7")
+        monkeypatch.setattr(
+            CPD, "_git",
+            lambda *args: "\n".join([
+                "+++ b/tests/y.py", "@@ -0,0 +1 @@", f"+host = '{value}'",
+            ]),
+        )
+        assert CPD.main(["--base", "origin/main"]) == 1
+        out = capsys.readouterr().out
+        assert "tests/y.py,line=1::private IPv4 address" in out
+        assert value not in out
+
+    def test_a_clean_change_passes(self, monkeypatch, capsys):
+        monkeypatch.setattr(CPD, "_git", lambda *args: "+++ b/a.py\n@@ -0,0 +1 @@\n+x = 1")
+        assert CPD.main([]) == 0
+        assert "OK" in capsys.readouterr().out
+
+    def test_a_missing_base_does_not_fail(self, monkeypatch, capsys):
+        import subprocess
+
+        def _fail(*args):
+            raise subprocess.CalledProcessError(128, "git")
+
+        monkeypatch.setattr(CPD, "_git", _fail)
+        assert CPD.main(["--base", "nope"]) == 0
+        assert "not available" in capsys.readouterr().out

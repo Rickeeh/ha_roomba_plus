@@ -6277,6 +6277,46 @@ class TestTheMissionsOwnCommandIsHeld:
         cb({"state": {"reported": {"lastCommand": {"command": "skip"}}}})
         assert entry.runtime_data.mission_command == self._START
 
+    def test_after_a_restart_the_cached_start_is_held(self):
+        """4.3.6: the robot reports its whole state when it connects,
+        before the callback exists; a skip afterwards still had nothing
+        to fall back on."""
+        from custom_components.roomba_plus.callbacks import make_mission_callback
+
+        hass, entry, _recorded, _store = _make_callback_env()
+        entry.runtime_data.mission_command = None
+        _set_master_state(entry, lastCommand=dict(self._START))
+
+        make_mission_callback(hass, entry)
+
+        assert entry.runtime_data.mission_command == self._START
+
+    def test_a_cached_skip_is_not_held(self):
+        from custom_components.roomba_plus.callbacks import make_mission_callback
+
+        hass, entry, _recorded, _store = _make_callback_env()
+        entry.runtime_data.mission_command = None
+        _set_master_state(entry, lastCommand={"command": "skip"})
+
+        make_mission_callback(hass, entry)
+
+        assert entry.runtime_data.mission_command is None
+
+    def test_a_message_without_a_command_fills_it_from_the_cache(self):
+        """The robot may not have answered yet when the callback is made."""
+        from custom_components.roomba_plus.callbacks import make_mission_callback
+
+        hass, entry, _recorded, _store = _make_callback_env()
+        entry.runtime_data.mission_command = None
+        _set_master_state(entry)
+        cb = make_mission_callback(hass, entry)
+        assert entry.runtime_data.mission_command is None
+
+        _set_master_state(entry, lastCommand=dict(self._START))
+        cb({"state": {"reported": {"batPct": 90}}})
+
+        assert entry.runtime_data.mission_command == self._START
+
     def test_the_rooms_named_at_the_end_survive_a_skip(self):
         from custom_components.roomba_plus.callbacks import _capture_zone_names
         from custom_components.roomba_plus.models import MapCapability

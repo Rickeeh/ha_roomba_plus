@@ -606,6 +606,16 @@ def _note_mission_start_command(
     })
 
 
+def _cached_last_command(entry: RoombaConfigEntry) -> Any:
+    """`lastCommand` from the robot's merged state, or None."""
+    roomba = getattr(getattr(entry, "runtime_data", None), "roomba", None)
+    master = getattr(roomba, "master_state", None)
+    if not isinstance(master, dict):
+        return None
+    reported = (master.get("state") or {}).get("reported") or {}
+    return reported.get("lastCommand") if isinstance(reported, dict) else None
+
+
 def _hold_mission_command(entry: RoombaConfigEntry, command: Any) -> None:
     """Keep the last command that was not given inside a mission (4.3.5).
 
@@ -615,6 +625,7 @@ def _hold_mission_command(entry: RoombaConfigEntry, command: Any) -> None:
     if (
         data is not None
         and isinstance(command, dict)
+        and command
         and command.get("command") not in IN_MISSION_COMMANDS
     ):
         data.mission_command = dict(command)
@@ -2285,12 +2296,21 @@ def make_mission_callback(
     # _MissionState for each field and why it exists.
     ms = _MissionState()
 
+    # THE COMMAND THE ROBOT ALREADY REPORTED (4.3.6). The robot sends its
+    # whole state as soon as it connects, before this callback is
+    # registered, and `lastCommand` only arrives again with the next
+    # command. Taken from the cached state here, a skip after a restart
+    # of Home Assistant in the middle of a room mission keeps the plan.
+    _hold_mission_command(entry, _cached_last_command(entry))
+
     def _on_mission_message(json_data: dict[str, Any], _synthetic: bool = False) -> None:
 
         reported = json_data.get("state", {}).get("reported", {})
         if "lastCommand" in reported:
             _note_next_command(entry, reported["lastCommand"])
             _hold_mission_command(entry, reported["lastCommand"])
+        elif getattr(getattr(entry, "runtime_data", None), "mission_command", None) is None:
+            _hold_mission_command(entry, _cached_last_command(entry))
         if "cleanMissionStatus" not in reported:
             return
 

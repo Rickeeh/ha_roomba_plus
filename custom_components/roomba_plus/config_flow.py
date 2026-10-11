@@ -223,8 +223,8 @@ def _robots_of(account: CloudAccount | None) -> dict[str, Any]:
 
 
 #: The two fixed choices of the known_account step, next to the accounts.
-_OTHER_ACCOUNT = "__other__"
-_NO_ACCOUNT = "__none__"
+_OTHER_ACCOUNT = "other_account"
+_NO_ACCOUNT = "no_account"
 
 
 def _area_field(room_id: str) -> str:

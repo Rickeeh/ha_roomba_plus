@@ -36,6 +36,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/johnnyh1975/ha_roomba_plus/issues",
   "loggers": [
+    "mqtt",
     "paho_mqtt",
     "roombapy",
     "roombapy_prime"
@@ -45,7 +46,7 @@
     "roombapy==2.0.2",
     "roombapy-prime[map]==0.6.0"
   ],
-  "version": "4.3.5",
+  "version": "4.3.6",
   "zeroconf": [
     {
       "name": "irobot-*",

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Every check the CI runs, in one command (4.3.6).
 #
-#   scripts/check_all.sh            all checks, then the full test suite
-#   scripts/check_all.sh --quick    all checks, the tests without coverage
+#   bash scripts/check_all.sh            all checks, then the full test suite
+#   bash scripts/check_all.sh --quick    all checks, the tests without coverage
 #
 # Run it with the Python that has Home Assistant and the test tooling
 # installed (see .github/workflows/validate.yml for the versions CI

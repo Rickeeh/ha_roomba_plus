@@ -3418,65 +3418,181 @@ class TestASkipKeepsThePlan:
 
 class TestSkipTheCurrentRoom:
     """4.3.4, #178: `skip` through vacuum.send_command, on both
-    generations, recorded with the mission's state now and a minute
-    later, since no robot has been seen to take it yet."""
+    generations, recorded with the mission's state now, after 20 s and a
+    minute later. 4.3.7: Classic sends it as the iRobot app does."""
 
+    _START = {"command": "start", "initiator": "localApp", "time": 5,
+              "pmap_id": "PM1", "user_pmapv_id": "V7", "ordered": 1,
+              "regions": [{"region_id": "21", "type": "rid"},
+                          {"region_id": "5", "type": "zid"},
+                          {"region_id": "9", "type": "rid"}]}
     _RUNNING = {
+        "cap": {"mc": 2},
         "cleanMissionStatus": {"cycle": "clean", "phase": "run", "nMssn": 7,
                                "initiator": "localApp"},
-        "lastCommand": {"command": "start", "initiator": "localApp", "time": 5,
-                        "regions": [{"region_id": "21"}]},
+        "lastCommand": _START,
     }
 
-    def _vacuum(self, state=None):
+    def _vacuum(self, state=None, index=0):
         from collections import deque
 
-        data = _make_smart_data()
+        data = _make_smart_data(regions=[{"id": "21", "name": "Foyer"},
+                                         {"id": "5", "name": "Couch"},
+                                         {"id": "9", "name": "Bathroom"}])
         data.skip_attempts = deque(maxlen=10)
         data.sent_commands = deque(maxlen=20)
-        data.mission_timer_store.planned_rooms = ["A", "B", "C"]
-        data.mission_timer_store.current_room_idx = 0
+        data.mission_command = dict(self._START)
+        data.mission_timer_store.planned_rooms = ["Foyer", "Couch", "Bathroom"]
+        data.mission_timer_store.current_room_idx = index
         v = _make_vacuum_entity(state or self._RUNNING, runtime_data=data)
         v.hass = MagicMock()
         return v, data
 
-    @pytest.mark.asyncio
-    async def test_classic_sends_it_and_keeps_the_state(self, monkeypatch):
+    @staticmethod
+    def _timers(monkeypatch):
         from custom_components.roomba_plus import vacuum as vac
 
         later = {}
 
         def _call_later(hass, delay, cb):
-            later["cb"], later["delay"] = cb, delay
+            later[delay] = cb
             return lambda: None
 
         monkeypatch.setattr(vac, "async_call_later", _call_later)
-        v, data = self._vacuum()
+        return later
+
+    @pytest.mark.asyncio
+    async def test_classic_sends_the_room_and_map_as_the_app_does(self, monkeypatch):
+        """An S9+ took a bare `skip` and cleaned on. The app sends the
+        mission's map and the room, unordered, without rescheduling it."""
+        later = self._timers(monkeypatch)
+        v, data = self._vacuum(index=1)
 
         await v.async_send_command("skip")
 
-        v.vacuum.send_command.assert_awaited_once_with("skip", {})
+        v.vacuum.send_command.assert_awaited_once_with("skip", {
+            "pmap_id": "PM1", "user_pmapv_id": "V7",
+            "regions": [{"region_id": "5", "type": "zid"}],
+            "ordered": 0, "params": {"reschedule": False},
+        })
         (attempt,) = data.skip_attempts
         assert attempt["generation"] == "classic"
-        assert attempt["before"]["phase"] == "run"
-        assert (attempt["before"]["room_index"], attempt["before"]["rooms_planned"]) == (0, 3)
-        assert attempt["before"]["last_command"] == {"command": "start", "initiator": "localApp", "time": 5}
-        assert attempt["after_60s"] is None
-        assert data.sent_commands[-1]["verb"] == "skip (send_command)"
+        assert attempt["sent"] == "skip"
+        assert attempt["room"] == {"source": "tracked", "index": 1, "of": 3, "last_room": False}
+        assert (attempt["before"]["room_index"], attempt["before"]["rooms_planned"]) == (1, 3)
+        assert data.sent_commands[-1]["verb"] == "skip (skip)"
 
-        v.vacuum_state = {"cleanMissionStatus": {"cycle": "clean", "phase": "run"}}
-        data.mission_timer_store.current_room_idx = 1
-        assert later["delay"] == 60
-        later["cb"](None)
-        assert attempt["after_60s"]["room_index"] == 1
+        data.mission_timer_store.current_room_idx = 2
+        later[20](None)
+        assert attempt["after_20s"]["room_index"] == 2
+        later[60](None)
+        assert attempt["after_60s"]["room_index"] == 2
+
+    @pytest.mark.asyncio
+    async def test_the_start_is_read_after_an_earlier_skip(self, monkeypatch):
+        """A second skip finds `skip` as the last command; the map comes
+        from the start Roomba+ kept (4.3.5)."""
+        self._timers(monkeypatch)
+        state = {**self._RUNNING, "lastCommand": {"command": "skip", "time": 9}}
+        v, _data = self._vacuum(state=state)
+
+        await v.async_send_command("skip")
+
+        args = v.vacuum.send_command.await_args.args
+        assert args[0] == "skip" and args[1]["pmap_id"] == "PM1"
+        assert args[1]["regions"] == [{"region_id": "21", "type": "rid"}]
+
+    @pytest.mark.asyncio
+    async def test_the_last_room_sends_the_robot_home(self, monkeypatch):
+        """Nothing is left to clean; the Prime app sends `dock` then."""
+        self._timers(monkeypatch)
+        v, data = self._vacuum(index=2)
+
+        await v.async_send_command("skip")
+
+        v.vacuum.send_command.assert_awaited_once_with("dock", {})
+        (attempt,) = data.skip_attempts
+        assert attempt["sent"] == "dock"
+        assert attempt["room"]["last_room"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("room", ["Foyer", "21"])
+    async def test_a_named_room_is_skipped(self, monkeypatch, room):
+        self._timers(monkeypatch)
+        v, data = self._vacuum(index=1)
+
+        await v.async_send_command("skip", {"room": room})
+
+        assert v.vacuum.send_command.await_args.args[1]["regions"] == [
+            {"region_id": "21", "type": "rid"}]
+        assert data.skip_attempts[-1]["room"]["source"] == "given"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("change", "key"),
+        [
+            ({"cap": {}}, "skip_not_supported"),
+            ({"cap": {"mc": 1}}, "skip_not_supported"),
+            ({"cleanMissionStatus": {"cycle": "clean", "phase": "charge"}}, "skip_not_cleaning"),
+            ({"cleanMissionStatus": {"cycle": "clean", "phase": "stop"}}, "skip_not_cleaning"),
+        ],
+    )
+    async def test_refused_where_the_app_does_not_offer_it(self, monkeypatch, change, key):
+        from homeassistant.exceptions import ServiceValidationError
+
+        self._timers(monkeypatch)
+        v, data = self._vacuum(state={**self._RUNNING, **change})
+
+        with pytest.raises(ServiceValidationError) as err:
+            await v.async_send_command("skip")
+
+        assert err.value.translation_key == key
+        v.vacuum.send_command.assert_not_awaited()
+        assert not data.skip_attempts
+
+    @pytest.mark.asyncio
+    async def test_a_whole_home_mission_has_no_room_to_skip(self, monkeypatch):
+        from homeassistant.exceptions import ServiceValidationError
+
+        self._timers(monkeypatch)
+        whole = {"command": "start", "initiator": "localApp", "time": 5}
+        v, data = self._vacuum(state={**self._RUNNING, "lastCommand": whole})
+        data.mission_command = whole
+
+        with pytest.raises(ServiceValidationError) as err:
+            await v.async_send_command("skip")
+
+        assert err.value.translation_key == "skip_not_room_mission"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "spoil",
+        ["unordered", "other_plan", "named_elsewhere"],
+    )
+    async def test_an_unknown_room_is_not_guessed(self, monkeypatch, spoil):
+        from homeassistant.exceptions import ServiceValidationError
+
+        self._timers(monkeypatch)
+        v, data = self._vacuum()
+        params = None
+        if spoil == "unordered":
+            data.mission_command = {**self._START, "ordered": 0}
+        elif spoil == "other_plan":
+            data.mission_timer_store.planned_rooms = ["Foyer"]
+        else:
+            params = {"room": "Garage"}
+
+        with pytest.raises(ServiceValidationError) as err:
+            await v.async_send_command("skip", params)
+
+        assert err.value.translation_key == "skip_room_unknown"
+        v.vacuum.send_command.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_prime_sends_it_as_a_simple_command(self, monkeypatch):
         from unittest.mock import AsyncMock
 
-        from custom_components.roomba_plus import vacuum as vac
-
-        monkeypatch.setattr(vac, "async_call_later", lambda hass, delay, cb: (lambda: None))
+        self._timers(monkeypatch)
         v, data = self._vacuum()
         v._connection_type = ConnectionType.CLOUD_ONLY
         v._prime_robot = MagicMock()

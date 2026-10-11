@@ -1040,6 +1040,26 @@ class TestTheEndGateStillRequiresAFinishedPass:
 
         assert _cloud_confirms_all_rooms_done(ms, entry, ["1", "20"]) is True
 
+    @pytest.mark.parametrize("skipped", [7, 8])
+    def test_a_skipped_room_confirms_it_too(self, skipped):
+        """4.3.7: the iRobot app shows a room event with status 7 or 8 as
+        skipped. Nothing more happens there; the end gate waited out its
+        full cap for such a room."""
+        from custom_components.roomba_plus.callbacks import (
+            _cloud_confirms_all_rooms_done,
+            _MissionState,
+        )
+
+        ms = _MissionState()
+        ms.mission_start_ts = 1789975662
+        entry = MagicMock()
+        entry.runtime_data.cloud_coordinator.raw_records = [{
+            "startTime": 1789975662,
+            "timeline": {"finEvents": [_room("1", skipped, 3), _room("20", 0, 90)]},
+        }]
+
+        assert _cloud_confirms_all_rooms_done(ms, entry, ["1", "20"]) is True
+
     @pytest.mark.parametrize("closing", [5, 6])
     def test_a_last_room_closed_at_mission_end_confirms_it(self, closing):
         """5 and 6 are closed by the firmware in handle_mission_end, which

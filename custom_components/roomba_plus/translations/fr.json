@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "Le cloud iRobot a refusé de lire ou de modifier l'état du robot."
+    },
+    "skip_not_supported": {
+      "message": "Ce robot ne permet pas de passer une pièce."
+    },
+    "skip_not_cleaning": {
+      "message": "Une pièce ne peut être passée que pendant le nettoyage (le robot est en phase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Seule une mission par pièces lancée avec sa carte peut passer une pièce."
+    },
+    "skip_room_unknown": {
+      "message": "La pièce à passer n'est pas connue. Indiquez-la avec params: room (une pièce de cette mission)."
     }
   },
   "selector": {

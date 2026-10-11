@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "De iRobot-cloud weigerde de status van de robot te lezen of te wijzigen."
+    },
+    "skip_not_supported": {
+      "message": "Deze robot biedt het overslaan van een kamer niet aan."
+    },
+    "skip_not_cleaning": {
+      "message": "Een kamer kan alleen worden overgeslagen terwijl de robot schoonmaakt (hij is in fase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Alleen een kamermissie die met haar kaart is gestart, kan een kamer overslaan."
+    },
+    "skip_room_unknown": {
+      "message": "Het is niet bekend welke kamer moet worden overgeslagen. Geef die op met params: room (een kamer van deze missie)."
     }
   },
   "selector": {

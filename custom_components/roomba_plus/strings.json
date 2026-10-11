@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "iRobot's cloud refused to read or change the robot's state."
+    },
+    "skip_not_supported": {
+      "message": "This robot does not offer skipping a room."
+    },
+    "skip_not_cleaning": {
+      "message": "A room can only be skipped while the robot is cleaning (it is in phase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Only a room mission started with its map can skip a room."
+    },
+    "skip_room_unknown": {
+      "message": "The room to skip is not known. Name it with params: room (a room of this mission)."
     }
   },
   "selector": {

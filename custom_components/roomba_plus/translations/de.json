@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "Die iRobot-Cloud hat es abgelehnt, den Zustand des Roboters zu lesen oder zu ändern."
+    },
+    "skip_not_supported": {
+      "message": "Dieser Roboter bietet das Überspringen eines Raums nicht an."
+    },
+    "skip_not_cleaning": {
+      "message": "Ein Raum lässt sich nur überspringen, während der Roboter reinigt (er ist in der Phase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Nur eine Raummission, die mit ihrer Karte gestartet wurde, kann einen Raum überspringen."
+    },
+    "skip_room_unknown": {
+      "message": "Der zu überspringende Raum ist nicht bekannt. Gib ihn mit params: room an (ein Raum dieser Mission)."
     }
   },
   "selector": {

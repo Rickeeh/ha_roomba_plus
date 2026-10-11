@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "A nuvem da iRobot recusou-se a ler ou alterar o estado do robô."
+    },
+    "skip_not_supported": {
+      "message": "Este robô não permite saltar uma divisão."
+    },
+    "skip_not_cleaning": {
+      "message": "Só é possível saltar uma divisão enquanto o robô limpa (está na fase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Só uma missão por divisões iniciada com o seu mapa pode saltar uma divisão."
+    },
+    "skip_room_unknown": {
+      "message": "Não se sabe que divisão saltar. Indique-a com params: room (uma divisão desta missão)."
     }
   },
   "selector": {

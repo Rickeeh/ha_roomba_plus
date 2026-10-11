@@ -34,6 +34,7 @@ from .prime_commands import _send_confirmed
 from .button_prime import _raw_favorite_is_for
 from .const import (
     DOMAIN,
+    mission_command,
     mission_command_regions,
     mission_scope,
     ATTR_BIN_FULL,
@@ -71,6 +72,7 @@ from .const import (
 from .entity import IRobotEntity
 from .models import ConnectionType, MapCapability, RoombaConfigEntry
 from .command_record import record_command
+from .mission_store import MissionStore
 from .room_cleaning import region_names_across_maps
 
 _LOGGER = logging.getLogger(__name__)
@@ -1362,9 +1364,9 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
         send_simple_command()'s narrow, tested verb set does.
         """
         if command == "skip":
-            # SKIP THE CURRENT ROOM (4.3.4, #178), on both generations,
-            # and recorded for the test it still needs.
-            await self._async_send_skip()
+            # SKIP THE CURRENT ROOM (4.3.4, #178; as the iRobot app sends
+            # it since 4.3.7), on both generations, and recorded.
+            await self._async_send_skip(params if isinstance(params, dict) else None)
             return
         if self._connection_type is ConnectionType.CLOUD_ONLY:
             raise ServiceValidationError(
@@ -1410,13 +1412,20 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             "last_command": {k: last.get(k) for k in ("command", "initiator", "time")},
         }
 
-    async def _async_send_skip(self) -> None:
-        """Send `skip` and keep the mission's state now and a minute later.
+    async def _async_send_skip(self, params: dict[str, Any] | None = None) -> None:
+        """Skip the current room, and keep the mission's state now, 20 s
+        and a minute later.
 
-        UNCONFIRMED ON EVERY ROBOT. `skip` is in the firmware's own command
-        list and a skipped room comes back as a room event, but no robot
-        has been seen to take it -- nor whether a Classic one does over
-        the local connection, nor what it does outside a room mission.
+        CLASSIC SENDS A MISSION COMMAND, NOT A BARE VERB (4.3.7). Until
+        4.3.6 this sent `{"command": "skip"}` and an S9+ recorded it and
+        cleaned on. The iRobot app (7.18.0, claude/APK_SKIP_RECHERCHE.md)
+        sends the mission's map and the room to skip, and only offers it
+        while the robot cleans a room it knows -- see
+        `_classic_skip_command()`. Where the room is the last one, the
+        app sends the robot home instead, and so does this.
+
+        Prime keeps the bare verb, as its app sends it.
+
         The record (diagnostics: field_evidence.skip_attempts) is what
         the test in #178 reads.
         """
@@ -1427,6 +1436,8 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
                 else "classic"
             ),
             "before": self._skip_snapshot(),
+            "sent": "skip",
+            "after_20s": None,
             "after_60s": None,
         }
         if self._connection_type is ConnectionType.CLOUD_ONLY:
@@ -1437,10 +1448,16 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
                     "return_to_base/locate) instead.", translation_domain=DOMAIN,
                     translation_key="send_command_prime_unsupported",
                 )
+            # `localApp`, as every other command Roomba+ sends; the Prime
+            # app says `rmtApp`, and nothing so far tells the two apart.
             record["accepted_by_broker"] = await self._prime_robot.send_simple_command("skip")
+            record_command(self._config_entry, "skip (send_command)", None)
         else:
-            await self.vacuum.send_command("skip", {})
-        record_command(self._config_entry, "skip (send_command)", None)
+            verb, payload, how = self._classic_skip_command(params)
+            record["sent"] = verb
+            record["room"] = how
+            await self.vacuum.send_command(verb, payload)
+            record_command(self._config_entry, f"{verb} (skip)", payload or None)
         log = getattr(getattr(self._config_entry, "runtime_data", None), "skip_attempts", None)
         if log is not None:
             log.append(record)
@@ -1450,11 +1467,120 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             record["before"].get("phase"),
         )
 
+        # 20 S: THE APP'S OWN LIMIT for the room to change before it stops
+        # showing "skipping"; a minute for what the robot settles on.
         @callback
-        def _after(_now: Any) -> None:
+        def _after_20s(_now: Any) -> None:
+            record["after_20s"] = self._skip_snapshot()
+
+        @callback
+        def _after_60s(_now: Any) -> None:
             record["after_60s"] = self._skip_snapshot()
 
-        self._config_entry.async_on_unload(async_call_later(self.hass, 60, _after))
+        self._config_entry.async_on_unload(async_call_later(self.hass, 20, _after_20s))
+        self._config_entry.async_on_unload(async_call_later(self.hass, 60, _after_60s))
+
+    def _classic_skip_command(
+        self, params: dict[str, Any] | None
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """`(verb, payload, how the room was found)` for a Classic skip.
+
+        AS THE IROBOT APP DOES IT (7.18.0, `getSkipRefuseReason` and the
+        skip command builder), with Roomba+'s own room tracking where the
+        app has the cloud's live timeline:
+
+        - only a robot that offers it (`cap.mc` 2 or 3), while it cleans
+          or drives between the rooms of a room mission (phase `run`);
+        - the map of the mission's own start command (`pmap_id`,
+          `user_pmapv_id`), the one room to skip with its type, unordered,
+          and `reschedule: false`;
+        - the room is the one room tracking is in, or the one named in
+          `params: {room: ...}` (a name or an id of the mission's rooms);
+        - the mission's last room is not skipped: the robot is sent home,
+          as the Prime app does, since nothing is left to clean.
+
+        Refused with the reason otherwise -- the app does not offer skip
+        then, and a skip without its room was recorded and ignored.
+        """
+        state = self.vacuum_state
+        cap = state.get("cap")
+        if not isinstance(cap, dict) or cap.get("mc") not in (2, 3):
+            raise ServiceValidationError(
+                "This robot does not offer skipping a room.",
+                translation_domain=DOMAIN, translation_key="skip_not_supported",
+            )
+        status = state.get("cleanMissionStatus") or {}
+        if status.get("phase") != "run":
+            raise ServiceValidationError(
+                "A room can only be skipped while the robot cleans.",
+                translation_domain=DOMAIN, translation_key="skip_not_cleaning",
+                translation_placeholders={"phase": str(status.get("phase") or "-")},
+            )
+        held = getattr(getattr(self._config_entry, "runtime_data", None), "mission_command", None)
+        start = mission_command(state.get("lastCommand"), held)
+        start = start if isinstance(start, dict) else {}
+        regions = [
+            r for r in mission_command_regions(status, state.get("lastCommand"), held)
+            if isinstance(r, dict)
+        ]
+        pmap_id = start.get("pmap_id")
+        if not regions or not pmap_id:
+            raise ServiceValidationError(
+                "Only a room mission started with its map can skip a room.",
+                translation_domain=DOMAIN, translation_key="skip_not_room_mission",
+            )
+
+        index, how = self._skip_room_index(regions, params)
+        region = regions[index]
+        if index == len(regions) - 1:
+            return "dock", {}, {**how, "last_room": True}
+        payload: dict[str, Any] = {
+            "pmap_id": pmap_id,
+            "regions": [{
+                "region_id": MissionStore.extract_rid(region),
+                "type": region.get("type") or "rid",
+            }],
+            "ordered": 0,
+            "params": {"reschedule": False},
+        }
+        if start.get("user_pmapv_id"):
+            payload["user_pmapv_id"] = start["user_pmapv_id"]
+        return "skip", payload, {**how, "last_room": False}
+
+    def _skip_room_index(
+        self, regions: list[dict[str, Any]], params: dict[str, Any] | None
+    ) -> tuple[int, dict[str, Any]]:
+        """Which of the mission's rooms to skip, and how it was found."""
+        ids = [str(MissionStore.extract_rid(r)) for r in regions]
+        wanted = (params or {}).get("room")
+        if wanted not in (None, ""):
+            cloud = getattr(self._config_entry.runtime_data, "cloud_coordinator", None)
+            names = region_names_across_maps(cloud) if cloud is not None else {}
+            for i, rid in enumerate(ids):
+                if str(wanted) in (rid, names.get(rid)):
+                    return i, {"source": "given", "index": i, "of": len(ids)}
+            raise ServiceValidationError(
+                f"{wanted} is not one of this mission's rooms.",
+                translation_domain=DOMAIN, translation_key="skip_room_unknown",
+            )
+        mts = getattr(self._config_entry.runtime_data, "mission_timer_store", None)
+        planned = getattr(mts, "planned_rooms", None)
+        index = getattr(mts, "current_room_idx", None)
+        # THE INDEX MEANS SOMETHING ONLY IN THE MISSION'S ORDER: an
+        # unordered start lets the robot choose, and a plan of another
+        # length is not this command's.
+        held = getattr(self._config_entry.runtime_data, "mission_command", None) or {}
+        ordered = len(ids) == 1 or held.get("ordered") in (1, True)
+        if (
+            not ordered
+            or not isinstance(planned, list) or len(planned) != len(ids)
+            or not isinstance(index, int) or not 0 <= index < len(ids)
+        ):
+            raise ServiceValidationError(
+                "The room the robot is in is not known.",
+                translation_domain=DOMAIN, translation_key="skip_room_unknown",
+            )
+        return index, {"source": "tracked", "index": index, "of": len(ids)}
 
     def _build_region_command(self, params: dict[str, Any]) -> dict[str, Any]:
         """Build the region-cleaning payload for send_command.

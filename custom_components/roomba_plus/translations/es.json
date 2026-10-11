@@ -2320,6 +2320,18 @@
     },
     "cloud_shadow_rejected": {
       "message": "La nube de iRobot se negó a leer o cambiar el estado del robot."
+    },
+    "skip_not_supported": {
+      "message": "Este robot no ofrece saltar una habitación."
+    },
+    "skip_not_cleaning": {
+      "message": "Solo se puede saltar una habitación mientras el robot limpia (está en la fase {phase})."
+    },
+    "skip_not_room_mission": {
+      "message": "Solo una misión por habitaciones iniciada con su mapa puede saltar una habitación."
+    },
+    "skip_room_unknown": {
+      "message": "No se sabe qué habitación saltar. Indícala con params: room (una habitación de esta misión)."
     }
   },
   "selector": {

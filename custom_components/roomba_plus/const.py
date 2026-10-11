@@ -1359,12 +1359,19 @@ ROOM_TRANSITION_CANDIDATE_PHASES: Final[frozenset[str]] = frozenset({"charge", "
 #:      timeline flag). Produced nowhere else. The old reading of 6 as
 #:      "finished after error recovery" was an interpretation of real
 #:      observations, not a meaning.
-#:   2, 7  internal only; 2 does not close the event, 7 never reaches the
-#:      wire.
+#:   2  internal only; it does not close the event.
+#:   7, 8  a SKIPPED room or zone (4.3.7). The iRobot app (7.18.0,
+#:      `MissionTimelineProvider`, `TimelineItem::isSkippedEvent`) shows
+#:      an event with either value as skipped. The firmware read above
+#:      (ruby `cleantrack`) had 7 as internal and never on the wire; a
+#:      newer firmware or another family evidently sends it. Which of the
+#:      two is a user skip and which an automatic one is open.
 #:
-#: `status` is optional; a second field `reason` (0–7) is not decoded yet.
-#: The iRobot app does not evaluate `status` at all (APK 7.18.0) — it
-#: shows a room with any room event as cleaned.
+#: `status` is optional; a second field `reason` (0–7) is not decoded yet,
+#: except that the app counts a `travel` to the dock with `reason` 3 as
+#: skipped too. One parser of the app (`MissionTimelineDeserializer`)
+#: ignores `status`, which is where the earlier note "the app does not
+#: evaluate it" came from; the timeline the app displays does.
 #:
 #: THREE QUESTIONS, three sets. They must not be mixed up: a room still
 #: in progress counted as finished closes a mission after its first room
@@ -1398,7 +1405,14 @@ ROOM_EVENT_DONE_STATUSES: Final[frozenset[int]] = frozenset({0, 6})
 #: whether or not the room was finished -- which is all the end gate asks.
 #: 5 had been left out, so a mission whose last room closed on 5 waited out
 #: the full cap instead of being confirmed.
-ROOM_EVENT_CLOSED_AT_END_STATUSES: Final[frozenset[int]] = frozenset({0, 5, 6})
+#:
+#: 7 and 8 are a skipped room (4.3.7): the iRobot app (7.18.0,
+#: `TimelineItem::isSkippedEvent`) shows a room event with either status
+#: as skipped. Nothing more will happen in that room either.
+ROOM_EVENT_SKIPPED_STATUSES: Final[frozenset[int]] = frozenset({7, 8})
+ROOM_EVENT_CLOSED_AT_END_STATUSES: Final[frozenset[int]] = (
+    frozenset({0, 5, 6}) | ROOM_EVENT_SKIPPED_STATUSES
+)
 
 #: "Was a PASS completed here?" — 0 and 1. A completed pass means the
 #: robot drove and cleaned the room, so room history counts it outright.

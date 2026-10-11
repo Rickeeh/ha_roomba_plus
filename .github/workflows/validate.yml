@@ -301,6 +301,37 @@ jobs:
       - name: Check strings.json vs. all translations/*.json
         run: python3 scripts/check_translations.py
 
+  # NOTHING PRIVATE IN WHAT A CHANGE ADDS (4.3.6): home addresses, MACs,
+  # robot ids and passwords, e-mail addresses, cloud keys. Test fixtures
+  # come from testers' diagnostics and logs, which carry all of these.
+  # Only added lines are read, so what is already in the history does
+  # not fail every run.
+  private-data:
+    name: No Private Data
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Check the lines this change adds
+        env:
+          # A pull request against its base, a push against what was there
+          # before it. A schedule or a manual run has neither and checks
+          # nothing new.
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="HEAD"
+          fi
+          python3 scripts/check_private_data.py --base "$BASE"
+
   blueprints:
     name: Blueprint Validation
     runs-on: ubuntu-latest

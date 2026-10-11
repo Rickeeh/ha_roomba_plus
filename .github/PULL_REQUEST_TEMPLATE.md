@@ -11,7 +11,7 @@
 
 ## Checklist
 
-- [ ] `scripts/check_all.sh` passes
+- [ ] `bash scripts/check_all.sh` passes
 - [ ] The new test fails without the change (see `AGENTS.md`, rule 1)
 - [ ] No private data: addresses, MACs, robot ids, passwords, e-mail addresses
 - [ ] Texts are in `strings.json` and all eight translations

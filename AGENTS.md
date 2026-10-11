@@ -19,7 +19,7 @@ integration for iRobot robots: Classic models over the local connection
 ## Before you open a pull request
 
 ```bash
-scripts/check_all.sh
+bash scripts/check_all.sh
 ```
 
 It runs every check the CI runs: the repository checks, ruff, strict

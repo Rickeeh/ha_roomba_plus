@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Enable live map",
           "live_position_requests": "Ask the robot for its position",
+          "live_path_turn": "Turn of the live path",
           "map_size_px": "Map size (pixels)",
           "map_scale_mm_per_px": "Scale (mm/pixel)",
           "floor_label": "Floor label (e.g. Ground Floor)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Enable the live cleaning map for robots with position sensing (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Only offered for robots that do not report their position on their own. Asks the robot about once a second while it cleans, to draw the cleaning path live. Off: the map shows the last finished mission from the iRobot cloud instead, if cloud access is set up.",
+          "live_path_turn": "Only with the option above. How far the cleaning path is turned to lie on the rooms map. Automatic reads it from the map the robot saved itself, including a turn set in the iRobot app. Choose an angle only if the path lies turned against the rooms map, and then please attach the diagnostics to an issue so that the automatic setting can be fixed for your robot.",
           "map_size_px": "Map canvas size in pixels (400–1200). Default: 600.",
           "map_scale_mm_per_px": "Millimetres per pixel (5–30). Default 10 = 6 m × 6 m at 600 px.",
           "floor_label": "Free text, for example Ground Floor. Groups robots in the fleet view.",
@@ -2368,6 +2370,15 @@
         "90": "90° clockwise",
         "180": "180°",
         "270": "270° clockwise (90° anticlockwise)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automatic",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

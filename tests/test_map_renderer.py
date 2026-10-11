@@ -1657,3 +1657,43 @@ class TestTheMapTurnsAsTheUserChose:
         w1, h1 = painted_box(1)
         assert w0 > 3 * h0
         assert h1 > 3 * w1
+
+
+class TestTheFloorPlanUnderThePath:
+    """4.4.0, @frnchfrgg: the path anchored to the floor plan. The rooms
+    are drawn first and belong in the fit."""
+
+    @staticmethod
+    def _rendered(plan):
+        import io
+
+        from PIL import Image
+
+        r = _make_renderer(size_px=400)
+        r.add_pose(0.0, 0.0, 0.0)
+        r.add_pose(200.0, 0.0, 0.0)
+        r.set_floor_plan(plan)
+        return r, Image.open(io.BytesIO(r.render())).convert("RGBA")
+
+    def test_a_room_far_from_the_path_is_on_the_canvas(self):
+        from custom_components.roomba_plus.map_renderer import FLOOR_PLAN_FILL
+
+        square = [(3000.0, 3000.0), (4000.0, 3000.0), (4000.0, 4000.0), (3000.0, 4000.0)]
+        r, img = self._rendered([(None, square)])
+        x, y = r._mm_to_px_fit(3500.0, 3500.0)
+        assert 0 <= x < 400 and 0 <= y < 400
+        assert img.getpixel((x, y)) == FLOOR_PLAN_FILL
+
+    def test_the_path_is_drawn_over_it(self):
+        from custom_components.roomba_plus.map_renderer import FLOOR_PLAN_FILL
+
+        square = [(-1000.0, -1000.0), (1000.0, -1000.0), (1000.0, 1000.0), (-1000.0, 1000.0)]
+        r, img = self._rendered([("Salon", square)])
+        x, y = r._mm_to_px_fit(100.0, 0.0)
+        assert img.getpixel((x, y)) != FLOOR_PLAN_FILL
+
+    def test_no_plan_no_change(self):
+        r, img = self._rendered([])
+        assert r.floor_plan == []
+        r2, img2 = self._rendered([(None, [(0.0, 0.0), (1.0, 1.0)])])
+        assert _pixels(img) == _pixels(img2)

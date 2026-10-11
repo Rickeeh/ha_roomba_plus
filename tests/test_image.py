@@ -5219,6 +5219,35 @@ class TestTheRequestedPathTurnsBackWithTheApp:
         x, y, _t = renderer.add_pose.call_args.args
         assert (x, y) == (pytest.approx(0.0, abs=1.0), pytest.approx(-2000.0, abs=1.0))
 
+    def test_the_robots_own_map_version_decides(self):
+        """4.4.0, @frnchfrgg's second report: the committed version
+        turned a quarter, the robot's own version (saved before he turned
+        the map again) not at all. His path was unturned, and turning it
+        drew it a quarter off the other way."""
+        umf = self._turned(3.1453, 4.7163)
+        umf["robot_version"] = {
+            "version_id": "261010T130439",
+            "orientation_rad": {
+                "user_orientation_rad": 4.7163, "robot_orientation_rad": 4.7163,
+            },
+        }
+        m, renderer, _e = self._turned_entity(umf)
+        m._handle_live_position(self._pos(1.0, 0.0, 0.0))
+        x, y, theta = renderer.add_pose.call_args.args
+        assert (x, y) == (pytest.approx(1000.0, abs=1.0), pytest.approx(0.0, abs=1.0))
+        assert theta == pytest.approx(0.0, abs=0.1)
+
+    def test_an_angle_set_in_the_options_wins(self):
+        """For a robot where auto reads wrong. Options are a read-only
+        mapping in Home Assistant, not a dict."""
+        from types import MappingProxyType
+
+        m, renderer, entry = self._turned_entity(self._turned(3.1454, 4.7163))
+        entry.options = MappingProxyType({"live_path_turn": "0"})
+        m._handle_live_position(self._pos(1.0, 0.0, 0.0))
+        x, y, _t = renderer.add_pose.call_args.args
+        assert (x, y) == (pytest.approx(1000.0, abs=1.0), pytest.approx(0.0, abs=1.0))
+
 
 class TestRequestedPathReviewFindings:
     """Found in the independent review of the first version."""
@@ -5477,3 +5506,288 @@ class TestTurnPx:
 
     def test_one_clockwise_quarter(self):
         assert img._turn_px(10, 20, 600, 1) == (580, 10)
+
+
+# ── position_room.py (4.4.0), fed from here ───────────────────────────────────
+# Kept in this file, which feeds the tracker: the test suite is at its
+# file-count limit.
+
+class TestPositionRoomTracker:
+    """A room counts after DWELL_SEC and MIN_SAMPLES; doorways and
+    positions outside every room change nothing."""
+
+    @staticmethod
+    def _tracker():
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        clock = {"t": 0.0}
+        tracker = PositionRoomTracker(clock=lambda: clock["t"])
+        changes: list[tuple] = []
+        tracker.add_listener(lambda prev, room: changes.append((prev, room)))
+        return tracker, clock, changes
+
+    @staticmethod
+    def _feed(tracker, clock, room, seconds, step=1.0):
+        end = clock["t"] + seconds
+        while clock["t"] < end:
+            tracker.observe(room)
+            clock["t"] += step
+
+    def test_a_room_counts_after_the_dwell(self):
+        tracker, clock, changes = self._tracker()
+        self._feed(tracker, clock, "Kitchen", 10)
+        assert changes == []
+        self._feed(tracker, clock, "Kitchen", 10)
+        assert changes == [(None, "Kitchen")]
+        self._feed(tracker, clock, "Hall", 20)
+        assert changes == [(None, "Kitchen"), ("Kitchen", "Hall")]
+
+    def test_crossing_a_room_briefly_changes_nothing(self):
+        tracker, clock, changes = self._tracker()
+        self._feed(tracker, clock, "Kitchen", 20)
+        self._feed(tracker, clock, "Hall", 8)
+        self._feed(tracker, clock, "Kitchen", 20)
+        assert changes == [(None, "Kitchen")]
+
+    def test_outside_every_room_changes_nothing(self):
+        tracker, clock, changes = self._tracker()
+        self._feed(tracker, clock, "Kitchen", 20)
+        self._feed(tracker, clock, None, 60)
+        assert changes == [(None, "Kitchen")]
+        assert tracker.current == "Kitchen"
+
+    def test_active_while_positions_lie_in_rooms(self):
+        tracker, clock, _changes = self._tracker()
+        assert tracker.active() is False
+        tracker.observe("Kitchen")
+        assert tracker.active() is True
+        clock["t"] += 61
+        assert tracker.active() is False
+
+    def test_positions_in_no_room_do_not_take_over(self):
+        """An unplaceable stream must not switch off the phase-based
+        room tracking and leave the display on the first room."""
+        tracker, _clock, _changes = self._tracker()
+        tracker.observe(None)
+        assert tracker.active() is False
+
+    def test_reset_and_diagnostics(self):
+        tracker, clock, _changes = self._tracker()
+        self._feed(tracker, clock, "Kitchen", 20)
+        diag = tracker.diagnostics()
+        assert diag["current"] == "Kitchen" and diag["changes_this_mission"] == 1
+        tracker.reset()
+        assert tracker.current is None and tracker.diagnostics()["seconds_since_position"] is None
+
+    def test_a_listener_can_be_removed(self):
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        clock = {"t": 0.0}
+        tracker = PositionRoomTracker(clock=lambda: clock["t"])
+        seen: list = []
+        remove = tracker.add_listener(lambda *a: seen.append(a))
+        remove()
+        remove()
+        self._feed(tracker, clock, "Kitchen", 20)
+        assert seen == []
+
+
+class TestRoomAtPosition:
+
+    def test_a_requested_position_is_looked_up_in_the_rooms_frame(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import room_at_position
+
+        aligner = MagicMock(aligned=True)
+        aligner.room_name_at.side_effect = lambda x, y: "Salon" if x > 0 else None
+        data = SimpleNamespace(umf_aligner=aligner, room_seg_store=None)
+        assert room_at_position(data, 1500.0, 200.0, frame="umf") == "Salon"
+        aligner.room_name_at.assert_called_with(1500.0, 200.0)
+        aligner.pose_to_umf.assert_not_called()
+        assert room_at_position(data, -1.0, 0.0, frame="umf") is None
+
+    def test_a_requested_position_needs_rooms_not_alignment(self):
+        """Alignment relates the robot's own frame to the map; a requested
+        position is in the map's frame already."""
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import room_at_position
+
+        aligner = MagicMock(aligned=False)
+        aligner.room_name_at.return_value = "Salon"
+        data = SimpleNamespace(umf_aligner=aligner, room_seg_store=None)
+        assert room_at_position(data, 1.0, 2.0, frame="umf") == "Salon"
+        aligner.room_name_at.return_value = None
+        assert room_at_position(data, 1.0, 2.0, frame="umf") is None
+
+    def test_an_own_position_goes_through_the_aligner(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import room_at_position
+
+        aligner = MagicMock(aligned=True)
+        aligner.pose_to_umf.return_value = (7.0, 8.0)
+        aligner.room_name_at.return_value = "Hall"
+        data = SimpleNamespace(umf_aligner=aligner, room_seg_store=None)
+        assert room_at_position(data, 1.0, 2.0, frame="pose") == "Hall"
+        aligner.room_name_at.assert_called_with(7.0, 8.0)
+        aligner.pose_to_umf.return_value = None
+        assert room_at_position(data, 1.0, 2.0, frame="pose") is None
+
+    def test_a_900_series_area_by_its_cell_or_the_next(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import room_at_position
+        from custom_components.roomba_plus.room_seg_store import SegRoom
+
+        store = SimpleNamespace(rooms={
+            "room_1": SegRoom(id="room_1", cells={(0, 0), (1, 0)}, name="Kitchen"),
+            "room_3": SegRoom(id="room_3", cells={(5, 5)}),
+            "room_4": SegRoom(id="room_4", cells={(9, 9)}, name="Gone", hidden=True),
+        })
+        data = SimpleNamespace(umf_aligner=None, room_seg_store=store)
+        assert room_at_position(data, 160.0, 10.0, frame="pose") == "Kitchen"
+        assert room_at_position(data, 5 * 150 + 160.0, 5 * 150.0, frame="pose") == "Area 3"
+        assert room_at_position(data, 9 * 150.0, 9 * 150.0, frame="pose") is None
+        assert room_at_position(data, 50_000.0, 0.0, frame="pose") is None
+        # A requested position is never in a 900-series area: no such robot.
+        assert room_at_position(data, 160.0, 10.0, frame="umf") is None
+
+    def test_nothing_to_look_in(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import room_at_position
+
+        assert room_at_position(SimpleNamespace(), 1.0, 1.0, frame="pose") is None
+        assert room_at_position(
+            SimpleNamespace(room_seg_store=SimpleNamespace(rooms={})), 1.0, 1.0, frame="pose"
+        ) is None
+        assert room_at_position(SimpleNamespace(), float("nan"), 1.0, frame="pose") is None
+
+
+class TestTheMapFeedsRoomTracking:
+    """Both kinds of position reach the tracker (4.4.0)."""
+
+    _base = TestRequestedPositionsOnTheCleaningMap()
+    _pos = _base._pos
+
+    def test_a_requested_position_in_the_map_frame(self):
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        m, renderer, entry, _s = self._base._entity()
+        renderer._cfg.mirror_x = True
+        entry.runtime_data.cloud_coordinator.umf_data = {}
+        aligner = MagicMock(aligned=True)
+        aligner.room_name_at.return_value = "Salon"
+        entry.runtime_data.umf_aligner = aligner
+        entry.runtime_data.position_room = PositionRoomTracker()
+        m._last_phase = "run"
+        m._handle_live_position(self._pos(1.5, -0.25))
+        # Before the picture's mirror: the cloud map's own (x, y).
+        aligner.room_name_at.assert_called_with(1500.0, -250.0)
+        assert entry.runtime_data.position_room.last_room == "Salon"
+
+    def test_not_on_the_way_home(self):
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        m, _renderer, entry, _s = self._base._entity()
+        entry.runtime_data.cloud_coordinator.umf_data = {}
+        entry.runtime_data.umf_aligner = MagicMock()
+        entry.runtime_data.position_room = PositionRoomTracker()
+        m._last_phase = "hmPostMsn"
+        m._handle_live_position(self._pos(1.0, 1.0))
+        assert entry.runtime_data.position_room.last_seen is None
+
+    def test_nothing_without_a_tracker(self):
+        m, _renderer, entry, _s = self._base._entity()
+        entry.runtime_data.cloud_coordinator.umf_data = {}
+        entry.runtime_data.position_room = None
+        m._handle_live_position(self._pos(1.0, 1.0))
+
+
+class TestA900SeriesPositionFindsItsArea:
+    """4.4.0: the robot's own position, looked up in Roomba+'s areas."""
+
+    def test_its_own_position(self):
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+        from custom_components.roomba_plus.room_seg_store import SegRoom
+
+        entity = _make_map_entity()
+        data = entity._config_entry.runtime_data
+        data.umf_aligner = None
+        data.room_seg_store = MagicMock(rooms={
+            "room_2": SegRoom(id="room_2", cells={(0, 8)}, name="Kitchen"),
+        })
+        data.position_room = PositionRoomTracker()
+        entity._last_phase = "run"
+        entity.vacuum.master_state["state"]["reported"]["cleanMissionStatus"] = {
+            "cycle": "clean", "phase": "run",
+        }
+        # Raw x is the map's y (the axis swap): 123 cm -> y 1230 mm, cell 8.
+        _feed_map_entity(entity, _pose_msg(x_cm=123, y_cm=0))
+        assert data.position_room.last_room == "Kitchen"
+
+
+class TestThePathOnTheFloorPlan:
+    """4.4.0, @frnchfrgg: the cleaning path drawn over the rooms of the
+    cloud map, in the frame the path is drawn in."""
+
+    _base = TestRequestedPositionsOnTheCleaningMap()
+
+    SQUARE = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]
+
+    def _entity(self, *, source, aligned=True, labels=False, mirror=True):
+        m, renderer, entry, _s = self._base._entity()
+        renderer._cfg.mirror_x = mirror
+        aligner = MagicMock(aligned=aligned)
+        aligner.room_polygons_umf = {"7": list(self.SQUARE), "8": [(0.0, 0.0), (1.0, 1.0)]}
+        aligner.rid_to_name.return_value = {"7": "Salon", "8": "8"}
+        aligner.umf_to_pose.side_effect = lambda x, y: (x + 10.0, y + 20.0)
+        entry.runtime_data.umf_aligner = aligner
+        entry.options = {"map_room_labels": labels}
+        m._position_source = source
+        return m, entry
+
+    def test_a_requested_path_gets_the_rooms_as_its_positions_are_drawn(self):
+        from custom_components.roomba_plus.map_renderer import map_mm_to_view
+
+        m, _entry = self._entity(source=img.POSITION_SOURCE_REQUEST, aligned=False)
+        plan = m._floor_plan()
+        assert plan == [(None, [map_mm_to_view(x, y) for x, y in self.SQUARE])]
+
+    def test_unmirrored_they_go_in_as_they_are(self):
+        m, _entry = self._entity(source=img.POSITION_SOURCE_REQUEST, mirror=False)
+        assert m._floor_plan() == [(None, self.SQUARE)]
+
+    def test_names_with_the_room_names_option(self):
+        m, _entry = self._entity(source=img.POSITION_SOURCE_REQUEST, labels=True)
+        assert m._floor_plan()[0][0] == "Salon"
+
+    def test_an_own_position_through_the_aligner_once_aligned(self):
+        m, _entry = self._entity(source=img.POSITION_SOURCE_POSE)
+        assert m._floor_plan() == [(None, [(x + 10.0, y + 20.0) for x, y in self.SQUARE])]
+        m, _entry = self._entity(source=img.POSITION_SOURCE_POSE, aligned=False)
+        assert m._floor_plan() == []
+
+    def test_a_room_outside_the_aligners_reach_is_left_out(self):
+        m, entry = self._entity(source=img.POSITION_SOURCE_POSE)
+        entry.runtime_data.umf_aligner.umf_to_pose.side_effect = lambda x, y: None
+        assert m._floor_plan() == []
+
+    def test_no_path_yet_no_rooms(self):
+        m, _entry = self._entity(source=None)
+        assert m._floor_plan() == []
+
+    def test_no_aligner_no_rooms(self):
+        m, entry = self._entity(source=img.POSITION_SOURCE_REQUEST)
+        entry.runtime_data.umf_aligner = None
+        assert m._floor_plan() == []
+
+    @pytest.mark.asyncio
+    async def test_the_renderer_gets_it(self):
+        m, _entry = self._entity(source=img.POSITION_SOURCE_REQUEST, mirror=False)
+        m._renderer.render.return_value = b"png"
+        m.hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
+        await m.async_image()
+        m._renderer.set_floor_plan.assert_called_with([(None, self.SQUARE)])

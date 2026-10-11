@@ -214,7 +214,7 @@ def _make_callback_env():
 
 class TestAsyncRecordMissionResult:
 
-    def _run(self, mission, reported, zones=None, start_ts=None, nstuck_delta=0):
+    def _run(self, mission, reported, zones=None, start_ts=None, nstuck_delta=0, **kw):
         from custom_components.roomba_plus.callbacks import async_record_mission
         store = _make_store()
         loop  = asyncio.new_event_loop()
@@ -228,12 +228,19 @@ class TestAsyncRecordMissionResult:
             loop.run_until_complete(
                 async_record_mission(
                     hass, entry, mission, reported,
-                    zones or [], start_ts, nstuck_delta,
+                    zones or [], start_ts, nstuck_delta, **kw,
                 )
             )
         finally:
             loop.close()
         return store.latest()
+
+    def test_the_stuck_time_is_kept(self):
+        """4.4.0: so the cloud's timeline can settle a stuck later."""
+        rec = self._run({"phase": "charge", "error": 0}, {}, nstuck_delta=1,
+                        result_override="stuck_and_abandoned", stuck_at=1_791_722_000.7)
+        assert rec["stuck_at_ts"] == 1_791_722_000
+        assert self._run({"phase": "charge", "error": 0}, {})["stuck_at_ts"] is None
 
     def test_completed(self):
         rec = self._run({"phase": "charge", "error": 0, "sqft": 100}, {})
@@ -4933,6 +4940,24 @@ class TestEndGateRoomChecksDirectly:
 
         assert _has_unvisited_planned_rooms(self._ms(), self._entry(idx=2)) is False
 
+    def test_rooms_seen_by_position_count_in_any_order(self):
+        """4.4.0: the last planned room first, then the others."""
+        from custom_components.roomba_plus.callbacks import _has_unvisited_planned_rooms
+
+        entry = self._entry(idx=0)
+        entry.runtime_data.mission_timer_store.visited_rooms = [2, 0]
+        entry.runtime_data.mission_timer_store.rooms_from_positions = False
+        assert _has_unvisited_planned_rooms(self._ms(), entry) is True
+        entry.runtime_data.mission_timer_store.visited_rooms = [2, 0, 1]
+        assert _has_unvisited_planned_rooms(self._ms(), entry) is False
+
+    def test_a_whole_home_runs_rooms_are_no_plan(self):
+        from custom_components.roomba_plus.callbacks import _has_unvisited_planned_rooms
+
+        entry = self._entry(idx=0)
+        entry.runtime_data.mission_timer_store.rooms_from_positions = True
+        assert _has_unvisited_planned_rooms(self._ms(), entry) is False
+
     def test_the_cloud_overrides_a_stale_room_index(self):
         """The index stopped early, but the cloud says every room
         finished. The cloud wins — otherwise the mission waits out the
@@ -6397,3 +6422,79 @@ class TestWhichCommandAStartingMissionFound:
         entry.runtime_data.mission_start_commands = None
         _note_mission_start_command(entry, {}, "rooms")
         _note_next_command(entry, {"command": "clean"})
+
+
+
+class TestRoomFromThePosition:
+    """4.4.0, @frnchfrgg: confirmed rooms from the robot's position move
+    the room display and fire room_completed for the room left; while
+    positions arrive, phase changes do not move it."""
+
+    @staticmethod
+    def _entry(rooms):
+        from custom_components.roomba_plus.mission_timer_store import MissionTimerStore
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        mts = MissionTimerStore()
+        mts.set_mission_plan("m1", list(rooms), None, MagicMock(), "e")
+        entry = MagicMock(entry_id="e", title="Roomba")
+        entry.runtime_data.mission_timer_store = mts
+        entry.runtime_data.cloud_coordinator = MagicMock()
+        clock = {"t": 0.0}
+        entry.runtime_data.position_room = PositionRoomTracker(clock=lambda: clock["t"])
+        return entry, mts, clock
+
+    @staticmethod
+    def _ms():
+        ms = cb._MissionState()
+        ms.mission_start_ts = 1700000000
+        return ms
+
+    def test_the_room_left_is_reported_not_the_first_planned(self):
+        entry, mts, _clock = self._entry(["Kitchen", "Hall", "Bath"])
+        hass = MagicMock()
+        ms = self._ms()
+        cb._apply_position_room(ms, hass, entry, None, "Bath")
+        hass.bus.async_fire.assert_not_called()
+        mts.run_sec = 300.0
+        cb._apply_position_room(ms, hass, entry, "Bath", "Kitchen")
+        event, payload = hass.bus.async_fire.call_args.args
+        assert event == cb.EVENT_ROOM_COMPLETED
+        assert payload["room_name"] == "Bath"
+        assert payload["room_idx"] == 2
+        assert payload["duration_sec"] == 300
+        assert mts.current_room == "Kitchen"
+
+    def test_nothing_outside_a_mission(self):
+        entry, mts, _clock = self._entry(["Kitchen"])
+        hass = MagicMock()
+        cb._apply_position_room(cb._MissionState(), hass, entry, None, "Kitchen")
+        assert mts.visited_rooms == []
+
+    def test_phase_changes_wait_while_positions_arrive(self):
+        entry, mts, clock = self._entry(["Kitchen", "Office"])
+        mts.room_estimates_sec = [600.0, 600.0]
+        ms = self._ms()
+        ms.cleaned_in_room = True
+        ms.ran_in_room = True
+        ms.last_phase = "run"
+        entry.runtime_data.robot_profile_store = None
+        entry.runtime_data.position_room.observe(None)
+        cb._advance_room_on_drive_end(
+            ms, MagicMock(), entry, mts_upd=mts, returned_from_travel=False,
+            mission={"cycle": "clean", "error": 0}, phase="hmPostMsn",
+        )
+        assert mts.current_room_idx == 0
+        clock["t"] += 61
+        mts.run_sec = 700.0
+        cb._advance_room_on_drive_end(
+            ms, MagicMock(), entry, mts_upd=mts, returned_from_travel=False,
+            mission={"cycle": "clean", "error": 0}, phase="hmPostMsn",
+        )
+        assert mts.current_room_idx == 1
+
+    def test_the_mission_callback_listens(self):
+        entry, mts, _clock = self._entry(["Kitchen"])
+        tracker = entry.runtime_data.position_room
+        cb.make_mission_callback(MagicMock(), entry)
+        assert len(tracker._listeners) == 1

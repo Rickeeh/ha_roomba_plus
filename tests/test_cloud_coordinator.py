@@ -1873,6 +1873,7 @@ def _coordinator(hass, umf=None, error=None):
     c.blid = "CLOUDBLID1"
     c._api = MagicMock()
     c.api.get_pmap_umf = AsyncMock(side_effect=error, return_value=umf)
+    c._robot_version_angles = {}
     return c
 
 
@@ -1930,6 +1931,73 @@ class TestFetchActiveUmf:
         assert [p["id"] for p in geo["points2d"]] == ["a", "b"]
         assert geo["keepoutzones"] == [{"id": "k1", "space": "umf"}]
         assert geo["observed_zones"] == [{"id": "o1", "space": "umf"}]
+
+
+def _header_umf(user, robot):
+    return {"maps": [{"map_header": {
+        "user_orientation_rad": user, "robot_orientation_rad": robot,
+    }}]}
+
+
+class TestTheRobotsOwnMapVersion:
+    """4.4.0, @frnchfrgg: the robot answers positions in the map version
+    it saved itself, so that version's header angles are read too."""
+
+    @staticmethod
+    def _pmap(robot_version):
+        record = _pmap(vid="261010T170722")
+        record["robot_pmapv_id"] = robot_version
+        return record
+
+    @pytest.mark.asyncio
+    async def test_an_older_robot_version_is_fetched_once_and_kept(self, hass):
+        c = _coordinator(hass)
+        committed = _header_umf(3.1453, 4.7163)
+        robots = _header_umf(4.7163, 4.7163)
+        c.api.get_pmap_umf = AsyncMock(
+            side_effect=lambda _b, _p, v: robots if v == "261010T130439" else committed
+        )
+        geo = await c._fetch_active_umf([self._pmap("261010T130439")])
+        assert geo["robot_version"] == {
+            "version_id": "261010T130439",
+            "orientation_rad": {
+                "user_orientation_rad": 4.7163, "robot_orientation_rad": 4.7163,
+            },
+        }
+        await c._fetch_active_umf([self._pmap("261010T130439")])
+        versions = [call.args[2] for call in c.api.get_pmap_umf.await_args_list]
+        assert versions.count("261010T130439") == 1
+        assert versions.count("261010T170722") == 2
+
+    @pytest.mark.asyncio
+    async def test_the_same_version_needs_no_second_fetch(self, hass):
+        c = _coordinator(hass, umf=_header_umf(3.1454, 4.7163))
+        geo = await c._fetch_active_umf([self._pmap("261010T170722")])
+        c.api.get_pmap_umf.assert_awaited_once()
+        assert geo["robot_version"]["orientation_rad"]["user_orientation_rad"] == 3.1454
+
+    @pytest.mark.asyncio
+    async def test_a_failed_fetch_falls_back_and_is_not_retried(self, hass):
+        c = _coordinator(hass)
+        committed = _header_umf(3.1453, 4.7163)
+
+        async def fetch(_b, _p, version):
+            if version == "261010T130439":
+                raise RuntimeError("gone")
+            return committed
+
+        c.api.get_pmap_umf = AsyncMock(side_effect=fetch)
+        geo = await c._fetch_active_umf([self._pmap("261010T130439")])
+        assert geo["robot_version"]["orientation_rad"] is None
+        await c._fetch_active_umf([self._pmap("261010T130439")])
+        assert c.api.get_pmap_umf.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_no_robot_version_named_reads_nothing_more(self, hass):
+        c = _coordinator(hass, umf=_header_umf(3.1454, 4.7163))
+        geo = await c._fetch_active_umf([_pmap()])
+        assert geo["robot_version"] is None
+        c.api.get_pmap_umf.assert_awaited_once()
 
 
 def _not_logged_in(hass, acquire):
@@ -2818,6 +2886,18 @@ class TestWhereTheRobotsFrameSitsInTheMap:
         assert report["end"] == [{"ori_rad": -1.527, "from_origin_mm": 53}]
         assert report["start"] == [{"ori_rad": -1.4859, "from_origin_mm": 0}]
         assert "x_mm" not in str(report) and "y_mm" not in str(report)
+        assert report["robot_version"] is None
+
+    def test_the_report_names_the_robots_own_version(self):
+        """4.4.0: which version the turn came from, and its angles."""
+        from custom_components.roomba_plus.cloud_coordinator import umf_pose_report
+
+        angles = {"user_orientation_rad": 4.7163, "robot_orientation_rad": 4.7163}
+        report = umf_pose_report({
+            "poses": {"orientation_rad": None},
+            "robot_version": {"version_id": "v1", "orientation_rad": angles},
+        })
+        assert report["robot_version"] == {"version_id": "v1", "orientation_rad": angles}
 
     def test_junk_is_skipped(self):
         from custom_components.roomba_plus.cloud_coordinator import (
@@ -2844,7 +2924,8 @@ class TestWhereTheRobotsFrameSitsInTheMap:
         from custom_components.roomba_plus import diagnostics
 
         source = inspect.getsource(IrobotCloudCoordinator._fetch_active_umf)
-        assert '"poses":      umf_typed_poses(maps)' in source
+        assert "poses = umf_typed_poses(maps)" in source
+        assert '"poses":      poses,' in source
         assert 'umf_pose_report(cc.data.get("umf"))' in inspect.getsource(diagnostics)
 
 
@@ -3058,6 +3139,44 @@ class TestHowFarTheAppTurnedTheMap:
         from custom_components.roomba_plus.cloud_coordinator import umf_user_turn_rad
 
         assert umf_user_turn_rad(self._umf(0.1, 2 * math.pi - 0.1)) == pytest.approx(0.2)
+
+    def test_the_robots_own_version_decides(self):
+        """4.4.0: committed version turned a quarter, the robot's not."""
+        from custom_components.roomba_plus.cloud_coordinator import umf_position_turn
+
+        umf = self._umf(3.1453, 4.7163)
+        umf["robot_version"] = {"orientation_rad": {
+            "user_orientation_rad": 4.7163, "robot_orientation_rad": 4.7163,
+        }}
+        assert umf_position_turn(umf) == (0.0, "robot_version")
+
+    def test_without_the_robots_angles_the_committed_ones_count(self):
+        import math
+
+        from custom_components.roomba_plus.cloud_coordinator import umf_position_turn
+
+        umf = self._umf(3.1453, 4.7163)
+        umf["robot_version"] = {"version_id": "v", "orientation_rad": None}
+        turn, source = umf_position_turn(umf)
+        assert turn == pytest.approx(-math.pi / 2, abs=1e-3)
+        assert source == "map_version"
+
+    def test_a_set_angle_overrides_and_auto_does_not(self):
+        import math
+
+        from custom_components.roomba_plus.cloud_coordinator import (
+            requested_position_turn,
+        )
+
+        umf = self._umf(3.1453, 4.7163)
+        assert requested_position_turn("270", umf) == (
+            pytest.approx(-math.pi / 2), "setting"
+        )
+        assert requested_position_turn("0", umf) == (0.0, "setting")
+        for auto in ("auto", None, "45", 90):
+            turn, source = requested_position_turn(auto, umf)
+            assert source == "map_version", auto
+            assert turn == pytest.approx(-math.pi / 2, abs=1e-3)
 
     def test_no_angles_or_junk_is_no_turn(self):
         from custom_components.roomba_plus.cloud_coordinator import umf_user_turn_rad

@@ -1041,17 +1041,19 @@ class TestCurrentRoomSaysHowItKnows:
 
         assert '"current_room_source"' in source
 
-    def test_both_sources_are_named(self):
-        """`estimate` and `mission_timer` are the two paths that can
-        produce a value, and a reader has to be able to tell them
-        apart."""
+    def test_every_source_is_named(self):
+        """`position` (4.4.0), `estimate` and `mission_timer` are the
+        paths that can produce a value, and a reader has to be able to
+        tell them apart."""
         from pathlib import Path
 
         source = Path(
             "custom_components/roomba_plus/sensor_rooms.py"
         ).read_text(encoding="utf-8")
 
-        assert '"estimate" if current_room is not None else "mission_timer"' in source
+        assert '"position" if _by_position' in source
+        assert 'else "estimate" if current_room is not None' in source
+        assert 'else "mission_timer"' in source
 
 
 class TestRoombaEdgeCoverageSensorRetainsLastValidRatio:
@@ -1909,3 +1911,56 @@ class TestTheSummarySaysTheScope:
             "initiator": "manual", "zones": [], "scope": "whole_home",
         }))
         assert sensor.extra_state_attributes["scope"] == "whole_home"
+
+
+class TestTheCurrentRoomFromThePosition:
+    """4.4.0, @frnchfrgg: where the robot's position placed it this
+    mission, that room is shown, in the robot's order; the countdown
+    covers the rest of it and the rooms not yet entered."""
+
+    @staticmethod
+    def _state(monkeypatch, rooms, visited, idx, estimates, *, in_room=100.0):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus import sensor_rooms
+        from custom_components.roomba_plus.mission_timer_store import MissionTimerStore
+
+        mts = MissionTimerStore()
+        mts.set_mission_plan("m1", list(rooms), None, MagicMock(), "e")
+        mts.visited_rooms = list(visited)
+        mts.current_room_idx = idx
+        mts.run_sec = 1000.0
+        mts.room_entered_run_sec = 1000.0 - in_room
+        monkeypatch.setattr(sensor_rooms, "_mission_phase", lambda _d: "run")
+        monkeypatch.setattr(sensor_rooms, "_get_planned_room_order", lambda _d: list(rooms))
+        monkeypatch.setattr(
+            sensor_rooms, "_compute_room_time_estimates", lambda _e, names: list(estimates)
+        )
+        entry = SimpleNamespace(runtime_data=SimpleNamespace(
+            mission_timer_store=mts, robot_profile_store=None,
+        ))
+        return sensor_rooms._resolve_smart_tier_room_state(entry)
+
+    def test_the_room_the_robot_is_in(self, monkeypatch):
+        state = self._state(
+            monkeypatch, ["Kitchen", "Hall", "Bath"], visited=[2], idx=2,
+            estimates=[600.0, 300.0, 400.0],
+        )
+        assert state["current_room"] == "Bath"
+        assert state["next_room"] == "Kitchen"
+        assert state["current_room_source"] == "position"
+        # 400 - 100 in Bath, then Kitchen 600 and Hall 300: 1200 s.
+        assert state["estimated_remaining_min"] == 20
+
+    def test_without_estimates_no_countdown_from_here(self, monkeypatch):
+        state = self._state(
+            monkeypatch, ["Kitchen", "Hall"], visited=[1], idx=1, estimates=[None, None],
+        )
+        assert state["current_room"] == "Hall"
+        assert state["current_room_source"] == "position"
+
+    def test_no_position_no_change(self, monkeypatch):
+        state = self._state(
+            monkeypatch, ["Kitchen", "Hall"], visited=[], idx=0, estimates=[600.0, 300.0],
+        )
+        assert state["current_room_source"] == "estimate"

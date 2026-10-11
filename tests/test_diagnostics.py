@@ -2190,6 +2190,47 @@ class TestTheDiagnosticsSayHowFarTheAppTurnedTheMap:
 
         assert out["requested_path_turn_deg"] is None
 
+    def test_where_the_turn_came_from_and_what_is_drawn(self) -> None:
+        """4.4.0: the robot's own version decides; the setting overrides."""
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.diagnostics import _position_chain
+
+        umf = {
+            "poses": {"orientation_rad": {
+                "user_orientation_rad": 3.1453, "robot_orientation_rad": 4.7163,
+            }},
+            "robot_version": {"version_id": "v1", "orientation_rad": {
+                "user_orientation_rad": 4.7163, "robot_orientation_rad": 4.7163,
+            }},
+        }
+        data = SimpleNamespace(
+            umf_aligner=None,
+            renderer=SimpleNamespace(point_count=0),
+            cloud_coordinator=SimpleNamespace(umf_data=umf),
+        )
+
+        auto = _position_chain(data, {})
+        assert auto["requested_path_turn_deg"] == 0.0
+        assert auto["requested_path_turn_source"] == "robot_version"
+        assert auto["requested_path_turn_drawn_deg"] == 0.0
+
+        set_ = _position_chain(data, {"live_path_turn": "270"})
+        assert set_["requested_path_turn_drawn_deg"] == -90.0
+
+
+class TestTheRobotsAddressStaysOut:
+    """4.4.0, @frnchfrgg's upload: the config entry's `host` went out as
+    entered. Diagnostics carry no address."""
+
+    def test_host_is_redacted(self) -> None:
+        from homeassistant.components.diagnostics import async_redact_data
+
+        from custom_components.roomba_plus.diagnostics import _CLOUD_REDACT
+
+        out = async_redact_data({"host": "192.0.2.10", "delay": 30}, _CLOUD_REDACT)
+        assert out == {"host": "**REDACTED**", "delay": 30}
+
 
 class TestAFalseAlignmentSaysWhatItCosts:
     """`aligner_aligned: false` reads like a defect and often is not

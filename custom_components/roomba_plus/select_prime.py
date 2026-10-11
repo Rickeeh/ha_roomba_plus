@@ -1093,7 +1093,8 @@ class PrimeCleaningModeSelect(IRobotEntity, RestoreEntity, SelectEntity):
         # THE TABLE FOR THIS ROBOT'S GENERATION, shadowing the
         # class-level Prime one. The two differ on "vacuum and mop":
         # 32 is field-verified on Prime, 6 is what the iRobot app sends
-        # on a mopping Classic robot (@ia74's capture). Sending the
+        # on a mopping Classic robot (a user's capture on roomba_rest980's
+        # issue tracker). Sending the
         # wrong one decides whether water goes on the floor, so the
         # tier picks rather than a single table guessing.
         self.MODES = cleaning_modes_for(

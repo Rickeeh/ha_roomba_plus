@@ -375,6 +375,17 @@ local connection, and draws the path live — the same request the iRobot app us
 report no position themselves). The robot's tracker carries the same position (`x_mm`/`y_mm`,
 `map_x_mm`/`map_y_mm`, `position_source: request`).
 
+**On the floor plan (4.4.0).** The rooms of the cloud map are drawn under the path, with their names
+when *Draw room names on the map image* is on, and the picture fits the whole floor plan from the start.
+For positions asked from the robot the rooms are placed in the cloud map's frame without waiting for
+alignment; for a Smart Map robot's own positions, through the alignment once there is one.
+
+**A map turned in the iRobot app** turns the positions the robot answers, once the robot has saved a
+map with that turn after a cleaning run (4.4.0). Roomba+ turns them back by the angles of the map
+version the robot saved itself, so the path lies on the rooms map. *Turn of the live path*, beside
+the option above, replaces that with a fixed angle for a robot where it reads wrong; the diagnostics
+show the angle read (`requested_path_turn_deg`), where it came from and the one drawn.
+
 What a requested path does **not** do yet: it is not fed into the coverage heatmap, door markers or
 room learning, and the map carries no `calibration_points`/`rooms` while it shows one — the image
 says `position_source: request` instead. The robot reports the position from its dock, as a
@@ -823,15 +834,31 @@ A room the cloud has no figure for is not permanent — iRobot builds its estima
 
 Attributes: `current_room` · `current_room_source` *(v4.0.0b3)* · `next_room` · `elapsed_run_min` · `estimated_remaining_min` · `room_sequence` · `mission_duration_min` *(v2.9.0)* · `recharge_min` *(v2.9.0)*
 
-**`current_room` is derived, not measured.** It comes from elapsed
-mission time against per-room estimates — the robot does not report
-which room it is in. A room that runs longer or shorter than estimated
-moves the value on while the robot has not.
+**`current_room` is derived, not measured** — except where the robot's
+position says where it is (4.4.0). Otherwise it comes from elapsed
+mission time against per-room estimates, and a room that runs longer or
+shorter than estimated moves the value on while the robot has not.
+
+**From the position (4.4.0).** A robot that reports its position, or
+answers when asked for it, is placed in a room where that can be done: a
+Smart Map with rooms in the cloud, or a 900-series floor Roomba+ has
+divided into areas. A room counts once the robot has stayed in it for
+15 seconds while cleaning, so crossing a doorway or a hall changes
+nothing. The display then follows the robot in its own order;
+`room_completed` fires for the room it left; the countdown covers the
+rest of that room and the rooms not yet entered. A whole-home run lists
+the rooms as the robot enters them. While positions arrive, phase
+changes and estimates do not move the room; when they stop for a
+minute, they take over again. The diagnostics show the rooms seen by
+position (`rooms.tracking.visited_rooms`, `position_room`).
+
+A new start command while a mission runs replaces its room plan (4.4.0).
 
 `current_room_source` says which path produced it:
 
 | Value | Meaning |
 |---|---|
+| `position` | the room the robot's position puts it in (4.4.0) |
 | `estimate` | elapsed time against per-room estimates |
 | `mission_timer` | the mission timer's own value, when no estimates exist |
 
@@ -1268,6 +1295,7 @@ Settings → Devices → Roomba+ → Configure
 |---|---|---|
 | Map enabled | `true` | Enable live map rendering (900-series) |
 | Ask the robot for its position | `true` | Robots that report no position themselves only (4.3): asked about once a second while cleaning, for the live path |
+| Turn of the live path | Automatic | Same robots (4.4.0): how far requested positions are turned to lie on the rooms map. Automatic reads the map the robot saved itself; 0°/90°/180°/270° fix it |
 | Map size (px) | `600` | Rendered map image size (400–1200) |
 | Map scale (mm/px) | `10.0` | Millimetres per pixel |
 

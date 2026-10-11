@@ -174,7 +174,8 @@ def _modes_for_backend(backend: Any) -> dict[str, int]:
     """The cleaning-mode table for whichever generation `backend` serves.
 
     "Vacuum and mop" is 32 on Prime (field-verified) and 6 on Classic
-    (captured from the iRobot app's own command by @ia74). Resolving a
+    (from a user's capture of the iRobot app's own command, posted on
+    roomba_rest980's issue tracker). Resolving a
     caller's mode name against the wrong table would send a value that
     generation has never been seen to accept -- on a field that decides
     whether water goes on the floor.
@@ -824,7 +825,8 @@ async def async_handle_clean_zone(call: ServiceCall) -> None:
         )
         # SMART SCRUB AND PAD WETNESS, both for this run only.
         #
-        # Shapes from @ia74's Classic capture, where the app sends them
+        # Shapes from a user's Classic capture (roomba_rest980's issue
+        # tracker), where the app sends them
         # inside the region's own params alongside operatingMode. Both
         # omitted when unset: the pad-wetness selects already exist as
         # device settings, and sending a per-region value would

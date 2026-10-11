@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Abilita mappa in tempo reale",
           "live_position_requests": "Chiedere la posizione al robot",
+          "live_path_turn": "Rotazione del percorso in diretta",
           "map_size_px": "Dimensione mappa (pixel)",
           "map_scale_mm_per_px": "Scala (mm/pixel)",
           "floor_label": "Piano (es. Piano terra)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Abilita la mappa di pulizia in tempo reale per i robot con rilevamento della posizione (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Offerto solo per i robot che non comunicano da soli la propria posizione. Interroga il robot circa una volta al secondo durante la pulizia per disegnare il percorso in tempo reale. Disattivato: la mappa mostra invece l'ultima missione completata dal cloud iRobot, se l'accesso al cloud è configurato.",
+          "live_path_turn": "Solo con l’opzione qui sopra. Di quanto viene ruotato il percorso di pulizia per sovrapporsi alla mappa delle stanze. Automatico lo legge dalla mappa salvata dal robot stesso, compresa una rotazione impostata nell’app iRobot. Scegli un angolo solo se il percorso risulta ruotato rispetto alla mappa delle stanze, e in quel caso allega la diagnostica a una segnalazione, così che l’impostazione automatica possa essere corretta per il tuo robot.",
           "map_size_px": "Dimensione del canvas della mappa in pixel (400–1200). Predefinito: 600.",
           "map_scale_mm_per_px": "Millimetri per pixel (5–30). Predefinito 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Testo libero, ad esempio Piano terra. Raggruppa i robot nella vista flotta.",
@@ -2368,6 +2370,15 @@
         "90": "90° in senso orario",
         "180": "180°",
         "270": "270° in senso orario (90° in senso antiorario)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automatico",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

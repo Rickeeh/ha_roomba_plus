@@ -39,7 +39,7 @@ from roombapy_prime import (
 
 from . import cloud_errors
 from .cloud_account import async_acquire, async_release, cloud_country
-from .const import DOMAIN, SQFT_TO_M2
+from .const import DOMAIN, LIVE_PATH_TURN_CHOICES, SQFT_TO_M2
 
 if TYPE_CHECKING:
     from .mission_store import MissionStore
@@ -558,6 +558,16 @@ def umf_pose_report(umf: Any) -> dict[str, Any] | None:
     if not isinstance(poses, dict):
         return None
     report: dict[str, Any] = {"orientation_rad": poses.get("orientation_rad")}
+    # The robot's own version and its angles (4.4.0, umf_position_turn).
+    robot_version = umf.get("robot_version")
+    report["robot_version"] = (
+        {
+            "version_id": robot_version.get("version_id"),
+            "orientation_rad": robot_version.get("orientation_rad"),
+        }
+        if isinstance(robot_version, dict)
+        else None
+    )
     for key, _ in _UMF_TYPED_POSES:
         report[key] = [
             {
@@ -570,31 +580,10 @@ def umf_pose_report(umf: Any) -> dict[str, Any] | None:
     return report
 
 
-def umf_user_turn_rad(umf: Any) -> float:
-    """How far the user turned the map in the iRobot app, in radians.
-
-    THE ROBOT REPORTS ITS POSITION IN THE TURNED MAP (4.3.4,
-    @frnchfrgg, i-series on lewis). A map turned in the app and saved
-    turns the positions the robot answers from its next mission on; the
-    rooms map and the cloud's coverage stay in the map's own frame. With
-    the app's map left as it was after mapping, the two agree, which is
-    why 4.3.3 drew the path right on most robots and a quarter off on
-    his.
-
-    The header names both angles: `robot_orientation_rad`, the map as
-    the robot made it, and `user_orientation_rad`, as the user turned
-    it. On his map they were 4.7163 and 3.1454 after a quarter turn
-    counter-clockwise in the app -- the user angle a quarter smaller.
-    Turning a position by this result (user less robot, in (-pi, pi])
-    takes it back into the map's own frame, about the map's origin.
-
-    0.0 when the UMF names no angles or names junk: such a map is drawn
-    as before.
-    """
-    poses = umf.get("poses") if isinstance(umf, dict) else None
-    angles = poses.get("orientation_rad") if isinstance(poses, dict) else None
+def _angle_pair_turn(angles: Any) -> float | None:
+    """User angle less robot angle, in (-pi, pi]; None for junk."""
     if not isinstance(angles, dict):
-        return 0.0
+        return None
     numbers: list[float] = []
     for key in ("user_orientation_rad", "robot_orientation_rad"):
         angle = angles.get(key)
@@ -603,10 +592,72 @@ def umf_user_turn_rad(umf: Any) -> float:
             or isinstance(angle, bool)
             or not math.isfinite(angle)
         ):
-            return 0.0
+            return None
         numbers.append(float(angle))
     delta = numbers[0] - numbers[1]
     return math.atan2(math.sin(delta), math.cos(delta))
+
+
+def umf_position_turn(umf: Any) -> tuple[float, str | None]:
+    """How far the robot's answered positions are turned, and from where.
+
+    THE ROBOT REPORTS ITS POSITION IN THE TURNED MAP (4.3.4,
+    @frnchfrgg, i-series on lewis). A map turned in the iRobot app turns
+    the positions the robot answers; the rooms map and the cloud's
+    coverage stay in the map's own frame. The header names both angles:
+    `robot_orientation_rad`, the map as the robot made it, and
+    `user_orientation_rad`, as the user turned it. On his map they were
+    4.7163 and 3.1454 after a quarter turn counter-clockwise in the app.
+    Turning a position by user less robot, in (-pi, pi], takes it back
+    into the map's own frame, about the map's origin.
+
+    BUT ONLY ONCE THE ROBOT HAS SAVED A MAP WITH THAT TURN (4.4.0). His
+    next diagnostics had the same two angles and an unturned path, drawn
+    a quarter off the other way. The difference was the versions: on
+    9 October the robot's own version (`robot_pmapv_id`) was newer than
+    his edit, on 11 October older, from a mission that ran after he had
+    set the map back. Both fit a robot that answers in the map it saved
+    itself -- two downloads, not yet a proof -- so the angles taken are
+    those of that version's header, read by the coordinator under
+    "robot_version". Where that is missing (no such version, or the
+    fetch failed) the committed version's header is used, as 4.3.4 to
+    4.3.7 did. Where it reads wrong, the user sets the angle
+    (requested_position_turn).
+
+    Returns (turn in radians, source): source "robot_version",
+    "map_version", or None with 0.0 when no header names usable angles.
+    """
+    if not isinstance(umf, dict):
+        return 0.0, None
+    robot_version = umf.get("robot_version")
+    if isinstance(robot_version, dict):
+        turn = _angle_pair_turn(robot_version.get("orientation_rad"))
+        if turn is not None:
+            return turn, "robot_version"
+    poses = umf.get("poses")
+    turn = _angle_pair_turn(poses.get("orientation_rad") if isinstance(poses, dict) else None)
+    if turn is not None:
+        return turn, "map_version"
+    return 0.0, None
+
+
+def umf_user_turn_rad(umf: Any) -> float:
+    """The turn of umf_position_turn() alone, in radians."""
+    return umf_position_turn(umf)[0]
+
+
+def requested_position_turn(setting: Any, umf: Any) -> tuple[float, str | None]:
+    """The turn applied to positions requested from the robot.
+
+    A SETTING FOR WHERE AUTO IS WRONG (4.4.0, @frnchfrgg's suggestion).
+    "auto" (the default, and anything unknown) is umf_position_turn();
+    "0", "90", "180" or "270" turn by that many degrees, in the same
+    sense, so the diagnostics' -90 is "270". Source "setting" then.
+    """
+    if setting in LIVE_PATH_TURN_CHOICES and setting != "auto":
+        delta = math.radians(int(setting))
+        return math.atan2(math.sin(delta), math.cos(delta)), "setting"
+    return umf_position_turn(umf)
 
 
 class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -660,6 +711,9 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.daily_dirt_density: dict[str, float] = {}
         # IA74-PMAP: pmap_id seeded from local MQTT before first cloud fetch
         self._seeded_pmap_id: str | None = None
+        #: The header angles of the robot's own map version, by
+        #: (pmap_id, version_id); see _robot_version_orientation().
+        self._robot_version_angles: dict[tuple[str, str], dict[str, Any] | None] = {}
         _LOGGER.debug(
             "iRobot cloud: using country_code=%s, has_pmaps=%s for %s",
             cloud_country(hass), has_pmaps, blid,
@@ -1423,6 +1477,44 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return {z["id"] for z in self.zones if z.get("id")}
 
+    async def _robot_version_orientation(
+        self,
+        pmap: dict[str, Any],
+        pmap_id: str,
+        committed_version: str,
+        committed_angles: Any,
+    ) -> dict[str, Any] | None:
+        """The header angles of the version the robot saved itself.
+
+        `robot_pmapv_id` at the record's root (umf_position_turn says
+        why it matters). The committed version's own angles where it is
+        that version; otherwise its UMF is fetched once per version and
+        kept. A failed fetch keeps {"orientation_rad": None} and is not
+        retried for that version: the turn then falls back to the
+        committed version, as before 4.4.0.
+        """
+        version = pmap.get("robot_pmapv_id")
+        if not isinstance(version, str) or not version:
+            return None
+        if version == committed_version:
+            return {"version_id": version, "orientation_rad": committed_angles}
+        key = (pmap_id, version)
+        if key not in self._robot_version_angles:
+            angles: dict[str, Any] | None = None
+            try:
+                raw = await self.api.get_pmap_umf(self.blid, pmap_id, version)
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "iRobot cloud: UMF of the robot's map version failed for %s "
+                    "(version_id=%s) -- %s: %s",
+                    self.blid, version, type(exc).__name__, exc,
+                )
+            else:
+                maps = raw.get("maps") if isinstance(raw, dict) else None
+                angles = umf_typed_poses(maps or [])["orientation_rad"]
+            self._robot_version_angles[key] = angles
+        return {"version_id": version, "orientation_rad": self._robot_version_angles[key]}
+
     @property
     def umf_data(self) -> dict[str, Any]:
         """Return the most recently fetched UMF data, or empty dict."""
@@ -1603,6 +1695,7 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.blid,
             )
 
+            poses = umf_typed_poses(maps)
             return {
                 "keepoutzones": [
                     {**z, "space": "umf"}
@@ -1618,6 +1711,10 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "pmap_id":    active_id,
                 "version_id": version_id,
                 # The poses and header angles (4.3.3, umf_typed_poses).
-                "poses":      umf_typed_poses(maps),
+                "poses":      poses,
+                # The map the robot answers in (4.4.0, umf_position_turn).
+                "robot_version": await self._robot_version_orientation(
+                    pmap, active_id, version_id, poses.get("orientation_rad")
+                ),
             }
         return None

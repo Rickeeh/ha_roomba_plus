@@ -851,13 +851,54 @@ def _resolve_smart_tier_room_state(config_entry: Any) -> dict[str, Any]:
                 )
                 estimated_remaining_min = max(0, round(remaining_sec / 60))
 
+    # THE POSITION SAYS WHERE THE ROBOT IS (4.4.0, @frnchfrgg). Where the
+    # robot's position placed it in a room this mission (position_room,
+    # MissionTimerStore.enter_room), that room is shown -- in the
+    # robot's order, not the plan's -- and the clock above only counts
+    # down what is left: the rest of this room and the rooms not yet
+    # entered.
+    _by_position = False
+    _visited = getattr(mts, "visited_rooms", None)
+    _rooms = getattr(mts, "planned_rooms", None)
+    _idx_now = getattr(mts, "current_room_idx", None)
+    if (
+        isinstance(_visited, list) and _visited
+        and isinstance(_rooms, list)
+        and isinstance(_idx_now, int) and 0 <= _idx_now < len(_rooms)
+    ):
+        _by_position = True
+        current_room = _rooms[_idx_now]
+        _left = [
+            name for i, name in enumerate(_rooms)
+            if i not in _visited and i != _idx_now
+        ]
+        next_room = (
+            None if getattr(mts, "rooms_from_positions", False) is True
+            else (_left[0] if _left else None)
+        )
+        _by_name = dict(zip(planned_order, estimates or []))
+        _rest = [_by_name.get(name) for name in _left]
+        _this = _by_name.get(current_room)
+        if _this is not None and all(e is not None for e in _rest):
+            _in_room = float(getattr(mts, "time_in_current_room_sec", 0.0) or 0.0)
+            estimated_remaining_min = max(0, round(
+                (max(0.0, float(_this) - _in_room) + sum(float(e) for e in _rest if e is not None))
+                / 60
+            ))
+        else:
+            estimated_remaining_min = None
+
     # NEVER BEHIND AN OBSERVED ROOM CHANGE (4.2.15). Room times now come
     # from every mission, so the clock-based room above applies to far
     # more robots than before -- including ones whose room tracking has
     # SEEN the robot move on (a travel signal). The clock may still run
     # ahead of the tracker, as it always could; it may not show a room
     # the robot has been seen to leave.
-    if current_room is not None and getattr(mts, "room_progress_observed", False) is True:
+    if (
+        not _by_position
+        and current_room is not None
+        and getattr(mts, "room_progress_observed", False) is True
+    ):
         _seen = int(getattr(mts, "current_room_idx", 0) or 0)
         if current_room in planned_order and planned_order.index(current_room) < _seen < len(planned_order):
             current_room = planned_order[_seen]
@@ -898,7 +939,9 @@ def _resolve_smart_tier_room_state(config_entry: Any) -> dict[str, Any]:
         # the honest thing is to say so rather than assert a room nobody
         # verified. His framing, and it is the right one.
         "current_room_source": (
-            "estimate" if current_room is not None else "mission_timer"
+            "position" if _by_position
+            else "estimate" if current_room is not None
+            else "mission_timer"
         ),
         # WHETHER THE ROBOT HAS ACTUALLY BEEN SEEN TO MOVE ON.
         #

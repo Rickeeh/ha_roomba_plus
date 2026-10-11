@@ -3621,6 +3621,13 @@ class TestLivePositionOption:
     async def test_not_offered_to_a_robot_that_publishes_its_pose(self):
         keys = await self._keys({"pose": {"point": {"x": 1, "y": 2}, "theta": 0}})
         assert "live_position_requests" not in keys
+        assert "live_path_turn" not in keys
+
+    @pytest.mark.asyncio
+    async def test_the_turn_of_the_path_comes_with_it(self):
+        """4.4.0, @frnchfrgg: auto, or an angle where auto reads wrong."""
+        keys = await self._keys({"cap": {"pose": 2}})
+        assert keys.index("live_path_turn") == keys.index("live_position_requests") + 1
 
     def test_defaults_on(self):
         from custom_components.roomba_plus.const import DEFAULT_LIVE_POSITION_REQUESTS
@@ -3636,6 +3643,8 @@ class TestLivePositionOption:
             step = json.loads(path.read_text(encoding="utf-8"))["options"]["step"]["settings"]
             assert step["data"]["live_position_requests"], path
             assert step["data_description"]["live_position_requests"], path
+            assert step["data"]["live_path_turn"], path
+            assert step["data_description"]["live_path_turn"], path
 
 
 class TestLivePositionOptionNeedsTheMap:

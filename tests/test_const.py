@@ -135,6 +135,17 @@ class TestErrorCatalogueV341Additions:
             assert code not in ERROR_CATALOGUE, \
                 f"Code {code} is a Terra mower code and should not be in ERROR_CATALOGUE"
 
+    def test_codes_without_any_source_are_not_in_the_catalogue(self):
+        """130-134, 140/141 and 160-163 came in with v2.5.0, credited to
+        "ia74/jeremywillans references". Neither project has them, nor
+        roombapy, dorita980, rest980, the Classic app 7.18.0 or the Prime
+        app 3.2.0. A text nobody can source is worse than none: the robot
+        reporting one of these codes gets "Error 131", not a guess."""
+        unsourced = [130, 131, 132, 133, 134, 140, 141, 160, 161, 162, 163]
+        for code in unsourced:
+            assert code not in ERROR_CATALOGUE, f"Code {code} has no source"
+            assert get_localized_error_entry(code, "de") == {}, code
+
     def test_dock_category_mentions_vacuum_only_degradation(self):
         """Spot-check the documented 'switched to vacuum only' degradation
         pattern survived verbatim from the source strings for a few codes."""
@@ -510,8 +521,7 @@ class TestGetLocalizedErrorEntry:
         }
 
     def test_every_catalogue_code_translated_in_every_language(self):
-        """Regression guard: every code in ERROR_CATALOGUE (all 125,
-        including the v3.4.1 additions) must have a translation entry in
+        """Regression guard: every code in ERROR_CATALOGUE (including the v3.4.1 additions) must have a translation entry in
         every one of the six supported languages — no silent gaps, no
         orphaned codes translated that no longer exist in the catalogue."""
         all_codes = set(ERROR_CATALOGUE.keys())
@@ -903,9 +913,9 @@ CLOSED_AT_END = {
 
 #: Stuck recovery asks "did the robot work on after being stuck?" -- a pass
 #: finished after the stuck (0, 1); a 5 or 6 closed at mission end does not.
-PASS_DONE = {
-    ("callbacks.py", "_mission_recovered_after_stuck"),
-}
+#: Since 4.4.0 the rule lives in const.recovered_after_stuck(), which both
+#: the mission end and the cloud merge call (TestStuckRecoveryRule).
+PASS_DONE: set[tuple[str, str]] = set()
 
 
 CLEANED = {
@@ -1101,6 +1111,7 @@ class TestEveryReaderIsDeliberatelyPlaced:
         for key in PASS_DONE:
             assert users.get(key) == {"ROOM_EVENT_PASS_DONE_STATUSES"}, users.get(key)
 
+
     def test_cleaned_sites_use_the_cleaned_rule(self):
         users = _users()
         for key in CLEANED:
@@ -1117,6 +1128,63 @@ class TestEveryReaderIsDeliberatelyPlaced:
         offen = sorted(k for k in users if k not in klassifiziert
                        and not k[1].startswith("make_"))
         assert not offen, f"unclassified readers of room status: {offen}"
+
+class TestStuckRecoveryRule:
+    """const.recovered_after_stuck(): the one rule for "did the robot work
+    on after being stuck?", at mission end and when the cloud's record
+    arrives later (4.4.0)."""
+
+    STUCK = 1_000.0
+
+    @staticmethod
+    def _room(status, ets):
+        return {"type": "room", "ts": ets - 60, "ets": ets, "room": {"rid": "1", "status": status}}
+
+    @pytest.mark.parametrize("status", [0, 1])
+    def test_a_pass_finished_after_the_stuck(self, status):
+        from custom_components.roomba_plus.const import recovered_after_stuck
+
+        assert recovered_after_stuck([self._room(status, 1_100)], self.STUCK) is True
+
+    @pytest.mark.parametrize("status", [5, 6])
+    def test_a_room_closed_at_mission_end_does_not_count(self, status):
+        from custom_components.roomba_plus.const import recovered_after_stuck
+
+        assert recovered_after_stuck([self._room(status, 1_100)], self.STUCK) is False
+
+    def test_a_pass_before_the_stuck_does_not_count(self):
+        from custom_components.roomba_plus.const import recovered_after_stuck
+
+        assert recovered_after_stuck([self._room(0, 900)], self.STUCK) is False
+
+    def test_driving_home_after_the_stuck(self):
+        from custom_components.roomba_plus.const import recovered_after_stuck
+
+        home = {"type": "travel", "ts": 1_200, "travel": {"dest": "dock"}}
+        assert recovered_after_stuck([home], self.STUCK) is True
+        assert recovered_after_stuck([{**home, "ts": 900}], self.STUCK) is False
+
+    def test_no_stuck_time_or_no_events_is_no(self):
+        from custom_components.roomba_plus.const import recovered_after_stuck
+
+        home = [{"type": "travel", "ts": 1_200, "travel": {"dest": "dock"}}]
+        for stuck in (None, 0, "x"):
+            assert recovered_after_stuck(home, stuck) is False
+        assert recovered_after_stuck(None, self.STUCK) is False
+
+    def test_both_deciders_use_it(self):
+        import inspect
+
+        from custom_components.roomba_plus import callbacks
+        from custom_components.roomba_plus.mission_store import MissionStore
+
+        assert "recovered_after_stuck(" in inspect.getsource(
+            callbacks._mission_recovered_after_stuck
+        )
+        assert "recovered_after_stuck(" in inspect.getsource(
+            MissionStore._merge_cloud_fields
+        )
+
 
 
 class TestTheDirtIndexDividesByRoomSize:

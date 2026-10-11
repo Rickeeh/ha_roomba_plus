@@ -233,6 +233,21 @@ class TestMissionTimerStore:
             mts.on_phase_run("m_111", hass, "entry1")
         assert mts.run_sec == 0
 
+    def test_a_new_mission_starts_with_no_rooms_behind_it(self):
+        """4.4.0 review finding: a missed end handed the room index and
+        the rooms seen by position to the next mission."""
+        mts = MissionTimerStore()
+        mts.mission_id = "m_111"
+        mts.current_room_idx = 2
+        mts.visited_rooms = [2]
+        mts.rooms_from_positions = True
+        mts.room_progress_observed = True
+        mts.on_phase_run("m_222", _make_hass(), "entry1")
+        assert mts.current_room_idx == 0
+        assert mts.visited_rooms == []
+        assert mts.rooms_from_positions is False
+        assert mts.room_progress_observed is False
+
     def test_new_mission_id_resets_counter(self):
         """Different mission_id triggers a full reset."""
         mts = MissionTimerStore()
@@ -3535,3 +3550,199 @@ class TestAMissionWithoutRoomsReplacesTheLastPlan:
         assert mts.mission_id == "ABC123_1700000000"
         assert mts.planned_rooms == []
         assert mts.total_estimated_sec is None
+
+
+class TestANewStartDuringTheMissionIsANewPlan:
+    """4.4.0, @frnchfrgg: a six-room start nine seconds after a two-room
+    one. The plan was built once, at the first `run`, so room tracking
+    stayed on two rooms for a six-room run."""
+
+    @staticmethod
+    def _run(last_command: dict) -> dict:
+        msg = _msg("run", cycle="clean")
+        msg["state"]["reported"]["cleanMissionStatus"]["initiator"] = "localApp"
+        msg["state"]["reported"]["lastCommand"] = last_command
+        return msg
+
+    @staticmethod
+    def _start(t: int, rids: list[str]) -> dict:
+        return {
+            "command": "start", "time": t, "initiator": "localApp",
+            "pmap_id": "p", "regions": [{"region_id": r, "type": "rid"} for r in rids],
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_second_start_replaces_the_plan(self):
+        mts = MissionTimerStore()
+        entry = _make_entry_v280_auto_advance_room_live(mts)
+        entry.runtime_data.mission_command = None
+        entry.runtime_data.roomba.master_state = {"state": {"reported": {}}}
+        hass = MagicMock()
+
+        def _close_coro(*args, **kwargs):
+            import asyncio as _asyncio
+            for a in args:
+                if _asyncio.iscoroutine(a):
+                    a.close()
+
+        hass.async_create_task = _close_coro
+        first = self._start(1699999993, ["1", "10"])
+        second = self._start(1700000009, ["18", "19", "9"])
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=lambda coro, loop: coro.close(),
+        ), patch(
+            "custom_components.roomba_plus.sensor._compute_room_time_estimates",
+            side_effect=lambda _e, names: [None] * len(names),
+        ):
+            from custom_components.roomba_plus.callbacks import make_mission_callback
+            cb = make_mission_callback(hass, entry)
+            entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": first}}}
+            cb(self._run(first))
+            assert mts.planned_rooms == ["1", "10"]
+            mts.run_sec = 9.0
+            entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": second}}}
+            cb(self._run(second))
+
+        assert mts.planned_rooms == ["18", "19", "9"]
+        assert mts.current_room_idx == 0
+        assert mts.run_sec >= 9.0
+
+    @staticmethod
+    def _cb(entry):
+        hass = MagicMock()
+
+        def _close_coro(*args, **kwargs):
+            import asyncio as _asyncio
+            for a in args:
+                if _asyncio.iscoroutine(a):
+                    a.close()
+
+        hass.async_create_task = _close_coro
+        from custom_components.roomba_plus.callbacks import make_mission_callback
+        return make_mission_callback(hass, entry)
+
+    def _patched(self):
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+        stack.enter_context(patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=lambda coro, loop: coro.close(),
+        ))
+        stack.enter_context(patch(
+            "custom_components.roomba_plus.sensor._compute_room_time_estimates",
+            side_effect=lambda _e, names: [None] * len(names),
+        ))
+        return stack
+
+    @pytest.mark.asyncio
+    async def test_a_restart_keeps_the_stored_progress(self):
+        """Review finding: the first `run` after a restart sees the held
+        start and no plan time of this session -- that is no new plan."""
+        mts = MissionTimerStore()
+        mts.set_mission_plan("ABC123_1700000000", ["1", "10", "11"], None, _make_hass(), "e")
+        mts.current_room_idx = 2
+        mts.visited_rooms = [0, 1, 2]
+        mts.room_progress_observed = True
+        entry = _make_entry_v280_auto_advance_room_live(mts)
+        start = self._start(1699999993, ["1", "10", "11"])
+        entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": start}}}
+        with self._patched():
+            cb = self._cb(entry)
+            cb(self._run(start))
+            cb(self._run(start))
+        assert mts.current_room_idx == 2
+        assert mts.visited_rooms == [0, 1, 2]
+
+    @pytest.mark.asyncio
+    async def test_a_find_during_the_mission_is_no_new_plan(self):
+        """Review finding: `find` is held as the mission command too."""
+        mts = MissionTimerStore()
+        entry = _make_entry_v280_auto_advance_room_live(mts)
+        entry.runtime_data.mission_command = None
+        start = self._start(1699999993, ["1", "10"])
+        entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": start}}}
+        find = {"command": "find", "time": 1700000100, "initiator": "localApp"}
+        with self._patched():
+            cb = self._cb(entry)
+            cb(self._run(start))
+            entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": find}}}
+            cb(self._run(find))
+        assert mts.planned_rooms == ["1", "10"]
+
+    @pytest.mark.asyncio
+    async def test_a_new_plan_starts_the_position_rooms_afresh(self):
+        """Review finding: otherwise the room the robot is in never
+        counts as entered under the new plan."""
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        mts = MissionTimerStore()
+        entry = _make_entry_v280_auto_advance_room_live(mts)
+        entry.runtime_data.mission_command = None
+        tracker = PositionRoomTracker()
+        entry.runtime_data.position_room = tracker
+        first = self._start(1699999993, ["1", "10"])
+        second = self._start(1700000009, ["18", "19"])
+        entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": first}}}
+        with self._patched():
+            cb = self._cb(entry)
+            cb(self._run(first))
+            tracker.current = "Kitchen"
+            entry.runtime_data.roomba.master_state = {"state": {"reported": {"lastCommand": second}}}
+            cb(self._run(second))
+        assert tracker.current is None
+
+
+class TestEnterRoom:
+    """4.4.0: the robot's position puts it in a room (position_room)."""
+
+    @staticmethod
+    def _mts(rooms):
+        mts = MissionTimerStore()
+        mts.set_mission_plan("m1", list(rooms), None, _make_hass(), "e")
+        return mts
+
+    def test_a_planned_room_in_the_robots_order(self):
+        mts = self._mts(["Kitchen", "Hall", "Bath"])
+        hass = _make_hass()
+        assert mts.enter_room("Bath", hass, "e") == (None, 0.0)
+        mts.run_sec = 120.0
+        assert mts.enter_room("Kitchen", hass, "e") == ("Bath", 120.0)
+        assert mts.current_room == "Kitchen"
+        assert mts.visited_rooms == [2, 0]
+        assert mts.room_progress_observed is True
+
+    def test_the_same_room_again_moves_nothing(self):
+        mts = self._mts(["Kitchen", "Hall"])
+        hass = _make_hass()
+        mts.enter_room("Kitchen", hass, "e")
+        assert mts.enter_room("Kitchen", hass, "e") is None
+
+    def test_a_room_outside_the_plan_is_passed_through(self):
+        mts = self._mts(["Kitchen", "Hall"])
+        assert mts.enter_room("Corridor", _make_hass(), "e") is None
+        assert mts.planned_rooms == ["Kitchen", "Hall"]
+
+    def test_a_whole_home_run_collects_its_rooms(self):
+        mts = self._mts([])
+        hass = _make_hass()
+        mts.enter_room("Kitchen", hass, "e")
+        mts.enter_room("Hall", hass, "e")
+        assert mts.planned_rooms == ["Kitchen", "Hall"]
+        assert mts.rooms_from_positions is True
+        assert mts.current_room == "Hall"
+
+    def test_no_mission_no_room(self):
+        mts = MissionTimerStore()
+        assert mts.enter_room("Kitchen", _make_hass(), "e") is None
+
+    def test_kept_across_a_restart_and_reset_by_the_next_mission(self):
+        mts = self._mts([])
+        mts.enter_room("Kitchen", _make_hass(), "e")
+        payload = mts._payload()
+        assert payload["visited_rooms"] == [0]
+        assert payload["rooms_from_positions"] is True
+        mts.set_mission_plan("m2", ["A"], None, _make_hass(), "e")
+        assert mts.visited_rooms == []
+        assert mts.rooms_from_positions is False

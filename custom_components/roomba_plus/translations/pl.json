@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Włącz mapę na żywo",
           "live_position_requests": "Pytaj robota o pozycję",
+          "live_path_turn": "Obrót trasy na żywo",
           "map_size_px": "Rozmiar mapy (piksele)",
           "map_scale_mm_per_px": "Skala (mm/piksel)",
           "floor_label": "Etykieta piętra (np. Parter)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Włącz mapę sprzątania na żywo dla robotów z wykrywaniem pozycji (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Dostępne tylko dla robotów, które same nie podają swojej pozycji. Podczas sprzątania pyta robota mniej więcej raz na sekundę, aby rysować trasę na żywo. Wyłączone: mapa pokazuje zamiast tego ostatnią zakończoną misję z chmury iRobot, jeśli dostęp do chmury jest skonfigurowany.",
+          "live_path_turn": "Tylko z opcją powyżej. O ile trasa sprzątania jest obracana, aby leżała na mapie pomieszczeń. Automatycznie odczytuje to z mapy zapisanej przez samego robota, łącznie z obrotem ustawionym w aplikacji iRobot. Wybierz kąt tylko wtedy, gdy trasa jest obrócona względem mapy pomieszczeń, i wtedy dołącz diagnostykę do zgłoszenia, aby ustawienie automatyczne można było poprawić dla Twojego robota.",
           "map_size_px": "Rozmiar płótna mapy w pikselach (400–1200). Domyślnie: 600.",
           "map_scale_mm_per_px": "Milimetry na piksel (5–30). Domyślnie 10 = 6 m × 6 m przy 600 px.",
           "floor_label": "Dowolny tekst, np. Parter. Grupuje roboty w widoku floty.",
@@ -2368,6 +2370,15 @@
         "90": "90° zgodnie z ruchem wskazówek zegara",
         "180": "180°",
         "270": "270° zgodnie z ruchem wskazówek zegara (90° przeciwnie)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automatycznie",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

@@ -11,7 +11,7 @@ catalogue. This module is therefore a separate, hand-maintained parallel
 structure, selected at runtime via get_localized_error_entry() in
 const.py using hass.config.language.
 
-To keep 125 error codes with many exact-duplicate English texts (e.g.
+To keep the error codes with many exact-duplicate English texts (e.g.
 "Reboot required" appears for 6 different codes) from requiring the same
 translation to be typed out 6 times, translations are declared once per
 *unique* English (label, description, action) tuple in _TRANSLATION_GROUPS
@@ -534,94 +534,6 @@ _TRANSLATION_GROUPS: Final[list[tuple[list[int], dict[str, dict[str, str]]]]] = 
         "es": {"label": "Error del sistema de carga", "description": "El sistema de carga ha encontrado un error.", "action": "Compruebe la base y el cable. Contacte con soporte si el error persiste."},
         "pt": {"label": "Erro no sistema de carregamento", "description": "O sistema de carregamento encontrou um erro.", "action": "Verifique a base e o cabo. Contacte o suporte se o erro persistir."},
         "nl": {"label": "Fout in laadsysteem", "description": "Het laadsysteem heeft een fout vastgesteld.", "action": "Controleer het basisstation en de kabel. Neem contact op met de support als de fout blijft optreden."},
-    }),
-    ([130], {
-        "de": {"label": "Rückfahrgrenze erkannt", "description": "Der Roboter hat während der Reinigung eine Rückfahrgrenze erkannt.", "action": "Hindernisse hinter dem Roboter entfernen und erneut versuchen."},
-        "fr": {"label": "Limite de recul détectée", "description": "Le robot a détecté une limite de recul pendant le nettoyage.", "action": "Retirez les obstacles derrière le robot et réessayez."},
-        "it": {"label": "Limite di retromarcia rilevato", "description": "Il robot ha rilevato un limite di retromarcia durante la pulizia.", "action": "Rimuovere gli ostacoli dietro il robot e riprovare."},
-        "es": {"label": "Límite de retroceso detectado", "description": "El robot detectó un límite de retroceso durante la limpieza.", "action": "Retire los obstáculos detrás del robot e inténtelo de nuevo."},
-        "pt": {"label": "Limite de recuo detetado", "description": "O robô detetou um limite de recuo durante a limpeza.", "action": "Remova os obstáculos atrás do robô e tente novamente."},
-        "nl": {"label": "Achteruitrijlimiet gedetecteerd", "description": "De robot heeft tijdens het reinigen een achteruitrijlimiet gedetecteerd.", "action": "Verwijder obstakels achter de robot en probeer het opnieuw."},
-    }),
-    ([131], {
-        "de": {"label": "Hindernisfolge fehlgeschlagen", "description": "Der Roboter konnte nicht um ein Hindernis herum navigieren.", "action": "Hindernisse aus dem Reinigungsbereich entfernen."},
-        "fr": {"label": "Échec du contournement d'obstacle", "description": "Le robot n'a pas réussi à contourner un obstacle.", "action": "Retirez les obstacles de la zone de nettoyage."},
-        "it": {"label": "Aggiramento ostacolo fallito", "description": "Il robot non è riuscito ad aggirare un ostacolo.", "action": "Rimuovere gli ostacoli dall'area di pulizia."},
-        "es": {"label": "Fallo al bordear obstáculo", "description": "El robot no pudo sortear un obstáculo.", "action": "Retire los obstáculos del área de limpieza."},
-        "pt": {"label": "Falha ao contornar obstáculo", "description": "O robô não conseguiu contornar um obstáculo.", "action": "Remova os obstáculos da área de limpeza."},
-        "nl": {"label": "Obstakel omzeilen mislukt", "description": "De robot kon niet om een obstakel heen navigeren.", "action": "Verwijder obstakels uit het reinigingsgebied."},
-    }),
-    ([132], {
-        "de": {"label": "Hardwarefehler", "description": "Eine Hardwarekomponente reagiert nicht korrekt.", "action": "Roboter neu starten. Support kontaktieren, falls der Fehler weiter besteht."},
-        "fr": {"label": "Erreur matérielle", "description": "Un composant matériel ne répond pas correctement.", "action": "Redémarrez le robot. Contactez le support si l'erreur persiste."},
-        "it": {"label": "Errore hardware", "description": "Un componente hardware non risponde correttamente.", "action": "Riavviare il robot. Contattare l'assistenza se l'errore persiste."},
-        "es": {"label": "Error de hardware", "description": "Un componente de hardware no responde correctamente.", "action": "Reinicie el robot. Contacte con soporte si el error persiste."},
-        "pt": {"label": "Erro de hardware", "description": "Um componente de hardware não responde corretamente.", "action": "Reinicie o robô. Contacte o suporte se o erro persistir."},
-        "nl": {"label": "Hardwarefout", "description": "Een hardwareonderdeel reageert niet goed.", "action": "Start de robot opnieuw op. Neem contact op met de support als de fout blijft optreden."},
-    }),
-    ([133], {
-        "de": {"label": "Zeitüberschreitung bei Navigation", "description": "Die Navigation hat länger als erwartet gedauert.", "action": "Sicherstellen, dass der Roboter einen freien Weg hat, und erneut versuchen."},
-        "fr": {"label": "Délai de navigation dépassé", "description": "La navigation a pris plus de temps que prévu.", "action": "Assurez-vous que le robot dispose d'un chemin dégagé et réessayez."},
-        "it": {"label": "Timeout di navigazione", "description": "La navigazione ha richiesto più tempo del previsto.", "action": "Assicurarsi che il robot abbia un percorso libero e riprovare."},
-        "es": {"label": "Tiempo de navegación agotado", "description": "La navegación tardó más de lo esperado.", "action": "Asegúrese de que el robot tenga un camino despejado e inténtelo de nuevo."},
-        "pt": {"label": "Tempo de navegação esgotado", "description": "A navegação demorou mais do que o esperado.", "action": "Certifique-se de que o robô tem um caminho livre e tente novamente."},
-        "nl": {"label": "Navigatie-time-out", "description": "De navigatie duurde langer dan verwacht.", "action": "Zorg dat de robot een vrij pad heeft en probeer het opnieuw."},
-    }),
-    ([134], {
-        "de": {"label": "Aufladen fehlgeschlagen", "description": "Der Roboter konnte die Ladestation zum Aufladen nicht finden oder erreichen.", "action": "Prüfen, ob die Ladestation zugänglich und unversperrt ist."},
-        "fr": {"label": "Échec de recharge", "description": "Le robot n'a pas pu localiser ou atteindre la base pour recharger.", "action": "Vérifiez que la base est accessible et dégagée."},
-        "it": {"label": "Ricarica fallita", "description": "Il robot non è riuscito a localizzare o raggiungere la base per ricaricarsi.", "action": "Verificare che la base sia accessibile e libera."},
-        "es": {"label": "Fallo al recargar", "description": "El robot no pudo localizar o llegar a la base para recargarse.", "action": "Compruebe que la base sea accesible y esté despejada."},
-        "pt": {"label": "Falha ao recarregar", "description": "O robô não conseguiu localizar ou chegar à base para recarregar.", "action": "Verifique se a base está acessível e desobstruída."},
-        "nl": {"label": "Opladen mislukt", "description": "De robot kon het basisstation niet vinden of bereiken om op te laden.", "action": "Controleer of het basisstation toegankelijk en vrij is."},
-    }),
-    ([140], {
-        "de": {"label": "Fehler linke Bürste", "description": "Die linke Bürste ist blockiert oder klemmt.", "action": "Linke Bürste und ihre Halterungen reinigen."},
-        "fr": {"label": "Erreur brosse gauche", "description": "La brosse gauche est calée ou bloquée.", "action": "Nettoyez la brosse gauche et ses supports."},
-        "it": {"label": "Errore spazzola sinistra", "description": "La spazzola sinistra è bloccata o incastrata.", "action": "Pulire la spazzola sinistra e le sue protezioni."},
-        "es": {"label": "Error de cepillo izquierdo", "description": "El cepillo izquierdo está atascado o bloqueado.", "action": "Limpie el cepillo izquierdo y sus soportes."},
-        "pt": {"label": "Erro na escova esquerda", "description": "A escova esquerda está encravada ou bloqueada.", "action": "Limpe a escova esquerda e os seus suportes."},
-        "nl": {"label": "Fout linkerborstel", "description": "De linkerborstel is vastgelopen of geblokkeerd.", "action": "Reinig de linkerborstel en de bijbehorende geleiders."},
-    }),
-    ([141], {
-        "de": {"label": "Fehler rechte Bürste", "description": "Die rechte Bürste ist blockiert oder klemmt.", "action": "Rechte Bürste und ihre Halterungen reinigen."},
-        "fr": {"label": "Erreur brosse droite", "description": "La brosse droite est calée ou bloquée.", "action": "Nettoyez la brosse droite et ses supports."},
-        "it": {"label": "Errore spazzola destra", "description": "La spazzola destra è bloccata o incastrata.", "action": "Pulire la spazzola destra e le sue protezioni."},
-        "es": {"label": "Error de cepillo derecho", "description": "El cepillo derecho está atascado o bloqueado.", "action": "Limpie el cepillo derecho y sus soportes."},
-        "pt": {"label": "Erro na escova direita", "description": "A escova direita está encravada ou bloqueada.", "action": "Limpe a escova direita e os seus suportes."},
-        "nl": {"label": "Fout rechterborstel", "description": "De rechterborstel is vastgelopen of geblokkeerd.", "action": "Reinig de rechterborstel en de bijbehorende geleiders."},
-    }),
-    ([160], {
-        "de": {"label": "Navigationsproblem", "description": "Der Roboter hat ein allgemeines Navigationsproblem.", "action": "Roboter in einem offenen Bereich platzieren und die Mission neu starten."},
-        "fr": {"label": "Problème de navigation", "description": "Le robot a un problème de navigation général.", "action": "Placez le robot dans un espace dégagé et redémarrez la mission."},
-        "it": {"label": "Problema di navigazione", "description": "Il robot ha un problema di navigazione generale.", "action": "Posizionare il robot in un'area aperta e riavviare la missione."},
-        "es": {"label": "Problema de navegación", "description": "El robot tiene un problema de navegación general.", "action": "Coloque el robot en un área abierta y reinicie la misión."},
-        "pt": {"label": "Problema de navegação", "description": "O robô tem um problema de navegação geral.", "action": "Coloque o robô numa área aberta e reinicie a missão."},
-        "nl": {"label": "Navigatieprobleem", "description": "De robot heeft een algemeen navigatieprobleem.", "action": "Plaats de robot in een open ruimte en start de missie opnieuw."},
-    }),
-    ([161], {
-        "de": {"label": "Ladestation nicht gefunden", "description": "Der Roboter konnte die Ladestation nach der Reinigung nicht finden.", "action": "Sicherstellen, dass die Ladestation eingesteckt und unversperrt ist."},
-        "fr": {"label": "Base introuvable", "description": "Le robot n'a pas trouvé la base après le nettoyage.", "action": "Assurez-vous que la base est branchée et dégagée."},
-        "it": {"label": "Base non trovata", "description": "Il robot non è riuscito a trovare la base dopo la pulizia.", "action": "Assicurarsi che la base sia collegata e sgombra."},
-        "es": {"label": "Base no encontrada", "description": "El robot no pudo encontrar la base después de limpiar.", "action": "Asegúrese de que la base esté enchufada y despejada."},
-        "pt": {"label": "Base não encontrada", "description": "O robô não conseguiu encontrar a base depois de limpar.", "action": "Certifique-se de que a base está ligada e desobstruída."},
-        "nl": {"label": "Basisstation niet gevonden", "description": "De robot kon het basisstation na het reinigen niet vinden.", "action": "Zorg dat het basisstation is aangesloten en onbelemmerd is."},
-    }),
-    ([162], {
-        "de": {"label": "Niedriger Akkustand — Abbruch", "description": "Akku zu niedrig, um die Mission abzuschließen.", "action": "Roboter vor der nächsten Mission vollständig laden lassen."},
-        "fr": {"label": "Batterie faible — abandon", "description": "Batterie trop faible pour terminer la mission.", "action": "Laissez le robot se recharger complètement avant la prochaine mission."},
-        "it": {"label": "Batteria scarica — interruzione", "description": "Batteria troppo scarica per completare la missione.", "action": "Lasciare che il robot si ricarichi completamente prima della prossima missione."},
-        "es": {"label": "Batería baja — cancelado", "description": "Batería demasiado baja para completar la misión.", "action": "Deje que el robot se cargue completamente antes de la próxima misión."},
-        "pt": {"label": "Bateria fraca — abortado", "description": "Bateria demasiado fraca para concluir a missão.", "action": "Deixe o robô carregar completamente antes da próxima missão."},
-        "nl": {"label": "Batterij bijna leeg — afgebroken", "description": "Batterij te zwak om de missie te voltooien.", "action": "Laat de robot volledig opladen vóór de volgende missie."},
-    }),
-    ([163], {
-        "de": {"label": "Mission fehlgeschlagen", "description": "Die Mission konnte nicht abgeschlossen werden.", "action": "Nach Hindernissen suchen und erneut versuchen."},
-        "fr": {"label": "Échec de la mission", "description": "La mission n'a pas pu être terminée.", "action": "Vérifiez la présence d'obstacles et réessayez."},
-        "it": {"label": "Missione fallita", "description": "Non è stato possibile completare la missione.", "action": "Verificare la presenza di ostacoli e riprovare."},
-        "es": {"label": "Misión fallida", "description": "No se pudo completar la misión.", "action": "Compruebe si hay obstáculos e inténtelo de nuevo."},
-        "pt": {"label": "Missão falhada", "description": "Não foi possível concluir a missão.", "action": "Verifique se há obstáculos e tente novamente."},
-        "nl": {"label": "Missie mislukt", "description": "De missie kon niet worden voltooid.", "action": "Controleer op obstakels en probeer het opnieuw."},
     }),
     ([216], {
         "de": {"label": "Beutel der Ladestation voll", "description": "Der Beutel der Clean Base ist voll und muss ersetzt werden.", "action": "Clean-Base-Beutel ersetzen."},

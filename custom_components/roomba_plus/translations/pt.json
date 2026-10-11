@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Ativar mapa em tempo real",
           "live_position_requests": "Perguntar a posição ao robô",
+          "live_path_turn": "Rotação do percurso em direto",
           "map_size_px": "Tamanho do mapa (píxeis)",
           "map_scale_mm_per_px": "Escala (mm/píxel)",
           "floor_label": "Andar (ex.: Rés do chão)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Ativar o mapa de limpeza em tempo real para robôs com deteção de posição (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Apenas para robôs que não informam a sua posição por si próprios. Pergunta ao robô cerca de uma vez por segundo durante a limpeza para desenhar o percurso em direto. Desligado: o mapa mostra em vez disso a última missão concluída a partir da cloud da iRobot, se o acesso à cloud estiver configurado.",
+          "live_path_turn": "Só com a opção acima. Quanto o percurso de limpeza é rodado para coincidir com o mapa das divisões. Automático lê-o do mapa que o próprio robô guardou, incluindo uma rotação definida na app iRobot. Escolha um ângulo só se o percurso aparecer rodado em relação ao mapa das divisões e, nesse caso, anexe o diagnóstico a um pedido para que a definição automática possa ser corrigida para o seu robô.",
           "map_size_px": "Tamanho do canvas do mapa em píxeis (400–1200). Predefinição: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predefinição 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto livre, por exemplo Rés-do-chão. Agrupa os robôs na vista de frota.",
@@ -2368,6 +2370,15 @@
         "90": "90° no sentido horário",
         "180": "180°",
         "270": "270° no sentido horário (90° anti-horário)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automático",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

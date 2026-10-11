@@ -177,6 +177,9 @@ DOOR_FILL        = ( 24,  95, 165, 200)  # Blue dashed — user door gap line
 DOOR_ARC_FILL    = ( 24,  95, 165,  35)  # Blue transparent — door swing arc
 DOOR_ARC_OUTLINE = ( 24,  95, 165, 120)  # Blue — door swing arc border
 OBSTACLE_FILL    = (186, 117,  23,  45)  # Amber — obstacle area fill
+FLOOR_PLAN_FILL  = (238, 241, 246, 255)  # Pale grey-blue — a room of the floor plan (4.4.0)
+FLOOR_PLAN_LINE  = (170, 180, 195, 255)  # Grey — its outline
+FLOOR_PLAN_TEXT  = (110, 120, 135, 255)  # Grey — its name
 OBSTACLE_OUTLINE = (186, 117,  23, 190)  # Amber — obstacle border and hatch
 
 # ── Robot footprint (real chassis diameter, mm) ───────────────────────────────
@@ -323,6 +326,11 @@ class MapRenderer:
         #: Optional pixel-space extent to fit to instead of own content.
         #: Two corner points; see _compute_fit().
         self._fit_bounds_px: list[tuple[int, int]] | None = None
+        #: THE FLOOR PLAN UNDER THE PATH (4.4.0, @frnchfrgg): (name or
+        #: None, polygon) per room, in the frame add_pose() takes. Set by
+        #: the map entity before render(); drawn first and part of the
+        #: fit, so the picture holds the whole floor while the path grows.
+        self.floor_plan: list[tuple[str | None, list[tuple[float, float]]]] = []
         self._fit_cx: int = self._cfg.size_px // 2
         self._fit_cy: int = self._cfg.size_px // 2
         # v2.9.0 — see _MAX_POSE_JUMP_MM rationale below. Counts consecutive
@@ -662,6 +670,9 @@ class MapRenderer:
         else:
             all_px = list(self._points)
             all_px.extend(self._stuck_px)
+            for _name, polygon in self.floor_plan:
+                if len(polygon) >= 3:
+                    all_px.extend(self._mm_to_px(x, y) for x, y in polygon)
         if self._robot_px:
             all_px.append(self._robot_px)
 
@@ -760,6 +771,9 @@ class MapRenderer:
         img = Image.new("RGBA", (size, size), BG_COLOUR)
         draw = ImageDraw.Draw(img)
         draw.rectangle([0, 0, size - 1, size - 1], outline=FLOOR_BORDER, width=2)
+
+        # Layer 1.4 — the floor plan, under everything else (4.4.0).
+        self._draw_floor_plan(draw)
 
         # Layer 1.5 — inference suggestions (zone outlines + door markers).
         # Suppressed once user geometry exists, so the two never overlap.
@@ -1116,7 +1130,34 @@ class MapRenderer:
             "stuck_event_count": len(self._stuck_px),
         }
 
+    def set_floor_plan(
+        self, plan: list[tuple[str | None, list[tuple[float, float]]]]
+    ) -> None:
+        """The rooms to draw under the path (see `floor_plan`)."""
+        self.floor_plan = list(plan)
+
     # ── Geometry layers ───────────────────────────────────────────────────────
+
+    def _draw_floor_plan(self, draw: ImageDraw.ImageDraw) -> None:
+        """Layer 1.4 — the rooms of the floor plan, filled and outlined.
+
+        Names, where given, at each room's vertex mean: good enough to
+        say which room is which, as the rooms map does.
+        """
+        for name, polygon in self.floor_plan:
+            if len(polygon) < 3:
+                continue
+            points = [self._mm_to_px_fit(x, y) for x, y in polygon]
+            draw.polygon(points, fill=FLOOR_PLAN_FILL, outline=FLOOR_PLAN_LINE, width=2)
+        for name, polygon in self.floor_plan:
+            if not name or len(polygon) < 3:
+                continue
+            cx = sum(x for x, _y in polygon) / len(polygon)
+            cy = sum(y for _x, y in polygon) / len(polygon)
+            draw.text(
+                self._mm_to_px_fit(cx, cy), name,
+                fill=FLOOR_PLAN_TEXT, anchor="mm", font=LABEL_FONT_SMALL,
+            )
 
     def _draw_inference_suggestions(self, draw: ImageDraw.ImageDraw) -> None:
         """Layer 1.5 — dashed room outlines and door crossing markers.

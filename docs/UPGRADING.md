@@ -9,6 +9,21 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.4.0 — from v4.3.7
+
+**A map turned in the iRobot app:** the live path is turned back by the
+angles of the map the robot saved itself, so it lies on the rooms map
+whether or not the robot has picked up your turn yet. If it lies turned
+against the rooms map all the same, set *Turn of the live path* under
+Configure → Connection settings.
+
+**Error codes 130–134, 140/141 and 160–163 no longer have a text.** No
+source documents them; their labels were made up. If an automation
+compares the last error's description or action for one of these codes,
+it now sees an empty string. The sensor still reports the code.
+
+---
+
 ## v4.3.6 — from v4.3.5
 
 **Presence scheduling on a Prime robot starts working.** It failed at its

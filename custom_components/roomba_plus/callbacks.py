@@ -25,6 +25,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from .position_room import PositionRoomTracker
 from .const import (
     lifetime_hours,
     IN_MISSION_COMMANDS,
@@ -32,7 +33,7 @@ from .const import (
     mission_scope,
     ROOM_EVENT_CLOSED_AT_END_STATUSES,
     ROOM_EVENT_DONE_STATUSES,
-    ROOM_EVENT_PASS_DONE_STATUSES,
+    recovered_after_stuck,
     ROOMS_AWAITING_CLOUD,
     mission_store_changed_signal,
 )
@@ -437,15 +438,6 @@ def _mission_recovered_after_stuck(
     if not mission_id:
         return None
 
-    def _after_stuck(ev: dict[str, Any]) -> bool:
-        # A room event carries its start (`ts`) and its end (`ets`); the
-        # end is what must come after the stuck. A travel event has `ts`.
-        when = ev.get("ets") or ev.get("ts")
-        try:
-            return when is not None and float(when) > stuck_at
-        except (TypeError, ValueError):
-            return False
-
     for record in getattr(cc, "raw_records", None) or []:
         if not isinstance(record, dict):
             continue
@@ -454,24 +446,9 @@ def _mission_recovered_after_stuck(
         timeline = record.get("timeline")
         if not isinstance(timeline, dict):
             return None
-        events = [ev for ev in timeline.get("finEvents") or [] if isinstance(ev, dict)]
-
-        worked_on = any(
-            ev.get("type") == "room"
-            and (ev.get("room") or {}).get("status") in ROOM_EVENT_PASS_DONE_STATUSES
-            and _after_stuck(ev)
-            for ev in events
-        )
-        docked = any(
-            ev.get("type") == "travel"
-            and (ev.get("travel") or {}).get("dest") == "dock"
-            and _after_stuck(ev)
-            for ev in events
-        )
-        # EITHER is enough. A mission that finished a pass after being
-        # freed did not abandon, whatever its ending; and one that drove
-        # home under its own power did not abandon either.
-        return worked_on or docked
+        # EITHER is enough: a pass finished after being freed, or a drive
+        # home under its own power (const.recovered_after_stuck).
+        return recovered_after_stuck(timeline.get("finEvents") or [], stuck_at)
 
     return None
 
@@ -710,6 +687,7 @@ async def async_record_mission(
     result_override: str | None = None,
     npicks_delta: int = 0,
     scope: str | None = None,
+    stuck_at: float = 0.0,
 ) -> None:
     """Build and append a mission record to MissionStore.
 
@@ -887,6 +865,10 @@ async def async_record_mission(
         "error_position_mm": error_position_mm,
         "phase_at_error":    phase_at_error,
         "self_recovered":    self_recovered,
+        # WHEN IT GOT STUCK (4.4.0), so the cloud's timeline can still
+        # settle the outcome once it arrives (MissionStore
+        # _merge_cloud_fields): at mission end it is almost never there.
+        "stuck_at_ts": int(stuck_at) if stuck_at else None,
         "team_id": team_id,   # v3.2.0 TEAM-INDICATOR
         "npicks_delta": npicks_delta,   # v3.2.0 ANOMALY-EXPLAIN
     }
@@ -1202,6 +1184,11 @@ class _MissionState:
     """
 
     last_phase: str = ""
+    #: The `time` of the start command the room plan was built from
+    #: (4.4.0): a newer one during the mission replaces the plan.
+    #: `plan_built` turns True once this session has built or adopted it.
+    plan_command_time: Any = None
+    plan_built: bool = False
     was_travelling: bool = False
     #: Whether the robot reported travelling at any point in this mission
     #: (4.2.15). A robot that never does -- a Braava -- gives room
@@ -1503,7 +1490,35 @@ def _update_room_progress(
         if phase == "run":
             _is_new_mission = mts_upd.mission_id != _mission_id
             mts_upd.on_phase_run(_mission_id, hass, entry.entry_id)
-            if _is_new_mission:
+            # A NEW START DURING THE MISSION IS A NEW PLAN (4.4.0). The
+            # plan was built once, at the first `run`, so @frnchfrgg's
+            # six-room start nine seconds after a two-room one left room
+            # tracking on two rooms for a six-room run.
+            #
+            # Only a START replans -- a `find`, `dock` or `stop` is held
+            # as the mission command too and has no rooms -- and only
+            # once this session has built the plan: after a restart the
+            # stored plan and its progress stand, and the first `run`
+            # sees the held start with no plan time of its own yet.
+            _held = getattr(entry.runtime_data, "mission_command", None)
+            _held_time = _held.get("time") if isinstance(_held, dict) else None
+            _replanned = (
+                not _is_new_mission
+                and ms.plan_built
+                and isinstance(_held, dict)
+                and _held.get("command") == "start"
+                and _held_time is not None
+                and _held_time != ms.plan_command_time
+            )
+            if not _is_new_mission and not ms.plan_built:
+                ms.plan_command_time = _held_time
+                ms.plan_built = True
+            if _is_new_mission or _replanned:
+                _position_room = getattr(entry.runtime_data, "position_room", None)
+                if isinstance(_position_room, PositionRoomTracker):
+                    _position_room.reset()
+                ms.plan_command_time = _held_time
+                ms.plan_built = True
                 # v2.7.5: wire set_mission_plan on mission start so
                 # planned_rooms is populated for current_room fallback
                 # and for MTS persistence across HA restarts.
@@ -1734,6 +1749,7 @@ def _update_room_progress(
                         hass,
                         entry.entry_id,
                         room_estimates_sec=_room_secs,
+                        replan=_replanned,
                     )
                 else:
                     # NO ROOMS IS A PLAN TOO (4.3.4): the whole home. The
@@ -1742,6 +1758,7 @@ def _update_room_progress(
                     # falls back to them.
                     mts_upd.set_mission_plan(
                         _mission_id, [], None, hass, entry.entry_id,
+                        replan=_replanned,
                     )
         else:
             # v2.7.5: pass hass/entry_id so on_phase_other can save
@@ -1898,7 +1915,7 @@ def _confirm_mission_end(
                 result_override = "stuck_and_abandoned"
 
         entry.async_create_task(
-            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed_rooms(entry, last_room_worked=ms.ran_in_room), rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope)
+            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed_rooms(entry, last_room_worked=ms.ran_in_room), rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope, stuck_at=ms.stuck_at if ms.had_stuck_event else 0.0)
         )
         # MP1 (v2.6.0): clear mission timer at end
         _mts = getattr(entry.runtime_data, "mission_timer_store", None)
@@ -1923,6 +1940,57 @@ def _confirm_mission_end(
         ms._last_mirrored_recharge_min = 0
         ms.had_stuck_event = False
         ms.stuck_cleared_ts = 0.0
+
+
+def _position_rooms_active(entry: "RoombaConfigEntry") -> bool:
+    """Whether room tracking follows the robot's position (4.4.0)."""
+    tracker = getattr(getattr(entry, "runtime_data", None), "position_room", None)
+    return isinstance(tracker, PositionRoomTracker) and tracker.active()
+
+
+def _apply_position_room(
+    ms: _MissionState,
+    hass: HomeAssistant,
+    entry: "RoombaConfigEntry",
+    previous: str | None,
+    room: str,
+) -> None:
+    """The robot's position confirmed a room (position_room.py, 4.4.0).
+
+    Moves the room display there, in the robot's own order, and fires
+    `room_completed` for the room it left -- only one it was seen in, so
+    a run that starts in the third planned room does not report the
+    first as done.
+    """
+    mts = getattr(entry.runtime_data, "mission_timer_store", None)
+    if mts is None or not ms.mission_start_ts:
+        return
+    moved = mts.enter_room(room, hass, entry.entry_id)
+    if moved is None:
+        return
+    left, seconds = moved
+    ms.cleaned_in_room = False
+    ms.ran_in_room = False
+    _LOGGER.info(
+        "Room tracking: the robot's position puts it in %s (left %s)",
+        room, left,
+    )
+    if left is None or previous is None:
+        return
+    if getattr(entry.runtime_data, "cloud_coordinator", None) is None:
+        _remember_measured_room_time(entry, left, seconds, mode=None)
+    hass.bus.async_fire(
+        EVENT_ROOM_COMPLETED,
+        {
+            "entry_id": entry.entry_id,
+            "name": entry.title,
+            "room_name": left,
+            "room_idx": (
+                mts.planned_rooms.index(left) if left in mts.planned_rooms else None
+            ),
+            "duration_sec": round(seconds) if seconds > 0 else None,
+        },
+    )
 
 
 def _advance_room_on_drive_end(
@@ -1969,6 +2037,10 @@ def _advance_room_on_drive_end(
             and _room_transition_confidence_ok(
                 mission, mts_upd, from_travel=returned_from_travel
             )
+            # POSITIONS DECIDE WHILE THEY ARRIVE (4.4.0): the room comes
+            # from where the robot is (_apply_position_room), not from a
+            # phase change measured against an estimate.
+            and not _position_rooms_active(entry)
         ):
             # WHAT THE ROOM ACTUALLY TOOK, before advancing.
             #
@@ -2259,6 +2331,15 @@ def _has_unvisited_planned_rooms(
     _idx = getattr(_mts_check, "current_room_idx", 0)
     if not isinstance(_idx, int):
         return False
+    # ROOMS SEEN BY POSITION (4.4.0) are known visited in any order; a
+    # whole-home run's rooms are rooms entered, not a plan.
+    if getattr(_mts_check, "rooms_from_positions", False) is True:
+        return False
+    _visited = getattr(_mts_check, "visited_rooms", None)
+    if isinstance(_visited, list) and _visited and all(
+        i in _visited for i in range(len(_rooms))
+    ):
+        return False
     if _idx >= len(_rooms) - 1:
         return False
     # Index says rooms remain — but the index structurally can
@@ -2302,6 +2383,18 @@ def make_mission_callback(
     # command. Taken from the cached state here, a skip after a restart
     # of Home Assistant in the middle of a room mission keeps the plan.
     _hold_mission_command(entry, _cached_last_command(entry))
+
+    # THE ROOM FROM THE POSITION (4.4.0): confirmed room changes move the
+    # room display (_apply_position_room).
+    _position_room = getattr(getattr(entry, "runtime_data", None), "position_room", None)
+    if isinstance(_position_room, PositionRoomTracker):
+        entry.async_on_unload(
+            _position_room.add_listener(
+                lambda previous, room: _apply_position_room(
+                    ms, hass, entry, previous, room
+                )
+            )
+        )
 
     def _on_mission_message(json_data: dict[str, Any], _synthetic: bool = False) -> None:
 

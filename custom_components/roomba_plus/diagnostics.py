@@ -5,6 +5,7 @@ Accessible via Settings → Devices & Services → Roomba+ → Download diagnost
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 import math
 import re
 
@@ -17,9 +18,12 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .live_position import LivePositionStream
+from .position_room import PositionRoomTracker
 from .structural_failures import diagnostic_info
 from .const import (
+    CONF_LIVE_PATH_TURN,
     CONF_PRIME_FAVORITE_BUTTONS,
+    DEFAULT_LIVE_PATH_TURN,
     DEFAULT_PRIME_FAVORITE_BUTTONS,
 )
 from .withheld_features import withheld_features
@@ -38,6 +42,8 @@ from .cloud_coordinator import (
     pmap_record_id,
     pmap_version_report,
     umf_pose_report,
+    requested_position_turn,
+    umf_position_turn,
     umf_user_turn_rad,
 )
 from .room_cleaning import resolve_user_pmapv_id
@@ -803,7 +809,19 @@ def _missions_with_traversals(data: Any) -> int | str:
     return count
 
 
-def _position_chain(data: Any) -> dict[str, Any]:
+def _drawn_path_turn_deg(data: Any, options: Any) -> float | None:
+    """The turn requested positions get, in degrees (4.4.0)."""
+    setting = (
+        options.get(CONF_LIVE_PATH_TURN, DEFAULT_LIVE_PATH_TURN)
+        if isinstance(options, Mapping)
+        else DEFAULT_LIVE_PATH_TURN
+    )
+    cc = getattr(data, "cloud_coordinator", None)
+    umf = getattr(cc, "umf_data", None) if cc is not None else None
+    return round(math.degrees(requested_position_turn(setting, umf)[0]), 1)
+
+
+def _position_chain(data: Any, options: Any = None) -> dict[str, Any]:
     """Where the "which room" chain stands, link by link.
 
     Each link is useless without the one before it, and each fails
@@ -834,6 +852,16 @@ def _position_chain(data: Any) -> dict[str, Any]:
             and isinstance((umf.get("poses") or {}).get("orientation_rad"), dict)
             else None
         ),
+        # WHICH MAP VERSION THAT TURN CAME FROM, AND WHAT IS DRAWN
+        # (4.4.0): "robot_version" (the map the robot saved itself),
+        # "map_version" (the committed one, 4.3.4-4.3.7) or "setting"
+        # when the user chose an angle. The setting is in "options" too.
+        "requested_path_turn_source": (
+            umf_position_turn(getattr(cc, "umf_data", None))[1]
+            if (cc := getattr(data, "cloud_coordinator", None)) is not None
+            else None
+        ),
+        "requested_path_turn_drawn_deg": _drawn_path_turn_deg(data, options),
         "aligner_present": aligner is not None,
         "aligner_aligned": getattr(aligner, "aligned", None),
         # AND HOW CLOSE IT CAME (4.3.3, @catongates): below 0.70 it is
@@ -1099,6 +1127,16 @@ def _room_tracking_summary(data: Any) -> dict[str, Any] | str:
         # transitions are not reaching the store.
         "elapsed_run_min": getattr(store, "elapsed_run_min", None),
         "run_sec": getattr(store, "run_sec", None),
+        # THE ROOM FROM THE POSITION (4.4.0): which planned rooms the
+        # robot's position put it in, whether a whole-home run's rooms
+        # came from there, and what the tracker sees now. Names only.
+        "visited_rooms": getattr(store, "visited_rooms", None),
+        "rooms_from_positions": getattr(store, "rooms_from_positions", None),
+        "position_room": (
+            tracker.diagnostics()
+            if isinstance(tracker := getattr(data, "position_room", None), PositionRoomTracker)
+            else None
+        ),
     }
 
 
@@ -1750,7 +1788,7 @@ async def _build_diagnostics(
             # to answer questions that came from cloud-only robots in
             # the first place -- @Thonno's room tracking and
             # @theChef613's zone names -- and neither could see them.
-            "position_chain": _position_chain(data),
+            "position_chain": _position_chain(data, config_entry.options),
             "missions_with_traversals": _missions_with_traversals(data),
             # THE STATE-DERIVED SECTIONS, from the shadows. Same
             # helpers the local dump uses, same shape of input --
@@ -2169,7 +2207,7 @@ async def _build_diagnostics(
         # across missions -> aligner transform -> `room_name_at()`. It
         # fails silently at whichever link is missing, and nothing said
         # which.
-        "position_chain": _position_chain(data),
+        "position_chain": _position_chain(data, config_entry.options),
         "field_evidence": _field_evidence(data),
     }
     if data.renderer is not None:

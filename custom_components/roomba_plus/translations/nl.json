@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Live kaart inschakelen",
           "live_position_requests": "Robot naar zijn positie vragen",
+          "live_path_turn": "Draaiing van het live-pad",
           "map_size_px": "Kaartgrootte (pixels)",
           "map_scale_mm_per_px": "Schaal (mm/pixel)",
           "floor_label": "Verdieping (bijv. Begane grond)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "De live reinigingskaart inschakelen voor robots met positiebepaling (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Alleen aangeboden voor robots die hun positie niet zelf doorgeven. Vraagt de robot tijdens het schoonmaken ongeveer eens per seconde naar zijn positie om de route live te tekenen. Uit: de kaart toont in plaats daarvan de laatste voltooide missie uit de iRobot-cloud, als cloudtoegang is ingesteld.",
+          "live_path_turn": "Alleen met de optie hierboven. Hoe ver het schoonmaakpad wordt gedraaid om op de kamerkaart te liggen. Automatisch leest het uit de kaart die de robot zelf heeft opgeslagen, inclusief een draaiing die in de iRobot-app is ingesteld. Kies alleen een hoek als het pad gedraaid ligt ten opzichte van de kamerkaart, en voeg dan de diagnose toe aan een issue zodat de automatische instelling voor je robot kan worden verbeterd.",
           "map_size_px": "Kaartcanvasgrootte in pixels (400–1200). Standaard: 600.",
           "map_scale_mm_per_px": "Millimeter per pixel (5–30). Standaard 10 = 6 m × 6 m bij 600 px.",
           "floor_label": "Vrije tekst, bijvoorbeeld Begane grond. Groepeert robots in het vlootoverzicht.",
@@ -2368,6 +2370,15 @@
         "90": "90° met de klok mee",
         "180": "180°",
         "270": "270° met de klok mee (90° tegen de klok in)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automatisch",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

@@ -87,7 +87,10 @@ from .const import (
     CONF_FLOOR,
     CONF_IROBOT_PASSWORD,
     CONF_IROBOT_USERNAME,
+    CONF_LIVE_PATH_TURN,
     CONF_LIVE_POSITION_REQUESTS,
+    DEFAULT_LIVE_PATH_TURN,
+    LIVE_PATH_TURN_CHOICES,
     CONF_MAP_ENABLED,
     CONF_MAP_ROTATION,
     CONF_MAP_SCALE,
@@ -1867,6 +1870,24 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                     ),
                 )
             ] = bool
+            # THE TURN OF THOSE POSITIONS (4.4.0, @frnchfrgg's suggestion):
+            # "auto" reads it from the robot's own map version; a fixed
+            # angle is for a robot where that reads wrong. Only beside the
+            # requests: a robot that publishes its position is not turned.
+            schema[
+                vol.Optional(
+                    CONF_LIVE_PATH_TURN,
+                    default=str(
+                        options.get(CONF_LIVE_PATH_TURN, DEFAULT_LIVE_PATH_TURN)
+                    ),
+                )
+            ] = selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[*LIVE_PATH_TURN_CHOICES],
+                    translation_key="live_path_turn",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
         schema.update(
             {
                 vol.Optional(

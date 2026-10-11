@@ -57,7 +57,9 @@ from homeassistant.util import dt as dt_util
 from .zone_naming import map_room_label, room_display_name
 from . import roomba_reported_state
 from .const import (
+    CONF_LIVE_PATH_TURN,
     CONF_LIVE_POSITION_REQUESTS,
+    DEFAULT_LIVE_PATH_TURN,
     CONF_MAP_ROTATION,
     CONF_MAP_CLEAN_ZONES,
     DEFAULT_LIVE_POSITION_REQUESTS,
@@ -82,7 +84,8 @@ from .const import (
 )
 from .entity import IRobotEntity
 from .geometry_utils import pose_point_to_map_mm
-from .cloud_coordinator import umf_user_turn_rad
+from .cloud_coordinator import requested_position_turn
+from .position_room import PositionRoomTracker, room_at_position
 from .live_position import LivePositionStream
 from .room_cleaning import region_names_across_maps
 from .segment_anchoring import anchor_segment
@@ -1475,6 +1478,9 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         else:
             self._renderer._fit_bounds_px = None
 
+        # THE FLOOR PLAN UNDER THE PATH (4.4.0, @frnchfrgg).
+        self._renderer.set_floor_plan(self._floor_plan())
+
         png = await self.hass.async_add_executor_job(self._renderer.render)
 
         # v2.3.0 Step 6 — keepout zone overlay (Amendment 4)
@@ -2217,7 +2223,87 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         else:
             self._mission_points.append((x, y))
             self._mission_thetas.append(theta)
+        self._observe_position_room(x, y, frame="pose")
         self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
+
+    def _floor_plan(self) -> list[tuple[str | None, list[tuple[float, float]]]]:
+        """The rooms of the cloud map, in the frame this path is drawn in.
+
+        ANCHORED TO THE FLOOR PLAN (4.4.0, @frnchfrgg): the path alone
+        shows where the robot went, not where that is in the home.
+
+          * Positions requested from the robot are in the cloud map's own
+            frame (_handle_live_position), so its rooms go in as they
+            are, handed over the way those positions are. No alignment
+            is needed. A path that runs through walls says the turn of
+            those positions is wrong ("Turn of the live path").
+          * A Smart Map robot's own positions are in its frame: the rooms
+            come through the aligner, once it has aligned, as the
+            keep-out zones over this path do.
+          * A 900-series has no cloud map; its areas are drawn already.
+
+        Names only with "Draw room names on the map image", as on the
+        rooms map.
+        """
+        data = (
+            getattr(self._config_entry, "runtime_data", None)
+            if self._config_entry is not None
+            else None
+        )
+        aligner: Any = getattr(data, "umf_aligner", None)
+        if aligner is None or self._renderer is None:
+            return []
+        polygons = getattr(aligner, "room_polygons_umf", None)
+        if not isinstance(polygons, dict) or not polygons:
+            return []
+        if self._position_source == POSITION_SOURCE_REQUEST:
+            mirror = getattr(getattr(self._renderer, "_cfg", None), "mirror_x", False) is True
+
+            def place(x: float, y: float) -> tuple[float, float] | None:
+                return map_mm_to_view(x, y) if mirror else (x, y)
+        elif self._position_source == POSITION_SOURCE_POSE and getattr(aligner, "aligned", False) is True:
+            def place(x: float, y: float) -> tuple[float, float] | None:
+                point = aligner.umf_to_pose(x, y)
+                return (float(point[0]), float(point[1])) if point is not None else None
+        else:
+            return []
+        options = getattr(self._config_entry, "options", None)
+        labels_on = bool(
+            options.get(CONF_MAP_ROOM_LABELS, DEFAULT_MAP_ROOM_LABELS)
+            if isinstance(options, Mapping)
+            else DEFAULT_MAP_ROOM_LABELS
+        )
+        cloud_names = aligner.rid_to_name() if labels_on else {}
+        plan: list[tuple[str | None, list[tuple[float, float]]]] = []
+        for rid, polygon in polygons.items():
+            placed = [place(float(x), float(y)) for x, y in polygon]
+            points = [pt for pt in placed if pt is not None]
+            if len(points) != len(placed) or len(points) < 3:
+                continue
+            name: str | None = None
+            if labels_on:
+                cloud = cloud_names.get(rid)
+                name = map_room_label(
+                    str(rid), None if cloud == rid else cloud, options or {},
+                )
+            plan.append((name, points))
+        return plan
+
+    def _observe_position_room(self, x: float, y: float, *, frame: str) -> None:
+        """Hand the position to room tracking (4.4.0, position_room)."""
+        data = (
+            getattr(self._config_entry, "runtime_data", None)
+            if self._config_entry is not None
+            else None
+        )
+        tracker = getattr(data, "position_room", None)
+        if not isinstance(tracker, PositionRoomTracker):
+            return
+        # ONLY WHILE CLEANING: a drive to the dock, or a wait on it, is
+        # no visit to the rooms it passes.
+        if self._last_phase != "run":
+            return
+        tracker.observe(room_at_position(data, x, y, frame=frame))
 
     @callback
     def _handle_live_position(self, position: Any) -> None:
@@ -2262,6 +2348,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             cos_t, sin_t = math.cos(turn), math.sin(turn)
             x, y = x * cos_t - y * sin_t, x * sin_t + y * cos_t
             heading += math.degrees(turn)
+        # In the cloud map's frame now, the frame the rooms are in.
+        self._observe_position_room(x, y, frame="umf")
         if getattr(getattr(self._renderer, "_cfg", None), "mirror_x", False) is True:
             # map_mm_to_view is its own inverse, and the renderer adds a
             # quarter to the heading of a mirrored frame (see
@@ -2291,7 +2379,14 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                 else None
             )
             umf = getattr(coordinator, "umf_data", None) if coordinator is not None else None
-            self._live_position_turn_rad = umf_user_turn_rad(umf)
+            # Or the angle the user set where auto is wrong (4.4.0).
+            options = getattr(entry, "options", None) if entry is not None else None
+            setting = (
+                options.get(CONF_LIVE_PATH_TURN, DEFAULT_LIVE_PATH_TURN)
+                if isinstance(options, Mapping)
+                else DEFAULT_LIVE_PATH_TURN
+            )
+            self._live_position_turn_rad = requested_position_turn(setting, umf)[0]
         return self._live_position_turn_rad
 
     def _handle_dock_contact_confirmed(self) -> None:

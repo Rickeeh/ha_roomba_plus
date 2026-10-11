@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 
+from .position_room import PositionRoomTracker
+
 if TYPE_CHECKING:
     from .mission_archive import MissionArchive
     from roombapy import RoombaClient
@@ -309,6 +311,9 @@ class RoombaData:
     #: Positions requested from a robot that does not publish its own
     #: (4.3, live_position.py). None without a renderer to draw them.
     live_position: LivePositionStream | None = None
+    #: The room the robot's position puts it in (4.4.0, position_room.py),
+    #: fed by the map from either kind of position.
+    position_room: PositionRoomTracker = field(default_factory=PositionRoomTracker)
     geometry_store: GeometryStore | None = None
     maintenance_store: MaintenanceStore | None = None
     # Optional cloud coordinator — None when no credentials or non-SMART robot

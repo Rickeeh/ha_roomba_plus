@@ -114,6 +114,12 @@ class MissionTimerStore:
         #: consumer tell the two apart instead of presenting a plan as
         #: an observation.
         self.room_progress_observed: bool = False
+        #: Planned-room indices the robot was seen in by its position
+        #: (4.4.0, enter_room); empty while positions say nothing.
+        self.visited_rooms: list[int] = []
+        #: The rooms of a whole-home run, as positions found them
+        #: (4.4.0): planned_rooms then lists rooms entered, not a plan.
+        self.rooms_from_positions: bool = False
         self.recharge_positions: list[int] = []
         self.snapshot_ts: float = 0.0
         self._last_phase_ts: float = 0.0
@@ -185,6 +191,10 @@ class MissionTimerStore:
             self.recharge_positions   = data.get("recharge_positions") or []
             self.room_entered_run_sec = float(data.get("room_entered_run_sec", 0))
             self.room_estimates_sec  = data.get("room_estimates_sec") or []
+            self.visited_rooms = [
+                int(i) for i in data.get("visited_rooms") or [] if isinstance(i, int)
+            ]
+            self.rooms_from_positions = bool(data.get("rooms_from_positions", False))
             self.mission_started_wall_ts = float(data.get("mission_started_wall_ts", 0))
             self.recharge_min          = float(data.get("recharge_min", 0))
             self.snapshot_ts          = snapshot_ts
@@ -209,6 +219,8 @@ class MissionTimerStore:
             "recharge_positions":  self.recharge_positions,
             "room_entered_run_sec": self.room_entered_run_sec,
             "room_estimates_sec":  self.room_estimates_sec,
+            "visited_rooms":       self.visited_rooms,
+            "rooms_from_positions": self.rooms_from_positions,
             "mission_started_wall_ts": self.mission_started_wall_ts,
             "recharge_min":        self.recharge_min,
             "snapshot_ts":         time.time(),
@@ -287,8 +299,15 @@ class MissionTimerStore:
         hass: HomeAssistant,
         entry_id: str,
         room_estimates_sec: list[float | None] | None = None,
+        *,
+        replan: bool = False,
     ) -> None:
         """Called at mission start with the planned room sequence and time estimate.
+
+        `replan` (4.4.0): a new start command reached the running mission
+        (@frnchfrgg: six rooms nine seconds after a two-room start). The
+        run time stays; the rooms start over from the first of the new
+        plan, as the robot does.
 
         MP-PERSIST: persisting these values means that after an HA restart,
         current_room/next_room remain correct and progress ratio stays stable.
@@ -306,6 +325,14 @@ class MissionTimerStore:
             self.recharge_positions  = []
             self._last_phase_ts      = 0.0
             self.room_entered_run_sec = 0.0
+            self.visited_rooms       = []
+            self.rooms_from_positions = False
+        elif replan:
+            self.current_room_idx    = 0
+            self.room_progress_observed = False
+            self.room_entered_run_sec = self.run_sec
+            self.visited_rooms       = []
+            self.rooms_from_positions = False
         self.planned_rooms       = planned_rooms
         self.total_estimated_sec = total_estimated_sec
         self.room_estimates_sec  = room_estimates_sec or []
@@ -388,6 +415,16 @@ class MissionTimerStore:
             # the live recharge_min mirror for the new mission.
             self.mission_started_wall_ts = time.time()
             self.recharge_min    = 0.0
+            # AND THE ROOMS (4.4.0). set_mission_plan() resets them only
+            # for a mission id it has not seen, and this line sets the id
+            # first -- so a mission whose end was missed handed its room
+            # index, and now its rooms seen by position, to the next one.
+            self.current_room_idx = 0
+            self.room_progress_observed = False
+            self.room_entered_run_sec = 0.0
+            self.recharge_positions = []
+            self.visited_rooms = []
+            self.rooms_from_positions = False
             self._schedule_save(hass, entry_id)
             return
 
@@ -483,6 +520,45 @@ class MissionTimerStore:
         )
         return True
 
+    def enter_room(
+        self, name: str, hass: HomeAssistant, entry_id: str
+    ) -> tuple[str | None, float] | None:
+        """The robot's position put it in `name` (4.4.0, position_room).
+
+        A planned room: the display moves there, in whatever order the
+        robot takes. A whole-home run (no plan, or one built this way):
+        the room is added and becomes the current one. A room outside a
+        planned run's rooms changes nothing -- the robot is passing
+        through.
+
+        Returns (room left, seconds in it) when the display moved, the
+        room left being None at the first room; None when nothing moved.
+        """
+        if self.mission_id is None:
+            return None
+        if name in self.planned_rooms:
+            idx = self.planned_rooms.index(name)
+        elif not self.planned_rooms or self.rooms_from_positions:
+            self.planned_rooms = [*self.planned_rooms, name]
+            if self.room_estimates_sec:
+                self.room_estimates_sec = [*self.room_estimates_sec, None]
+            self.rooms_from_positions = True
+            idx = len(self.planned_rooms) - 1
+        else:
+            return None
+        first = not self.visited_rooms
+        if idx == self.current_room_idx and not first:
+            return None
+        left = None if first else self.current_room
+        seconds = max(0.0, self.run_sec - self.room_entered_run_sec)
+        self.current_room_idx = idx
+        self.room_progress_observed = True
+        self.room_entered_run_sec = self.run_sec
+        if idx not in self.visited_rooms:
+            self.visited_rooms = [*self.visited_rooms, idx]
+        self._schedule_save(hass, entry_id)
+        return left, seconds
+
     def clear(self, hass: HomeAssistant, entry_id: str) -> None:
         """Reset the timer at mission end. Saves asynchronously."""
         self.mission_id          = None
@@ -493,6 +569,8 @@ class MissionTimerStore:
         self.recharge_positions  = []
         self.room_entered_run_sec = 0.0
         self.room_estimates_sec  = []
+        self.visited_rooms       = []
+        self.rooms_from_positions = False
         self.mission_started_wall_ts = 0.0
         self.recharge_min        = 0.0
         self.snapshot_ts         = 0.0

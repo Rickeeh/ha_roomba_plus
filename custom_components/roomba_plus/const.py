@@ -184,6 +184,8 @@ CONF_MAP_ENABLED: Final = "map_enabled"
 #: live cleaning map (4.3, live_position.py). Offered only to robots
 #: whose shadow carries no `pose`; on a 900-series it would do nothing.
 CONF_LIVE_POSITION_REQUESTS: Final = "live_position_requests"
+#: How far requested positions are turned: "auto" or a fixed angle (4.4.0).
+CONF_LIVE_PATH_TURN: Final = "live_path_turn"
 CONF_MAP_SIZE_PX: Final = "map_size_px"
 CONF_MAP_SCALE: Final = "map_scale_mm_per_px"
 #: Turn every map picture clockwise by 0/90/180/270 degrees (4.3.2). The
@@ -287,6 +289,9 @@ DEFAULT_CERT: Final = "/etc/ssl/certs/ca-certificates.crt"
 
 DEFAULT_MAP_ENABLED: Final = True
 DEFAULT_LIVE_POSITION_REQUESTS: Final = True
+DEFAULT_LIVE_PATH_TURN: Final = "auto"
+#: Its choices; the angles in the sense of cloud_coordinator.requested_position_turn().
+LIVE_PATH_TURN_CHOICES: Final[tuple[str, ...]] = ("auto", "0", "90", "180", "270")
 DEFAULT_ENABLE_SCHEDULE_CALENDAR: Final = True
 DEFAULT_MAP_SIZE_PX: Final = 600
 DEFAULT_MAP_SCALE: Final = 10.0  # mm per pixel → 600px = 6 m × 6 m
@@ -600,7 +605,8 @@ ATTR_TWO_PASS: Final = "two_pass"
 #:                   the robot answered `command 32 -> status 6`, so it
 #:                   accepts a value its own app does not send.
 #:     Classic   6   captured from the iRobot app's own outbound
-#:                   command on a mopping Classic robot (@ia74), where
+#:                   command on a mopping Classic robot (a user's capture on
+#:                   roomba_rest980's issue tracker), where
 #:                   `operatingMode: 6` appears with `padWetness`.
 #:
 #: Sending the vendor's own value per tier rather than picking one and
@@ -784,12 +790,12 @@ def cleaning_modes_available(
 ATTR_CLEANING_MODE: Final = "cleaning_mode"
 
 #: Smart scrub for one run. Shape and meaning from a real Classic
-#: capture (@ia74): the iRobot app sends `swScrub: 1` for "strength 3
+#: capture (a user's, on roomba_rest980's issue tracker): the iRobot app sends `swScrub: 1` for "strength 3
 #: with smart scrub" and `0` otherwise -- the app's own control was
 #: labelled beside the value, so this is not a guess off the field name.
 ATTR_SMART_SCRUB: Final = "smart_scrub"
 
-#: Pad wetness for one run: 1 light, 2 standard, 3 hard (@ia74).
+#: Pad wetness for one run: 1 light, 2 standard, 3 hard (same capture).
 #: Distinct from `ATTR_PAD_WETNESS` below, which is the Braava spray
 #: amount and was never wired to anything.
 ATTR_RUN_PAD_WETNESS: Final = "pad_wetness"
@@ -1417,6 +1423,45 @@ ROOM_EVENT_CLOSED_AT_END_STATUSES: Final[frozenset[int]] = (
 #: "Was a PASS completed here?" — 0 and 1. A completed pass means the
 #: robot drove and cleaned the room, so room history counts it outright.
 ROOM_EVENT_PASS_DONE_STATUSES: Final[frozenset[int]] = frozenset({0, 1})
+
+
+def recovered_after_stuck(events: Any, stuck_at: Any) -> bool:
+    """Did a mission carry on after its stuck event, by its timeline?
+
+    Two signals, each counted only AFTER `stuck_at` (Unix seconds,
+    compared with the events' own timestamps): a pass the robot finished
+    (status 0 or 1), or a `travel` to the dock -- how a mission ends when
+    the robot drove home rather than being freed by hand or giving up.
+    Either is enough. Status 5 and 6 do not count: the firmware closes
+    them at mission end, which says the mission stopped, not that the
+    robot worked on. False for no stuck time or no events.
+    """
+    try:
+        stuck = float(stuck_at)
+    except (TypeError, ValueError):
+        return False
+    if not stuck or not isinstance(events, list):
+        return False
+
+    def _after(ev: dict[str, Any]) -> bool:
+        # A room event carries its start (`ts`) and its end (`ets`); the
+        # end is what must come after the stuck. A travel event has `ts`.
+        when = ev.get("ets") or ev.get("ts")
+        try:
+            return when is not None and float(when) > stuck
+        except (TypeError, ValueError):
+            return False
+
+    for ev in events:
+        if not isinstance(ev, dict) or not _after(ev):
+            continue
+        if ev.get("type") == "room" and (
+            (ev.get("room") or {}).get("status") in ROOM_EVENT_PASS_DONE_STATUSES
+        ):
+            return True
+        if ev.get("type") == "travel" and (ev.get("travel") or {}).get("dest") == "dock":
+            return True
+    return False
 
 
 #: A record's `rooms_source` while its rooms are a guess waiting for the
@@ -2080,18 +2125,6 @@ ERROR_CATALOGUE: Final[dict[int, dict[str, str]]] = {
     120: {"label": "Battery not initialised",   "description": "The battery has not been initialised.",                   "action": "Reboot the robot. Contact support if the error persists."},
     122: {"label": "Charging system error",     "description": "The charging system has encountered an error.",           "action": "Check the home base and cable. Contact support if the error persists."},
     123: {"label": "Battery not initialised",   "description": "The battery has not been initialised.",                   "action": "Reboot the robot. Contact support if the error persists."},
-    # IA74-EC additions (v2.5.0): codes 130–215 confirmed from ia74/jeremywillans references
-    130: {"label": "Back-up limit detected",    "description": "The robot detected a back-up limit during cleaning.",      "action": "Remove obstacles behind the robot and retry."},
-    131: {"label": "Obstacle following failed", "description": "The robot failed to navigate around an obstacle.",         "action": "Clear obstacles from the cleaning area."},
-    132: {"label": "Hardware error",            "description": "A hardware component is not responding correctly.",        "action": "Reboot the robot. Contact support if the error persists."},
-    133: {"label": "Timed out navigating",      "description": "Navigation took longer than expected.",                    "action": "Ensure the robot has a clear path and retry."},
-    134: {"label": "Failed to recharge",        "description": "The robot could not locate or reach the dock to recharge.", "action": "Check the dock is accessible and unobstructed."},
-    140: {"label": "Left brush error",          "description": "The left brush has stalled or is blocked.",               "action": "Clean the left brush and its guards."},
-    141: {"label": "Right brush error",         "description": "The right brush has stalled or is blocked.",              "action": "Clean the right brush and its guards."},
-    160: {"label": "Navigation problem",        "description": "The robot has a general navigation problem.",             "action": "Place the robot in an open area and restart the mission."},
-    161: {"label": "Dock not found",            "description": "The robot could not find the dock after cleaning.",       "action": "Ensure the dock is plugged in and unobstructed."},
-    162: {"label": "Low battery — abort",       "description": "Battery too low to complete the mission.",               "action": "Allow the robot to charge fully before the next mission."},
-    163: {"label": "Mission failed",            "description": "The mission could not be completed.",                     "action": "Check for obstacles and retry."},
     # CORRECTED: the wrong part. Enum STARTING_ERROR_BIN_FULL, app text
     # "Bin full" -- the robot's own bin, not the Clean Base bag. Sending
     # someone to replace a bag when the bin needs emptying.
@@ -2202,7 +2235,7 @@ def get_localized_error_entry(code: int, language: str | None) -> dict[str, str]
     # 112 codes, eight languages), with the library's own text where
     # 3.2.0 made one worse.
     #
-    # Ours still answers for the 75 codes iRobot does not document --
+    # Ours still answers for the codes iRobot does not document --
     # @connormxy's 236 is in neither, so a robot can report a code its
     # own maker has no text for.
     vendor = vendor_error(code, language or "en")
@@ -2682,6 +2715,9 @@ BRAAVA_SPRAY_AMOUNT: Final[list[int]] = [1, 2, 3]
 # ── Diagnostics ───────────────────────────────────────────────────────────────
 DIAG_REDACT_KEYS: Final[set[str]] = {
     CONF_BLID,
+    # The robot's address (4.4.0): diagnostics carry no address, and the
+    # config entry's `host` went out as entered (@frnchfrgg's upload).
+    "host",
     "password",
     "blid",
     "irobot_password",

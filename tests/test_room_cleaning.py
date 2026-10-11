@@ -1647,9 +1647,11 @@ class TestCleanZoneOnATwoMapRobot:
 
 
 class TestClassicMopParamsMatchTheCapture:
-    """@ia74 asked how to start mopping and could not find a way.
+    """A user asked how to start mopping a Classic robot and could not
+    find a way.
 
-    His capture of the iRobot app's own outbound command is what makes
+    A capture of the iRobot app's own outbound command, posted on
+    roomba_rest980's issue tracker, is what makes
     these shapes safe rather than guessed:
 
         vacuum          operatingMode 2

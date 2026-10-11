@@ -266,7 +266,8 @@ async def async_setup_entry(
 
         # AND THE CLEANING MODE, which Classic never had.
         #
-        # @ia74 asked how to start mopping and could not find a way.
+        # A user asked how to start mopping a Classic robot and could
+        # not find a way.
         # The send path was already there -- ClassicRoomCleaning puts
         # `operatingMode` in a region command's params when a caller
         # names one -- but the select that names one sat in the

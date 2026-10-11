@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Activar mapa en tiempo real",
           "live_position_requests": "Preguntar al robot su posición",
+          "live_path_turn": "Giro del recorrido en directo",
           "map_size_px": "Tamaño del mapa (píxeles)",
           "map_scale_mm_per_px": "Escala (mm/píxel)",
           "floor_label": "Planta (p. ej. Planta baja)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Activar el mapa de limpieza en tiempo real para robots con detección de posición (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Solo se ofrece para robots que no informan de su posición por sí mismos. Pregunta al robot aproximadamente una vez por segundo durante la limpieza para dibujar el recorrido en directo. Desactivado: el mapa muestra en su lugar la última misión terminada desde la nube de iRobot, si el acceso a la nube está configurado.",
+          "live_path_turn": "Solo con la opción de arriba. Cuánto se gira el recorrido de limpieza para que coincida con el mapa de habitaciones. Automático lo lee del mapa que el propio robot guardó, incluido un giro ajustado en la app de iRobot. Elige un ángulo solo si el recorrido aparece girado respecto al mapa de habitaciones y, en ese caso, adjunta el diagnóstico a una incidencia para que el ajuste automático pueda corregirse para tu robot.",
           "map_size_px": "Tamaño del lienzo del mapa en píxeles (400–1200). Predeterminado: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predeterminado 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto libre, por ejemplo Planta baja. Agrupa los robots en la vista de flota.",
@@ -2368,6 +2370,15 @@
         "90": "90° en sentido horario",
         "180": "180°",
         "270": "270° en sentido horario (90° antihorario)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automático",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

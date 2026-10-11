@@ -2321,7 +2321,8 @@ class TestCleaningModeIsTierAware:
 
     32 is field-verified on Prime -- the robot answered `command 32 ->
     status 6`. 6 is what the iRobot app itself sends on a mopping
-    Classic robot (@ia74's capture, `operatingMode: 6` alongside
+    Classic robot (a user's capture on roomba_rest980's issue tracker,
+    `operatingMode: 6` alongside
     `padWetness`). Resolving against the wrong table would send a value
     that generation has never been seen to accept, on the field that
     decides whether water goes on the floor.

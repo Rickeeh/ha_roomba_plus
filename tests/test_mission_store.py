@@ -1459,6 +1459,43 @@ class TestMergeCloudFieldsB1Ext:
         local = self._merge("completed", done="done", done_raw="done")
         assert local["result"] == "completed"
 
+
+class TestAnAbandonedStuckTheTimelineContradicts:
+    """4.4.0, @Hardy-196's i7+: stuck, freed itself, cleaned the zone and
+    drove home -- recorded stuck_and_abandoned, because the cloud's record
+    was not there at mission end and the clock fallback decided. The
+    timeline settles it once it arrives."""
+
+    STUCK = 1_700_000_500
+
+    def _merge(self, events, *, stuck_at=STUCK, result="stuck_and_abandoned"):
+        from custom_components.roomba_plus.mission_store import MissionStore
+
+        local = {"id": "m_1", "result": result, "self_recovered": False,
+                 "stuck_at_ts": stuck_at}
+        cloud = {"timeline": {"finEvents": events}, "done": "done", "done_raw": "done"}
+        MissionStore._merge_cloud_fields(local, cloud)
+        return local
+
+    HOME = {"type": "travel", "ts": STUCK + 120, "travel": {"dest": "dock"}}
+
+    def test_a_drive_home_after_the_stuck_means_it_resumed(self):
+        local = self._merge([self.HOME])
+        assert local["result"] == "stuck_and_resumed"
+        assert local["self_recovered"] is True
+        assert local["result_corrected_from_cloud"] is True
+
+    def test_nothing_after_the_stuck_leaves_it_abandoned(self):
+        local = self._merge([{**self.HOME, "ts": self.STUCK - 10}])
+        assert local["result"] == "stuck_and_abandoned"
+
+    def test_a_record_from_before_4_4_0_has_no_stuck_time(self):
+        local = self._merge([self.HOME], stuck_at=None)
+        assert local["result"] == "stuck_and_abandoned"
+
+    def test_only_an_abandoned_stuck_is_reconsidered(self):
+        assert self._merge([self.HOME], result="completed")["result"] == "completed"
+
     # ── query_by_day integration: the original field bug ─────────────────────
 
     @freeze_time("2026-07-10 12:00:00")

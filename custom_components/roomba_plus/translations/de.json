@@ -198,6 +198,7 @@
         "data": {
           "map_enabled": "Live-Karte aktivieren",
           "live_position_requests": "Roboter nach seiner Position fragen",
+          "live_path_turn": "Drehung des Live-Wegs",
           "map_size_px": "Kartengröße (Pixel)",
           "map_scale_mm_per_px": "Maßstab (mm/Pixel)",
           "floor_label": "Etage (z. B. Erdgeschoss)",
@@ -217,6 +218,7 @@
         "data_description": {
           "map_enabled": "Aktiviert die Live-Reinigungskarte für Roboter mit Positionserkennung (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Nur für Roboter, die ihre Position nicht selbst melden. Fragt den Roboter während der Reinigung etwa einmal pro Sekunde, um den Reinigungsweg live zu zeichnen. Aus: Die Karte zeigt stattdessen die letzte abgeschlossene Mission aus der iRobot-Cloud, sofern der Cloud-Zugang eingerichtet ist.",
+          "live_path_turn": "Nur mit der Option darüber. Wie weit der Reinigungsweg gedreht wird, damit er auf der Raumkarte liegt. Automatisch liest es aus der Karte, die der Roboter selbst gespeichert hat, einschließlich einer Drehung aus der iRobot-App. Wähle einen Winkel nur, wenn der Weg gegen die Raumkarte verdreht liegt, und hänge dann bitte die Diagnose an ein Issue, damit die Automatik für deinen Roboter korrigiert werden kann.",
           "map_size_px": "Bildgröße der Karte in Pixel (400–1200). Standard: 600 px.",
           "map_scale_mm_per_px": "Millimeter pro Pixel (5–30). Standard 10 entspricht 6 m × 6 m bei 600 Pixel.",
           "floor_label": "Freitext, zum Beispiel Erdgeschoss. Gruppiert Roboter in der Flottenansicht.",
@@ -2368,6 +2370,15 @@
         "90": "90° im Uhrzeigersinn",
         "180": "180°",
         "270": "270° im Uhrzeigersinn (90° gegen den Uhrzeigersinn)"
+      }
+    },
+    "live_path_turn": {
+      "options": {
+        "auto": "Automatisch",
+        "0": "0°",
+        "90": "90°",
+        "180": "180°",
+        "270": "270°"
       }
     },
     "maintenance_item": {

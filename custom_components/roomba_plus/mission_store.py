@@ -37,7 +37,7 @@ from .const import (
     room_event_was_cleaned,
 )
 from .room_times import learn_from_records, record_region_visits
-from .const import extract_region_id, fin_events_in_order, SQFT_TO_M2
+from .const import extract_region_id, fin_events_in_order, recovered_after_stuck, SQFT_TO_M2
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2157,6 +2157,29 @@ class MissionStore:
 
         elif rewrite_allowed and done_raw == "usrEnd" and local_result in ("completed", "stuck_and_resumed"):
             local["result"] = "cancelled"
+            local["result_corrected_from_cloud"] = True
+            wrote = True
+
+        # B1-RES (4.4.0) -- a stuck the robot got out of. At mission end
+        # the cloud's record of the mission is almost never there yet, so
+        # callbacks decided from a clock, and a robot that freed itself
+        # within five minutes of docking read as abandoned (@Hardy-196's
+        # i7+: it reached the zone, cleaned it and drove home). The
+        # timeline settles it now, by the same rule the mission end uses
+        # when it can (const.recovered_after_stuck), counted from the
+        # stuck time the record kept.
+        elif (
+            rewrite_allowed
+            and local_result == "stuck_and_abandoned"
+            and recovered_after_stuck(
+                (cloud.get("timeline") or {}).get("finEvents")
+                if isinstance(cloud.get("timeline"), dict)
+                else None,
+                local.get("stuck_at_ts"),
+            )
+        ):
+            local["result"] = "stuck_and_resumed"
+            local["self_recovered"] = True
             local["result_corrected_from_cloud"] = True
             wrote = True
 

@@ -334,7 +334,7 @@ class RoomCleaningBackend(ABC):
         suction_level: list[int | None] | None = None,
         operating_mode: list[int | None] | None = None,
         #: Per-run mop settings. Classic sends both inside the region's
-        #: own params (@ia74's capture); the Prime backend accepts and
+        #: own params (the Classic app capture); the Prime backend accepts and
         #: ignores them, so a caller need not know which generation it
         #: is talking to -- the same contract the other per-room
         #: parameters here already follow.
@@ -1295,7 +1295,7 @@ class PrimeRoomCleaning(RoomCleaningBackend):
         suction_level: list[int | None] | None = None,
         operating_mode: list[int | None] | None = None,
         # ACCEPTED AND IGNORED, on purpose. Both are Classic-shaped
-        # mop settings (@ia74's capture puts them in the region's own
+        # mop settings (the Classic app capture puts them in the region's own
         # params). Prime carries pad wetness as `{"padPlate": N}` and
         # has no confirmed per-region scrub field, so the honest
         # behaviour is to take the arguments and do nothing rather than
@@ -2292,7 +2292,8 @@ class ClassicRoomCleaning(RoomCleaningBackend):
                         ),
                         # SMART SCRUB, when the caller asks for it.
                         #
-                        # Shape from a real capture (@ia74): the iRobot
+                        # Shape from a real capture (a user's, posted on
+                        # roomba_rest980's issue tracker): the iRobot
                         # app sends `swScrub: 1` for "strength 3 with
                         # smart scrub" and `0` otherwise. The value was
                         # not inferred from the field name -- the app's
@@ -2309,7 +2310,7 @@ class ClassicRoomCleaning(RoomCleaningBackend):
                         # PAD WETNESS, and the shape differs by tier.
                         #
                         # Classic sends `{"disposable": N, "reusable":
-                        # N}` (@ia74's capture, 1=light 2=standard
+                        # N}` (that capture, 1=light 2=standard
                         # 3=hard); Prime sends `{"padPlate": N}`. Same
                         # field name, different structure -- the same
                         # trap as 32-vs-6 for the combined mode, and it

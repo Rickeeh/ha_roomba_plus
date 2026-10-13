@@ -847,7 +847,8 @@ class BatteryResetButton(_MaintenanceResetButton):
         if store:
             store.reset_battery(hr)
             await self._save()
-            from .services import _fire_maintenance_reset_event
+            from .services import _fire_maintenance_reset_event, async_forget_old_battery
+            await async_forget_old_battery(self.hass, self._config_entry)
             _fire_maintenance_reset_event(self.hass, self._config_entry, "battery", hr)
 
 

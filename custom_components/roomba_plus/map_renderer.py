@@ -161,6 +161,12 @@ LABEL_FONT_SMALL = _load_font(12)
 BG_COLOUR       = (255, 255, 255, 255)  # White background (floor)
 FLOOR_BORDER    = (220, 220, 220, 255)  # Light grey — subtle canvas border
 CLEANED_COLOUR  = (173, 216, 230, 255)  # Light blue — cleaned area
+#: THE CLEANED AREA SEEN THROUGH (4.4.1, @frnchfrgg): drawn on a layer of
+#: its own and laid over the floor plan at this opacity, so the rooms and
+#: their names show through. The colour is the one that comes out as
+#: CLEANED_COLOUR over white: (CLEANED - (1 - alpha) * 255) / alpha.
+CLEANED_ALPHA   = 0.5
+CLEANED_LAYER_COLOUR = (91, 177, 205, 255)
 PATH_COLOUR     = ( 30, 100, 200, 255)  # Deep blue — travel path
 DOCK_COLOUR     = ( 80, 180,  80, 255)  # Green — dock station marker
 ROBOT_COLOUR    = ( 30, 100, 200, 255)  # Blue — robot position
@@ -331,6 +337,10 @@ class MapRenderer:
         #: the map entity before render(); drawn first and part of the
         #: fit, so the picture holds the whole floor while the path grows.
         self.floor_plan: list[tuple[str | None, list[tuple[float, float]]]] = []
+        #: The turn a path of requested positions was drawn with, in
+        #: radians (4.4.1), set by the map entity; None for a pose path or
+        #: before the first position. For the diagnostics.
+        self.requested_turn_rad: float | None = None
         self._fit_cx: int = self._cfg.size_px // 2
         self._fit_cy: int = self._cfg.size_px // 2
         # v2.9.0 — see _MAX_POSE_JUMP_MM rationale below. Counts consecutive
@@ -360,6 +370,7 @@ class MapRenderer:
         self._stuck_px.clear()
         self._robot_px = None
         self._theta = 0.0
+        self.requested_turn_rad = None
         if not self._cfg.persist:
             self._last_png = None
         _LOGGER.debug("MapRenderer: mission reset")
@@ -610,6 +621,98 @@ class MapRenderer:
             self._robot_px = new_px_points[-1]
         self._last_png = None  # force re-render; the cache reflects stale data
 
+    def transform_path(
+        self,
+        fn: Callable[[float, float], tuple[float, float]],
+        dtheta_deg: float = 0.0,
+    ) -> None:
+        """Move every point drawn so far by `fn` (4.4.1).
+
+        `fn` maps a point of the frame add_pose() takes to its new place
+        and must be linear (a turn about the dock): the stored pixels are
+        that frame scaled about the canvas centre, so they go back through
+        the same transform. For a requested path whose turn the user
+        changed after it was drawn (RoombaMapImage._sync_live_turn).
+        Pixels round to whole numbers on the way, one pixel at most.
+        """
+        c = self._cfg.size_px // 2
+        scale = self._cfg.scale
+
+        def _redo(p: Any) -> tuple[int, int]:
+            x_mm, y_mm = view_to_mm(
+                (p[0] - c) * scale, (c - p[1]) * scale,
+                self._cfg.mirror_x, self._cfg.quarter_turns,
+            )
+            return self._mm_to_px(*fn(x_mm, y_mm))
+
+        self._points_mm = [fn(x, y) for x, y in self._points_mm]
+        self._repixel(_redo)
+        self._theta += dtheta_deg
+
+    def reconfigure(
+        self, *, size_px: int, scale: float, quarter_turns: int,
+    ) -> bool:
+        """Move to a new canvas size, scale or turn (4.4.1).
+
+        Map rotation, size and scale were read once, when the integration
+        set the map up, while the rooms map reads the rotation for every
+        picture: saved without a reload, the two disagreed. Applied here
+        when the options are saved, during a mission too, with the points,
+        breaks and jump check kept. True when anything changed.
+        """
+        was = (
+            self._cfg.mirror_x, self._cfg.quarter_turns,
+            self._cfg.size_px, float(self._cfg.scale),
+        )
+        if (was[1] % 4, was[2], was[3]) == (quarter_turns % 4, size_px, float(scale)):
+            return False
+        self._cfg.size_px = size_px
+        self._cfg.scale = scale
+        self._cfg.quarter_turns = quarter_turns
+        self._fit_scale = self._cfg.scale
+        self._fit_cx = self._fit_cy = self._cfg.size_px // 2
+        self._repixel(lambda p: self._px_from_canvas(p, *was))
+        return True
+
+    def _px_from_canvas(
+        self, p: Any, was_mirrored: bool, was_turns: int, was_size: int, was_scale: float,
+    ) -> tuple[int, int]:
+        """A pixel of another canvas (mirror, turn, size, scale), on this one."""
+        was_c = was_size // 2
+        c = self._cfg.size_px // 2
+        ratio = float(was_scale) / float(self._cfg.scale)
+        x_mm, y_mm = view_to_mm(
+            (p[0] - was_c) * ratio, (was_c - p[1]) * ratio, was_mirrored, was_turns,
+        )
+        u, v = mm_to_view(x_mm, y_mm, self._cfg.mirror_x, self._cfg.quarter_turns)
+        return (int(round(c + u)), int(round(c - v)))
+
+    def _repixel(self, from_old_px: Callable[[Any], tuple[int, int]]) -> None:
+        """Pixels again after a change of frame or canvas (4.4.1).
+
+        From the millimetres where every point has them (a path drawn in
+        this session): exact, as add_pose() would place them. Otherwise,
+        for a restored path, from the old pixels, to within a pixel. The
+        robot and the stuck markers sit on path points and follow them.
+        """
+        old = list(self._points)
+        if self._points_mm and len(self._points_mm) == len(old):
+            new = [self._mm_to_px(x, y) for x, y in self._points_mm]
+        else:
+            new = [from_old_px(p) for p in old]
+        moved: dict[tuple[int, int], tuple[int, int]] = {
+            (int(p[0]), int(p[1])): q for p, q in zip(old, new)
+        }
+
+        def _follow(p: Any) -> tuple[int, int]:
+            return moved.get((int(p[0]), int(p[1]))) or from_old_px(p)
+
+        self._points = new
+        self._stuck_px = [_follow(p) for p in self._stuck_px]
+        if self._robot_px:
+            self._robot_px = _follow(self._robot_px)
+        self._last_png = None
+
     def mark_stuck(self) -> None:
         """Record a stuck event at the current robot position."""
         if self._robot_px:
@@ -783,8 +886,20 @@ class MapRenderer:
         self._draw_user_geometry(draw)
 
         if self._points:
-            self._draw_cleaned_area(draw, _fit_px)
+            # SEEN THROUGH (4.4.1): the cleaned area on its own layer,
+            # opaque inside it so overlapping circles do not darken, then
+            # laid over at CLEANED_ALPHA. The path stays opaque.
+            cleaned = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            self._draw_cleaned_area(ImageDraw.Draw(cleaned), _fit_px)
+            cleaned.putalpha(
+                cleaned.getchannel("A").point(lambda a: int(a * CLEANED_ALPHA))
+            )
+            img.alpha_composite(cleaned)
             self._draw_path(draw, _fit_px)
+
+        # The room names over the path (4.4.1): under it they were hidden
+        # wherever the robot had been.
+        self._draw_floor_plan_names(draw)
 
         for sx, sy in self._stuck_px:
             fsx, fsy = _fit_px(sx, sy)
@@ -877,6 +992,10 @@ class MapRenderer:
             # was mirrored has no key and is converted on restore.
             "mirror_x": self._cfg.mirror_x,
             "quarter_turns": self._cfg.quarter_turns,
+            # The canvas the pixels are on (4.4.1), so a changed map size
+            # or scale is converted on restore like a changed turn.
+            "size_px": self._cfg.size_px,
+            "scale": self._cfg.scale,
             # v3.2.1 LANDMARK-LOG — additive field, no _STATE_VERSION
             # bump needed (same precedent as GridStore's FURNITURE/
             # DUAL-GRID fields): a state dump saved before this existed
@@ -912,21 +1031,22 @@ class MapRenderer:
             # them is 2*cx - x.
             # ...or turned another way (4.3.2): undone and redone about
             # the canvas centre, where the fixed-scale pixels are anchored.
+            # ...or on another canvas (4.4.1): map size and scale now
+            # reload the integration, and the pixels are about the old
+            # centre at the old scale. Dumps without them were written on
+            # this canvas, as before.
             was_mirrored = bool(state.get("mirror_x", False))
             was_turns = int(state.get("quarter_turns", 0) or 0)
-            if (was_mirrored, was_turns % 4) != (
-                self._cfg.mirror_x, self._cfg.quarter_turns % 4
+            was_size = int(state.get("size_px", self._cfg.size_px) or self._cfg.size_px)
+            was_scale = float(state.get("scale", self._cfg.scale) or self._cfg.scale)
+            if (was_mirrored, was_turns % 4, was_size, was_scale) != (
+                self._cfg.mirror_x, self._cfg.quarter_turns % 4,
+                self._cfg.size_px, float(self._cfg.scale),
             ):
-                c = self._cfg.size_px // 2
-
                 def _redo(p: Any) -> tuple[int, int]:
-                    x_mm, y_mm = view_to_mm(
-                        p[0] - c, c - p[1], was_mirrored, was_turns
+                    return self._px_from_canvas(
+                        p, was_mirrored, was_turns, was_size, was_scale,
                     )
-                    u, v = mm_to_view(
-                        x_mm, y_mm, self._cfg.mirror_x, self._cfg.quarter_turns
-                    )
-                    return (int(round(c + u)), int(round(c - v)))
 
                 self._points = [_redo(p) for p in self._points]
                 self._stuck_px = [_redo(p) for p in self._stuck_px]
@@ -1141,14 +1261,20 @@ class MapRenderer:
     def _draw_floor_plan(self, draw: ImageDraw.ImageDraw) -> None:
         """Layer 1.4 — the rooms of the floor plan, filled and outlined.
 
-        Names, where given, at each room's vertex mean: good enough to
-        say which room is which, as the rooms map does.
+        Their names come later, over the path (_draw_floor_plan_names).
         """
-        for name, polygon in self.floor_plan:
+        for _name, polygon in self.floor_plan:
             if len(polygon) < 3:
                 continue
             points = [self._mm_to_px_fit(x, y) for x, y in polygon]
             draw.polygon(points, fill=FLOOR_PLAN_FILL, outline=FLOOR_PLAN_LINE, width=2)
+
+    def _draw_floor_plan_names(self, draw: ImageDraw.ImageDraw) -> None:
+        """The names of the floor plan's rooms, over the path (4.4.1).
+
+        At each room's vertex mean: good enough to say which room is
+        which, as the rooms map does.
+        """
         for name, polygon in self.floor_plan:
             if not name or len(polygon) < 3:
                 continue
@@ -1455,7 +1581,7 @@ class MapRenderer:
         r = self._mm_radius_px(self._cfg.robot_diameter_mm / 2, min_px=2)
         fitted = [fit_px(px, py) for px, py in self._points]
         for px, py in self._interpolated(fitted, max_gap_px=r):
-            draw.ellipse([px - r, py - r, px + r, py + r], fill=CLEANED_COLOUR)
+            draw.ellipse([px - r, py - r, px + r, py + r], fill=CLEANED_LAYER_COLOUR)
 
     def _draw_path(
         self, draw: ImageDraw.ImageDraw,

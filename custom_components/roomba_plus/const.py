@@ -3473,6 +3473,16 @@ def state_slug(value: str) -> str:
     return slug or "unknown"
 
 
+def map_options_changed_signal(blid: str) -> str:
+    """Dispatcher signal: options were saved without a reload (4.4.1).
+
+    The cleaning map listens: a requested path drawn under one "Turn of
+    the live path" is turned again when the setting changes, and the
+    picture is drawn anew for options read at render time.
+    """
+    return f"{DOMAIN}_map_options_changed_{blid}"
+
+
 def maintenance_changed_signal(blid: str) -> str:
     """Dispatcher signal: this robot's maintenance data changed outside a
     robot message -- a reset button or action wrote the store.

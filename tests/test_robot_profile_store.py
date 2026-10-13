@@ -2172,3 +2172,18 @@ class TestRobotProfileStorePersistence:
         store = rps.RobotProfileStore()
         await store.async_load(hass, "e1")
         assert "not loading it" in caplog.text
+
+
+def test_a_new_battery_forgets_the_estcap_series():
+    """4.4.1, @azrael: the jump to a new pack is no reading-to-reading
+    noise; fed in as one, it would widen the noise floor for good."""
+    rps = RobotProfileStore()
+    rps.record_estcap_observation(436.0)
+    rps.record_estcap_observation(440.0)
+    rps.forget_battery_readings()
+    assert rps.last_estcap_mah is None
+    assert rps.estcap_noise_count == 0
+    assert rps.estcap_noise_mean is None
+    rps.record_estcap_observation(2500.0)
+    assert rps.estcap_noise_count == 0, "the first reading of the new pack is no delta"
+

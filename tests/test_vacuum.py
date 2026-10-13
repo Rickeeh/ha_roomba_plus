@@ -3504,16 +3504,123 @@ class TestSkipTheCurrentRoom:
 
     @pytest.mark.asyncio
     async def test_the_last_room_sends_the_robot_home(self, monkeypatch):
-        """Nothing is left to clean; the Prime app sends `dock` then."""
+        """Nothing is left to clean; the Prime app sends `dock` then.
+
+        4.4.1, @Thonno's i7+: PAUSED FIRST, as Return to base does. A bare
+        `dock` while it cleaned was not taken -- still `run` 20 s and a
+        minute later."""
+        from custom_components.roomba_plus import vacuum as vac
+
         self._timers(monkeypatch)
+        monkeypatch.setattr(vac.asyncio, "sleep", AsyncMock())
         v, data = self._vacuum(index=2)
 
         await v.async_send_command("skip")
 
-        v.vacuum.send_command.assert_awaited_once_with("dock", {})
+        verbs = [c.args[0] for c in v.vacuum.send_command.await_args_list]
+        assert verbs[0] == "pause" and verbs[-1] == "dock"
         (attempt,) = data.skip_attempts
         assert attempt["sent"] == "dock"
+        assert attempt["paused_first"] is True
         assert attempt["room"]["last_room"] is True
+
+    @staticmethod
+    def _all_timers(monkeypatch):
+        """Every callback, by delay: the record's own 20 s look and the
+        room tracking's share a delay."""
+        from custom_components.roomba_plus import vacuum as vac
+
+        later: dict[int, list] = {}
+
+        def _call_later(hass, delay, cb):
+            later.setdefault(delay, []).append(cb)
+            return lambda: None
+
+        monkeypatch.setattr(vac, "async_call_later", _call_later)
+
+        def fire(delay):
+            for cb in later.get(delay, []):
+                cb(None)
+
+        return fire
+
+    def _tracked(self, index=0):
+        """With a real timer store and position tracker (4.4.1)."""
+        from custom_components.roomba_plus.mission_timer_store import MissionTimerStore
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        v, data = self._vacuum(index=index)
+        mts = MissionTimerStore()
+        mts.mission_id = "B_7"
+        mts.planned_rooms = ["Foyer", "Couch", "Bathroom"]
+        mts.current_room_idx = index
+        mts.visited_rooms = [index]
+        data.mission_timer_store = mts
+        clock = {"now": 100.0}
+        data.position_room = PositionRoomTracker(clock=lambda: clock["now"])
+        v.async_write_ha_state = MagicMock()
+        return v, data, mts, clock
+
+    @pytest.mark.asyncio
+    async def test_the_skipped_room_is_done_at_once_and_left_after_20s(self, monkeypatch):
+        """4.4.1, @Thonno's i7+: it took the skip and drove on, no
+        position found a room, and room tracking stayed on the skipped
+        room. Now: done at once, and with no position to say where the
+        robot went, on to the next room once the app's 20 s are over."""
+        fire = self._all_timers(monkeypatch)
+        v, data, mts, _clock = self._tracked(index=0)
+
+        await v.async_send_command("skip")
+
+        assert mts.current_room_idx == 0, "not while it is on its way"
+        assert 0 in mts.visited_rooms
+        fire(20)
+        assert mts.current_room_idx == 1
+        assert mts.room_progress_observed is True
+        assert 1 in mts.visited_rooms
+
+    @pytest.mark.asyncio
+    async def test_a_position_in_the_skipped_room_keeps_it(self, monkeypatch):
+        """The robot did not take the skip: the display stays."""
+        fire = self._all_timers(monkeypatch)
+        v, data, mts, clock = self._tracked(index=0)
+
+        await v.async_send_command("skip")
+        clock["now"] += 18
+        data.position_room.observe("Foyer")
+        clock["now"] += 2
+        fire(20)
+        assert mts.current_room_idx == 0
+
+    @pytest.mark.asyncio
+    async def test_a_position_that_moved_it_wins(self, monkeypatch):
+        fire = self._all_timers(monkeypatch)
+        v, data, mts, _clock = self._tracked(index=0)
+
+        await v.async_send_command("skip")
+        mts.current_room_idx = 2      # a position confirmed the bathroom
+        fire(20)
+        assert mts.current_room_idx == 2
+
+    @pytest.mark.asyncio
+    async def test_a_later_room_named_is_done_and_the_display_stays(self, monkeypatch):
+        fire = self._all_timers(monkeypatch)
+        v, data, mts, _clock = self._tracked(index=0)
+
+        await v.async_send_command("skip", {"room": "Couch"})
+        assert 1 in mts.visited_rooms
+        fire(20)
+        assert mts.current_room_idx == 0
+
+    @pytest.mark.asyncio
+    async def test_another_mission_by_then_is_left_alone(self, monkeypatch):
+        fire = self._all_timers(monkeypatch)
+        v, data, mts, _clock = self._tracked(index=0)
+
+        await v.async_send_command("skip")
+        mts.mission_id = "B_8"
+        fire(20)
+        assert mts.current_room_idx == 0
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("room", ["Foyer", "21"])

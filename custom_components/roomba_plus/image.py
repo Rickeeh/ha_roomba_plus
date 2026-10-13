@@ -57,6 +57,12 @@ from homeassistant.util import dt as dt_util
 from .zone_naming import map_room_label, room_display_name
 from . import roomba_reported_state
 from .const import (
+    LIVE_PATH_TURN_CHOICES,
+    CONF_MAP_SCALE,
+    CONF_MAP_SIZE_PX,
+    DEFAULT_MAP_SCALE,
+    DEFAULT_MAP_SIZE_PX,
+    map_options_changed_signal,
     CONF_LIVE_PATH_TURN,
     CONF_LIVE_POSITION_REQUESTS,
     DEFAULT_LIVE_PATH_TURN,
@@ -1250,10 +1256,17 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         self._cloud_coverage_png_for: str | None = None
         #: POSITION_SOURCE_POSE or _REQUEST once a path exists, else None.
         self._position_source: str | None = None
-        #: How far the iRobot app's map is turned, read once per mission
-        #: at the first requested position (umf_user_turn_rad); None
-        #: until then.
+        #: The turn requested positions get, and the turn the path drawn
+        #: from them HAS (4.4.1): set at the mission's first position,
+        #: changed with the path when the setting changes
+        #: (_sync_live_turn). None until then, and for a path restored
+        #: from before 4.4.1, whose turn was not kept.
         self._live_position_turn_rad: float | None = None
+        #: What "auto" read for this mission, at its first position: a map
+        #: turned in the app during the mission reaches the robot at its
+        #: next one, so switching back to auto returns to this, not to
+        #: whatever the header says by then.
+        self._live_turn_auto_rad: float | None = None
 
         # Mission tracking
         self._last_phase: str = ""
@@ -1385,6 +1398,15 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         )
         if isinstance(live, LivePositionStream):
             self.async_on_remove(live.add_listener(self._handle_live_position))
+        # Options saved without a reload (4.4.1).
+        blid = getattr(getattr(self._config_entry, "runtime_data", None), "blid", None)
+        if isinstance(blid, str):
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass, map_options_changed_signal(blid),
+                    self._handle_map_options_changed,
+                )
+            )
         # Restore last mission's map from hass.storage (if any)
         await self._async_restore_map_state()
         # v2.8.2 — load (but do not yet apply) a mission-in-progress
@@ -1878,6 +1900,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                     # The app's turn is the one the robot loaded for
                     # this mission, read at its first position.
                     self._live_position_turn_rad = None
+                    self._live_turn_auto_rad = None
                     self._mission_points = []
                     self._mission_thetas = []
                     self._stuck_mission_points = []
@@ -2362,32 +2385,168 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         self.async_write_ha_state()
 
     def _live_position_turn(self) -> float:
-        """The app's turn of the map for this mission, in radians.
+        """The turn for this mission's requested positions, in radians.
 
-        Read once, at the mission's first requested position, from the
-        cloud map the coordinator holds: a map turned in the app during
-        a mission reaches the robot at its next one, and the path drawn
-        so far must not turn with it. Nothing persistent is drawn from
-        requested positions (see _handle_live_position), so a mission
-        drawn under an older turn leaves nothing behind.
+        Fixed at the mission's first position: a map turned in the app
+        during a mission reaches the robot at its next one, and the path
+        drawn so far must not turn with the header. Only the user's
+        setting turns it afterwards (_sync_live_turn).
         """
         if self._live_position_turn_rad is None:
-            entry = self._config_entry
+            self._live_position_turn_rad = self._target_live_turn()
+            self._note_live_turn()
+        return self._live_position_turn_rad
+
+    def _target_live_turn(self) -> float:
+        """The turn "Turn of the live path" asks for now (4.4.1).
+
+        An angle the user set (4.4.0) as it is. "auto" from the cloud map
+        the coordinator holds, read once per mission and kept
+        (_live_turn_auto_rad), so switching between an angle and auto
+        comes back to the same place.
+        """
+        entry = self._config_entry
+        options = getattr(entry, "options", None) if entry is not None else None
+        setting = (
+            options.get(CONF_LIVE_PATH_TURN, DEFAULT_LIVE_PATH_TURN)
+            if isinstance(options, Mapping)
+            else DEFAULT_LIVE_PATH_TURN
+        )
+        if self._live_turn_auto_rad is None:
             coordinator = (
                 getattr(getattr(entry, "runtime_data", None), "cloud_coordinator", None)
                 if entry is not None
                 else None
             )
             umf = getattr(coordinator, "umf_data", None) if coordinator is not None else None
-            # Or the angle the user set where auto is wrong (4.4.0).
-            options = getattr(entry, "options", None) if entry is not None else None
-            setting = (
-                options.get(CONF_LIVE_PATH_TURN, DEFAULT_LIVE_PATH_TURN)
-                if isinstance(options, Mapping)
-                else DEFAULT_LIVE_PATH_TURN
+            self._live_turn_auto_rad = requested_position_turn("auto", umf)[0]
+        if setting in LIVE_PATH_TURN_CHOICES and setting != "auto":
+            return requested_position_turn(setting, None)[0]
+        return self._live_turn_auto_rad
+
+    def _take_live_turn(self, saved: Mapping[str, Any]) -> None:
+        """The turn a saved path or checkpoint was drawn with (4.4.1).
+
+        None where it was not kept (before 4.4.1): a restored path then
+        stays as drawn, and a resumed mission reads the turn again at its
+        next position, as 4.4.0 did.
+        """
+        def _angle(value: Any) -> float | None:
+            return (
+                float(value)
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else None
             )
-            self._live_position_turn_rad = requested_position_turn(setting, umf)[0]
-        return self._live_position_turn_rad
+
+        self._live_position_turn_rad = _angle(saved.get("live_turn_rad"))
+        self._live_turn_auto_rad = _angle(saved.get("live_turn_auto_rad"))
+        self._note_live_turn()
+
+    def _note_live_turn(self) -> None:
+        """The drawn path's turn, where the diagnostics read it (4.4.1)."""
+        if self._renderer is not None:
+            self._renderer.requested_turn_rad = self._live_position_turn_rad
+
+    @callback
+    def _sync_live_turn(self, *, write_state: bool = True) -> bool:
+        """Turn a requested path drawn under another setting (4.4.1).
+
+        @frnchfrgg changed "Turn of the live path", reloaded, and the path
+        stayed as it was: its positions are turned when they arrive and
+        kept turned, in the picture and in storage. A setting that only
+        reaches the next mission cannot be checked against the floor
+        plan, which is the point of having it. So the path drawn so far
+        is turned by the difference, about the dock, as the positions
+        would have been: back out of the renderer's mirror, turned in the
+        cloud map's frame, mirrored again.
+
+        Nothing for a pose path, for no path, or for one restored from
+        before 4.4.1, whose turn was not kept. True when it turned.
+        """
+        applied = self._live_position_turn_rad
+        if (
+            self._renderer is None
+            or self._position_source != POSITION_SOURCE_REQUEST
+            or applied is None
+        ):
+            return False
+        target = self._target_live_turn()
+        delta = math.atan2(math.sin(target - applied), math.cos(target - applied))
+        if abs(delta) < 1e-6:
+            return False
+        mirror = getattr(getattr(self._renderer, "_cfg", None), "mirror_x", False) is True
+        cos_d, sin_d = math.cos(delta), math.sin(delta)
+
+        def _turn(x: float, y: float) -> tuple[float, float]:
+            if mirror:
+                x, y = map_mm_to_view(x, y)
+            x, y = x * cos_d - y * sin_d, x * sin_d + y * cos_d
+            if mirror:
+                x, y = map_mm_to_view(x, y)
+            return x, y
+
+        self._renderer.transform_path(_turn, math.degrees(delta))
+        self._live_position_turn_rad = target
+        self._note_live_turn()
+        self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
+        if write_state:
+            self.async_write_ha_state()
+        return True
+
+    @callback
+    def _handle_map_options_changed(self) -> None:
+        """Options saved without a reload (4.4.1).
+
+        Map rotation, size and scale move the path and the coverage grid,
+        as the rooms map already follows the rotation; "Turn of the live
+        path" turns a requested path drawn under another setting; and the
+        picture is drawn anew for the options read at render.
+        """
+        moved = self._apply_canvas_options()
+        turned = self._sync_live_turn(write_state=False)
+        self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
+        self.async_write_ha_state()
+        if (
+            (moved or turned)
+            and not self._had_cleaning_phase
+            and self._config_entry is not None
+            and getattr(self._renderer, "has_data", False) is True
+        ):
+            # A finished path keeps its new place over a restart; a
+            # running mission's is saved at its end.
+            self._config_entry.async_create_task(
+                self.hass, self._async_save_map_state()
+            )
+
+    def _apply_canvas_options(self) -> bool:
+        """Map rotation, canvas size and scale, from the options (4.4.1).
+
+        Read once at setup until now, so a saved change turned the rooms
+        map and not the path (@frnchfrgg). True when the renderer moved.
+        """
+        entry = self._config_entry
+        options = getattr(entry, "options", None) if entry is not None else None
+        if not isinstance(options, Mapping):
+            return False
+        turns = quarter_turns(options.get(CONF_MAP_ROTATION, DEFAULT_MAP_ROTATION))
+        grid = getattr(getattr(entry, "runtime_data", None), "grid_store", None)
+        if isinstance(grid, GridStore) and grid.quarter_turns % 4 != turns % 4:
+            grid.quarter_turns = turns
+            # The coverage map draws from the grid and caches its picture.
+            from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+                async_dispatcher_send,
+            )
+
+            async_dispatcher_send(
+                self.hass, _SIGNAL_COVERAGE_UPDATED.format(entry.entry_id)
+            )
+        if not isinstance(self._renderer, MapRenderer):
+            return False
+        return self._renderer.reconfigure(
+            size_px=int(options.get(CONF_MAP_SIZE_PX, DEFAULT_MAP_SIZE_PX)),
+            scale=float(options.get(CONF_MAP_SCALE, DEFAULT_MAP_SCALE)),
+            quarter_turns=turns,
+        )
 
     def _handle_dock_contact_confirmed(self) -> None:
         """v3.2.1 DOCK-ANCHOR — fires once per confirmed dock contact
@@ -3027,6 +3186,11 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             {
                 **self._renderer.dump_state(),
                 "position_source": self._position_source,
+                # The turn a requested path HAS, and what auto read for
+                # its mission (4.4.1): to turn it again when the setting
+                # changes. Absent from older dumps, which stay as drawn.
+                "live_turn_rad": self._live_position_turn_rad,
+                "live_turn_auto_rad": self._live_turn_auto_rad,
             }
         )
         _LOGGER.debug(
@@ -3085,6 +3249,11 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                 if data.get("position_source") == POSITION_SOURCE_REQUEST
                 else POSITION_SOURCE_POSE
             )
+            if self._position_source == POSITION_SOURCE_REQUEST:
+                # ITS TURN, AND THE SETTING SINCE (4.4.1): a reload after
+                # changing "Turn of the live path" turns the path too.
+                self._take_live_turn(data)
+                self._sync_live_turn(write_state=False)
             # Bump image_last_updated so the frontend fetches the restored image
             self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
             _LOGGER.debug(
@@ -3223,6 +3392,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             renderer_state = checkpoint.get("renderer_state")
             if self._renderer is not None and renderer_state:
                 self._renderer.restore_state(renderer_state)
+            # This mission's turn, not the last finished path's (4.4.1).
+            self._take_live_turn(checkpoint)
             _LOGGER.debug(
                 "Map: resumed mission from checkpoint after restart — "
                 "%d pose pt(s), %d stuck pt(s)",
@@ -3275,6 +3446,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         renderer_state = checkpoint.get("renderer_state")
         if self._renderer is not None and renderer_state:
             self._renderer.restore_state(renderer_state)
+        self._take_live_turn(checkpoint)
         self._handle_mission_end(ending_phase="")
 
     async def _async_save_mission_checkpoint(self) -> None:
@@ -3312,6 +3484,11 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             "mission_start_ts": self._mission_start_ts,
             "started_on_dock": getattr(self, "_mission_started_on_dock", None),
             "renderer_state": self._renderer.dump_state() if self._renderer else None,
+            # The turn this mission's requested positions get (4.4.1): a
+            # resumed mission goes on with it, not with the turn of the
+            # last finished path restored at startup.
+            "live_turn_rad": getattr(self, "_live_position_turn_rad", None),
+            "live_turn_auto_rad": getattr(self, "_live_turn_auto_rad", None),
             # v2.8.2 bug-hunt fix — without this, a resumed mission would
             # see _last_stuck_count reset to its __init__ default of 0 (the
             # whole entity object is recreated on HA restart), so the very

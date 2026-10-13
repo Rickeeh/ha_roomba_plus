@@ -384,7 +384,13 @@ alignment; for a Smart Map robot's own positions, through the alignment once the
 map with that turn after a cleaning run (4.4.0). Roomba+ turns them back by the angles of the map
 version the robot saved itself, so the path lies on the rooms map. *Turn of the live path*, beside
 the option above, replaces that with a fixed angle for a robot where it reads wrong; the diagnostics
-show the angle read (`requested_path_turn_deg`), where it came from and the one drawn.
+show the angle read (`requested_path_turn_deg`), where it came from and the one drawn. Since 4.4.1
+the path already drawn turns with the setting as soon as it is saved, during a run and after it, so
+an angle can be checked against the floor plan; `requested_path_turn_in_picture_deg` gives the turn
+of the path shown.
+
+**Seen through (4.4.1).** The cleaned area is laid over the floor plan at half opacity, so the rooms
+show through; the path stays opaque, and the room names are drawn over it.
 
 What a requested path does **not** do yet: it is not fed into the coverage heatmap, door markers or
 room learning, and the map carries no `calibration_points`/`rooms` while it shows one — the image
@@ -1356,7 +1362,7 @@ what a robot does out of the box.
 | Enable the live cleaning map | on | Robots with position sensing only (900, i, s, j, Braava m) |
 | Map canvas size in pixels | 600 | 400–1200 |
 | Millimetres per pixel | 10 | 5–30. At 600 px, 10 gives you a 6 m × 6 m room |
-| Map rotation | 0° | Turns every map picture clockwise (4.3.2). The map's top is the way the robot left the dock; turn it until it matches how you picture the floor |
+| Map rotation | 0° | Turns every map picture clockwise (4.3.2). The map's top is the way the robot left the dock; turn it until it matches how you picture the floor. Since 4.4.1 a saved change reaches every picture at once, as do canvas size and millimetres per pixel |
 | Draw room names | off | The [xiaomi-vacuum-map-card](xiaomi-vacuum-map-card.md) draws its own names, so drawing them into the image as well would show each one twice. Switch it on for a plain picture card. A room without a name shows its number, as in the naming notice |
 | Draw clean zones | off | |
 | Draw keep-out zones | off | |

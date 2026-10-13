@@ -799,6 +799,32 @@ class TestMaintenanceResetButtons:
         assert fired == [("pad", 222)]
 
     @pytest.mark.asyncio
+    async def test_the_battery_reset_forgets_the_old_pack(self, monkeypatch):
+        """4.4.1, @azrael: capacity retention read 573 % after a new pack.
+        The store forgets its baseline (MaintenanceStore.reset_battery);
+        the robot profile forgets the old pack's estCap series."""
+        from custom_components.roomba_plus import services
+        from custom_components.roomba_plus.maintenance_store import MaintenanceStore
+        from custom_components.roomba_plus.robot_profile_store import RobotProfileStore
+
+        monkeypatch.setattr(services, "_fire_maintenance_reset_event", lambda *a: None)
+        b = btn.BatteryResetButton.__new__(btn.BatteryResetButton)
+        store = MaintenanceStore()
+        store.baseline_estcap = 436.0
+        profile = RobotProfileStore()
+        profile.last_estcap_mah = 436.0
+        profile.async_save = AsyncMock()
+        b._maintenance_store = lambda: store
+        b._current_hr = lambda: 900
+        b._save = AsyncMock()
+        b.hass, b._config_entry = MagicMock(), MagicMock()
+        b._config_entry.runtime_data.robot_profile_store = profile
+        await b.async_press()
+        assert store.baseline_estcap is None
+        assert profile.last_estcap_mah is None
+        profile.async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_a_pad_reset_without_a_store_does_nothing(self):
         b = btn.PadResetButton.__new__(btn.PadResetButton)
         b._maintenance_store = lambda: None

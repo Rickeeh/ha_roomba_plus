@@ -346,9 +346,19 @@ class MaintenanceStore:
                      current_hr, len(self.brush_reset_history))
 
     def reset_battery(self, current_hr: int) -> None:
-        """Record current bbrun.hr and wall-clock time as battery replacement point."""
+        """Record current bbrun.hr and wall-clock time as battery replacement point.
+
+        AND FORGET THE OLD PACK'S CAPACITY (4.4.1, @azrael). Capacity
+        retention divides today's estCap by `baseline_estcap`, which was
+        seeded once and never again: his new pack, ~2500 mAh, read 573 %
+        of the old one's 436 mAh, for good. Cleared here, the next
+        qualifying reading seeds it from the new pack
+        (record_estcap_if_needed). Both the button and the reset action
+        come through here.
+        """
         self.battery_reset_hr = current_hr
         self.battery_reset_at = dt_util.now().isoformat()
+        self.baseline_estcap = None
         _LOGGER.info("MaintenanceStore: battery reset at %dh", current_hr)
 
     def reset_pad(self, current_hr: int) -> None:

@@ -1674,7 +1674,38 @@ class TestReloadOnOptionsChangeIncludesCalendar:
         with patch.object(pkg, "async_dispatcher_send") as send:
             await pkg._async_reload_on_options_change(hass, config_entry)
         hass.config_entries.async_reload.assert_not_awaited()
-        send.assert_called_once_with(hass, pkg.maintenance_changed_signal("B1"))
+        # And the cleaning map, which turns a requested path along with
+        # "Turn of the live path" (4.4.1).
+        assert [c.args for c in send.call_args_list] == [
+            (hass, pkg.maintenance_changed_signal("B1")),
+            (hass, pkg.map_options_changed_signal("B1")),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [("map_rotation", "270"), ("map_size_px", 800), ("map_scale_mm_per_px", 20.0)],
+    )
+    async def test_the_map_canvas_options_reach_the_map_without_a_reload(self, key, value):
+        """4.4.1, @frnchfrgg: rotation, size and scale build the cleaning
+        map at setup, so a saved change turned the rooms map and not the
+        path. A reload would cost a running mission its path; the map
+        applies them when it hears of the save."""
+        import custom_components.roomba_plus as pkg
+
+        config_entry = MagicMock()
+        config_entry.data = {}
+        config_entry.options = {key: value}
+        config_entry.entry_id = "entry1"
+        config_entry.runtime_data.blid = "B1"
+        hass = MagicMock()
+        hass.config_entries.async_reload = AsyncMock()
+        with patch.object(pkg, "async_dispatcher_send") as send:
+            await pkg._async_reload_on_options_change(hass, config_entry)
+        hass.config_entries.async_reload.assert_not_awaited()
+        assert (hass, pkg.map_options_changed_signal("B1")) in [
+            c.args for c in send.call_args_list
+        ]
 
     @pytest.mark.asyncio
     async def test_saving_the_form_unchanged_does_not_reload(self):

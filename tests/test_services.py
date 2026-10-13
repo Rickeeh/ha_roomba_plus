@@ -429,6 +429,37 @@ class TestHandleResetServiceFiresEvent:
             assert payload["component"] == part
 
 
+class TestTheBatteryResetActionForgetsTheOldPack:
+    """4.4.1, @azrael: the action and the button reset the same way."""
+
+    @pytest.mark.asyncio
+    async def test_only_the_battery_reaches_the_profile(self):
+        with patch(
+            "custom_components.roomba_plus.services.async_forget_old_battery",
+            new=AsyncMock(),
+        ) as forget:
+            await TestHandleResetServiceFiresEvent()._run("filter")
+            forget.assert_not_awaited()
+            await TestHandleResetServiceFiresEvent()._run("battery")
+            forget.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_the_profile_forgets_and_is_saved(self):
+        from custom_components.roomba_plus.robot_profile_store import RobotProfileStore
+        from custom_components.roomba_plus.services import async_forget_old_battery
+
+        profile = RobotProfileStore()
+        profile.last_estcap_mah = 436.0
+        profile.async_save = AsyncMock()
+        entry = MagicMock()
+        entry.runtime_data.robot_profile_store = profile
+        await async_forget_old_battery(MagicMock(), entry)
+        assert profile.last_estcap_mah is None
+        profile.async_save.assert_awaited_once()
+        entry.runtime_data.robot_profile_store = None
+        await async_forget_old_battery(MagicMock(), entry)   # nothing to forget
+
+
 class TestHandleInspectResetServiceFiresEvent:
     """v2.9.0 LOGBOOK — _handle_inspect_reset_service() fires
     maintenance_reset with hours=None (no hr-counter baseline for

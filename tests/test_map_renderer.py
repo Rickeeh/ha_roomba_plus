@@ -1697,3 +1697,165 @@ class TestTheFloorPlanUnderThePath:
         assert r.floor_plan == []
         r2, img2 = self._rendered([(None, [(0.0, 0.0), (1.0, 1.0)])])
         assert _pixels(img) == _pixels(img2)
+
+
+class TestTheCleanedAreaIsSeenThrough:
+    """4.4.1, @frnchfrgg: the wide band of cleaned area hid the floor plan
+    and its names. It is laid over at half opacity; the path stays
+    opaque, and the names go on top."""
+
+    @staticmethod
+    def _rendered(plan):
+        import io
+
+        from PIL import Image
+
+        # Away from the dock, whose own see-through marker sits at 0, 0.
+        r = _make_renderer(size_px=400)
+        for x in range(250, 2001, 250):
+            r.add_pose(float(x), 0.0, 0.0)
+        r.set_floor_plan(plan)
+        return r, Image.open(io.BytesIO(r.render())).convert("RGBA")
+
+    SQUARE = [(-3000.0, -3000.0), (3000.0, -3000.0), (3000.0, 3000.0), (-3000.0, 3000.0)]
+
+    def test_over_white_it_looks_as_before(self):
+        r, img = self._rendered([])
+        x, y = r._mm_to_px_fit(1500.0, 120.0)
+        pixel = img.getpixel((x, y))
+        assert all(abs(a - b) <= 1 for a, b in zip(pixel[:3], CLEANED_COLOUR[:3]))
+
+    def test_over_a_room_the_room_shows_through(self):
+        from custom_components.roomba_plus.map_renderer import (
+            CLEANED_ALPHA,
+            CLEANED_LAYER_COLOUR,
+            FLOOR_PLAN_FILL,
+        )
+
+        r, img = self._rendered([(None, self.SQUARE)])
+        x, y = r._mm_to_px_fit(1500.0, 120.0)
+        pixel = img.getpixel((x, y))
+        expected = [
+            CLEANED_ALPHA * c + (1 - CLEANED_ALPHA) * f
+            for c, f in zip(CLEANED_LAYER_COLOUR[:3], FLOOR_PLAN_FILL[:3])
+        ]
+        assert all(abs(a - b) <= 2 for a, b in zip(pixel[:3], expected))
+        assert pixel[:3] != CLEANED_COLOUR[:3]
+
+    def test_the_path_stays_opaque(self):
+        from custom_components.roomba_plus.map_renderer import PATH_COLOUR
+
+        r, img = self._rendered([(None, self.SQUARE)])
+        x, y = r._mm_to_px_fit(1500.0, 0.0)
+        assert img.getpixel((x, y)) == PATH_COLOUR
+
+    def test_the_names_are_drawn_after_the_path(self):
+        r = _make_renderer(size_px=400)
+        r.add_pose(0.0, 0.0, 0.0)
+        r.add_pose(200.0, 0.0, 0.0)
+        r.set_floor_plan([("Salon", self.SQUARE)])
+        order: list[str] = []
+        path, names = r._draw_path, r._draw_floor_plan_names
+        r._draw_path = lambda *a: (order.append("path"), path(*a))
+        r._draw_floor_plan_names = lambda *a: (order.append("names"), names(*a))
+        r.render()
+        assert order == ["path", "names"]
+
+
+class TestADrawnPathMoves:
+    """4.4.1: a requested path turns with its setting
+    (MapRenderer.transform_path), and a saved path survives a new map
+    size or scale."""
+
+    @staticmethod
+    def _quarter(x, y):
+        return -y, x
+
+    def test_every_point_moves_with_the_heading(self):
+        r = _make_renderer(size_px=600, scale=10.0, mirror_x=True)
+        for x in (1000.0, 1500.0, 2000.0):
+            r.add_pose(x, 0.0, 10.0)
+        r.mark_stuck()
+        r.render()
+        r.transform_path(self._quarter, 90.0)
+        want = _make_renderer(size_px=600, scale=10.0, mirror_x=True)
+        for x in (1000.0, 1500.0, 2000.0):
+            want.add_pose(0.0, x, 100.0)
+        # Exact, from the millimetres (review of 4.4.1: through the
+        # truncated pixels every point came out a pixel off).
+        assert r._points == want._points
+        assert r._points_mm[-1] == pytest.approx((0.0, 2000.0))
+        assert r._robot_px == r._points[-1]
+        assert r._stuck_px == [r._points[-1]]
+        assert r._theta == pytest.approx(100.0)
+        assert r._last_png is None
+
+    @pytest.mark.parametrize(("size", "scale"), [(800, 10.0), (600, 20.0), (400, 5.0)])
+    def test_a_saved_path_on_another_canvas(self, size, scale):
+        old = _make_renderer(size_px=600, scale=10.0, mirror_x=True, quarter_turns=1)
+        for x, y in ((500.0, 0.0), (900.0, 300.0), (1200.0, -400.0)):
+            old.add_pose(x, y, 0.0)
+        new = _make_renderer(size_px=size, scale=scale, mirror_x=True, quarter_turns=1)
+        assert new.restore_state(old.dump_state())
+        want = [new._mm_to_px(x, y) for x, y in ((500.0, 0.0), (900.0, 300.0), (1200.0, -400.0))]
+        assert all(
+            abs(p[0] - q[0]) <= 1 and abs(p[1] - q[1]) <= 1
+            for p, q in zip(new._points, want)
+        )
+
+    def test_a_dump_without_a_canvas_is_on_this_one(self):
+        old = _make_renderer(size_px=600, scale=10.0)
+        old.add_pose(500.0, 0.0, 0.0)
+        state = old.dump_state()
+        del state["size_px"], state["scale"]
+        new = _make_renderer(size_px=600, scale=10.0)
+        assert new.restore_state(state)
+        assert new._points == old._points
+
+    def test_a_new_mission_forgets_the_turn(self):
+        r = _make_renderer()
+        r.requested_turn_rad = 1.0
+        r.reset()
+        assert r.requested_turn_rad is None
+
+    def test_a_restored_path_moves_to_within_a_pixel(self):
+        """No millimetres after a restore: from the pixels."""
+        old = _make_renderer(size_px=600, scale=10.0, mirror_x=True)
+        for x in (1000.0, 1500.0, 2000.0):
+            old.add_pose(x, 0.0, 0.0)
+        r = _make_renderer(size_px=600, scale=10.0, mirror_x=True)
+        assert r.restore_state(old.dump_state())
+        r.transform_path(self._quarter, 90.0)
+        want = [r._mm_to_px(0.0, x) for x in (1000.0, 1500.0, 2000.0)]
+        assert all(
+            abs(p[0] - q[0]) <= 1 and abs(p[1] - q[1]) <= 1
+            for p, q in zip(r._points, want)
+        )
+
+    @pytest.mark.parametrize(
+        ("size", "scale", "turns"), [(800, 10.0, 0), (600, 20.0, 0), (600, 10.0, 3)],
+    )
+    def test_a_new_canvas_during_a_mission(self, size, scale, turns):
+        """4.4.1: rotation, size and scale applied when saved, the points
+        exact, the breaks kept."""
+        r = _make_renderer(size_px=600, scale=10.0, mirror_x=True)
+        for x, y in ((500.0, 0.0), (900.0, 300.0), (5000.0, 300.0), (5300.0, 0.0)):
+            r.add_pose(x, y, 0.0)
+        breaks = set(r._breaks)
+        assert breaks, "the 4 m jump is a break"
+        assert r.reconfigure(size_px=size, scale=scale, quarter_turns=turns)
+        want = _make_renderer(size_px=size, scale=scale, mirror_x=True, quarter_turns=turns)
+        for x, y in ((500.0, 0.0), (900.0, 300.0), (5000.0, 300.0), (5300.0, 0.0)):
+            want.add_pose(x, y, 0.0)
+        assert r._points == want._points
+        assert r._breaks == breaks
+        assert r._robot_px == r._points[-1]
+        assert r._last_png is None
+
+    def test_the_same_canvas_changes_nothing(self):
+        r = _make_renderer(size_px=600, scale=10.0)
+        r.add_pose(500.0, 0.0, 0.0)
+        r.render()
+        assert not r.reconfigure(size_px=600, scale=10.0, quarter_turns=4)
+        assert r._last_png is not None
+

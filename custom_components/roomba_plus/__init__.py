@@ -68,6 +68,7 @@ from .const import (
     DEFAULT_CARE_REMINDERS,
     care_reminders_enabled,
     maintenance_changed_signal,
+    map_options_changed_signal,
     lifetime_hours,
     ISSUE_TRACKER_URL,
     CONF_BLID,
@@ -2294,10 +2295,18 @@ async def _async_reload_on_options_change(
     # entities never appeared. The option was saved correctly; nothing
     # asked for them to be built.
     #
-    # The map options are deliberately NOT here: they are read on every
+    # The map options are deliberately NOT here: most are read on every
     # render, so they take effect on the next frame without a reload.
     # The test for membership is "read at setup time", not "affects what
     # the user sees".
+    #
+    # MAP ROTATION, SIZE AND SCALE build the cleaning map's renderer and
+    # the coverage grid at setup, while the rooms map reads the rotation
+    # on every frame: saved, the rooms map turned and the path did not
+    # (@frnchfrgg, 4.4.1). They are still not reload triggers -- a reload
+    # during a mission would cost its path -- the cleaning map applies
+    # them when map_options_changed_signal below arrives
+    # (RoombaMapImage._handle_map_options_changed).
     _RELOAD_TRIGGER_KEYS = {
         CONF_ENABLE_SCHEDULE_CALENDAR,
         CONF_ENABLE_MAINTENANCE_LIST,
@@ -2347,6 +2356,10 @@ async def _async_reload_on_options_change(
     blid = getattr(getattr(config_entry, "runtime_data", None), "blid", None)
     if isinstance(blid, str):
         async_dispatcher_send(hass, maintenance_changed_signal(blid))
+        # The cleaning map (4.4.1): rotation, size and scale move it and
+        # the coverage grid, "Turn of the live path" turns a path already
+        # drawn, and options read at render show at once.
+        async_dispatcher_send(hass, map_options_changed_signal(blid))
 
 
 # ── Connection helpers ────────────────────────────────────────────────────────

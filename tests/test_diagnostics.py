@@ -2218,6 +2218,12 @@ class TestTheDiagnosticsSayHowFarTheAppTurnedTheMap:
         set_ = _position_chain(data, {"live_path_turn": "270"})
         assert set_["requested_path_turn_drawn_deg"] == -90.0
 
+        # 4.4.1: the turn the path in the picture has, beside what a new
+        # mission would get; None without one.
+        assert set_["requested_path_turn_in_picture_deg"] is None
+        data.renderer = SimpleNamespace(point_count=3, requested_turn_rad=-1.5708)
+        assert _position_chain(data, {})["requested_path_turn_in_picture_deg"] == -90.0
+
 
 class TestTheRobotsAddressStaysOut:
     """4.4.0, @frnchfrgg's upload: the config entry's `host` went out as

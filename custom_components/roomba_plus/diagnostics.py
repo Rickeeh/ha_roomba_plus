@@ -862,6 +862,15 @@ def _position_chain(data: Any, options: Any = None) -> dict[str, Any]:
             else None
         ),
         "requested_path_turn_drawn_deg": _drawn_path_turn_deg(data, options),
+        # THE TURN OF THE PATH IN THE PICTURE (4.4.1). The line above is
+        # what a mission starting now would get; this is what the path
+        # shown has, turned along when the setting changed. None for a
+        # pose path, no path, or one kept from before 4.4.1.
+        "requested_path_turn_in_picture_deg": (
+            round(math.degrees(turn), 1)
+            if isinstance(turn := getattr(renderer, "requested_turn_rad", None), float)
+            else None
+        ),
         "aligner_present": aligner is not None,
         "aligner_aligned": getattr(aligner, "aligned", None),
         # AND HOW CLOSE IT CAME (4.3.3, @catongates): below 0.70 it is

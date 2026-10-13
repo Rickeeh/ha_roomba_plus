@@ -1039,7 +1039,8 @@ class TestBatteryCapacityRetention:
 
     def test_fallback_to_oem_nominal_before_baseline(self):
         # No baseline yet → falls back to profile.battery_mah as cold-start denominator
-        e = _entity(battery_stats={"estCap": 1500}, battery_mah=2000)
+        e = _entity(battery_stats={"estCap": 1500}, vacuum_state={"batPct": 100},
+                    battery_mah=2000)
         # baseline_estcap is None; record_estcap_if_needed sets it to 1500
         # then denominator = 1500 → 100% (first observation treated as full)
         assert _battery_capacity_retention(e) == 100.0
@@ -1047,16 +1048,40 @@ class TestBatteryCapacityRetention:
     def test_aftermarket_shows_above_100_before_baseline(self):
         # Aftermarket 2500 mAh in robot with OEM 2000 mAh profile
         # First observation: baseline set to 2500, denominator=2500 → 100%
-        e = _entity(battery_stats={"estCap": 2500}, battery_mah=2000)
+        e = _entity(battery_stats={"estCap": 2500}, vacuum_state={"batPct": 100},
+                    battery_mah=2000)
         assert _battery_capacity_retention(e) == 100.0
 
     def test_sets_baseline_on_first_call(self):
         # Baseline receives the converted mAh value (= raw for scale=1.0)
-        e = _entity(battery_stats={"estCap": 2000}, battery_mah=2000)
+        e = _entity(battery_stats={"estCap": 2000}, vacuum_state={"batPct": 100},
+                    battery_mah=2000)
         store = e._config_entry.runtime_data.maintenance_store
         assert store.baseline_estcap is None
         _battery_capacity_retention(e)
         assert store.baseline_estcap == 2000.0  # scale=1.0: mAh == raw
+
+    @pytest.mark.parametrize("pct", [None, 40, 94])
+    def test_no_baseline_from_a_pack_not_charged(self, pct):
+        """4.4.1, @azrael: his old baseline, 436 mAh, came from a low
+        charge. Until the pack is charged the OEM figure stands in."""
+        state = {} if pct is None else {"batPct": pct}
+        e = _entity(battery_stats={"estCap": 1500}, vacuum_state=state, battery_mah=2000)
+        assert _battery_capacity_retention(e) == 75.0
+        assert e._config_entry.runtime_data.maintenance_store.baseline_estcap is None
+
+    def test_a_battery_reset_takes_a_new_baseline(self):
+        """4.4.1, @azrael: 573 % after a new pack, for good -- the reset
+        left the old pack's baseline in place."""
+        e = _entity(battery_stats={"estCap": 2500}, vacuum_state={"batPct": 100},
+                    battery_mah=2488)
+        store = e._config_entry.runtime_data.maintenance_store
+        store.baseline_estcap = 436.0
+        assert _battery_capacity_retention(e) == pytest.approx(573.4, abs=0.1)
+        store.reset_battery(1234)
+        assert store.baseline_estcap is None
+        assert _battery_capacity_retention(e) == 100.0
+        assert store.baseline_estcap == 2500.0
 
     def test_baseline_not_overwritten_on_subsequent_calls(self):
         e = _entity(battery_stats={"estCap": 1800})

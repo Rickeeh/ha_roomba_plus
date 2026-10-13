@@ -73,9 +73,16 @@ from .entity import IRobotEntity
 from .models import ConnectionType, MapCapability, RoombaConfigEntry
 from .command_record import record_command
 from .mission_store import MissionStore
+from .mission_timer_store import MissionTimerStore
+from .position_room import PositionRoomTracker
 from .room_cleaning import region_names_across_maps
 
 _LOGGER = logging.getLogger(__name__)
+
+#: After a skip, how long a position has to confirm where the robot went
+#: before room tracking moves to the next planned room itself (4.4.1):
+#: the iRobot app's own limit for showing "skipping".
+SKIP_SETTLE_SEC = 20
 PARALLEL_UPDATES = 0
 
 SUPPORT_IROBOT = (
@@ -1456,7 +1463,16 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             verb, payload, how = self._classic_skip_command(params)
             record["sent"] = verb
             record["room"] = how
-            await self.vacuum.send_command(verb, payload)
+            if verb == "dock":
+                # HOME THE WAY RETURN TO BASE GOES (4.4.1, @Thonno's i7+):
+                # pause, then dock. A bare `dock` while it cleans is not
+                # taken -- 20 s and a minute later his robot was still in
+                # `run`, cleaning the room it had been told to skip.
+                record["paused_first"] = True
+                await self.async_return_to_base()
+            else:
+                await self.vacuum.send_command(verb, payload)
+                self._track_skip(how)
             record_command(self._config_entry, f"{verb} (skip)", payload or None)
         log = getattr(getattr(self._config_entry, "runtime_data", None), "skip_attempts", None)
         if log is not None:
@@ -1479,6 +1495,54 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
 
         self._config_entry.async_on_unload(async_call_later(self.hass, 20, _after_20s))
         self._config_entry.async_on_unload(async_call_later(self.hass, 60, _after_60s))
+
+    def _track_skip(self, how: dict[str, Any]) -> None:
+        """Room tracking after a skip, in two steps (4.4.1, @Thonno).
+
+        1. AT ONCE: the skipped room is done -- the end of the mission
+           no longer waits for it and the remaining time leaves it out.
+        2. WHERE THE ROBOT IS needs evidence. A position confirming a room
+           moves the display itself (position_room). Where none has
+           moved it after SKIP_SETTLE_SEC -- the time the iRobot app
+           shows "skipping" -- it moves to the next planned room, unless
+           the latest position still lies in the skipped one: then the
+           robot did not take the skip, and the display stays.
+
+        His i7+ took the skip and drove on; room tracking stayed on the
+        skipped room for the rest of the run, because no position found a
+        room and a skip moved nothing.
+        """
+        data = getattr(self._config_entry, "runtime_data", None)
+        mts = getattr(data, "mission_timer_store", None)
+        idx = how.get("index")
+        if (
+            not isinstance(mts, MissionTimerStore)
+            or not isinstance(idx, int)
+            or len(mts.planned_rooms) != how.get("of")
+        ):
+            return
+        entry_id = self._config_entry.entry_id
+        mission = mts.mission_id
+        skipped = mts.planned_rooms[idx]
+        was_current = idx == mts.current_room_idx
+        mts.mark_skipped(idx, self.hass, entry_id)
+        if not was_current:
+            return
+
+        @callback
+        def _move_on(_now: Any) -> None:
+            if mts.mission_id != mission or mts.current_room_idx != idx:
+                return  # another mission, or a position moved it
+            tracker = getattr(data, "position_room", None)
+            if isinstance(tracker, PositionRoomTracker) and tracker.still_in(skipped):
+                return  # the robot is where it was: the skip was not taken
+            nxt = mts.next_unvisited_after(idx)
+            if nxt is not None and mts.move_to_room(nxt, self.hass, entry_id):
+                self.async_write_ha_state()
+
+        self._config_entry.async_on_unload(
+            async_call_later(self.hass, SKIP_SETTLE_SEC, _move_on)
+        )
 
     def _classic_skip_command(
         self, params: dict[str, Any] | None

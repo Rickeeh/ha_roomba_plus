@@ -33,6 +33,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
+from .robot_profile_store import RobotProfileStore
 from .command_record import record_command
 from .service_guard import register as register_guarded
 from .const import (
@@ -1406,6 +1407,18 @@ async def _async_push_part_reset_to_cloud(
     await cc.async_request_refresh()
 
 
+async def async_forget_old_battery(hass: HomeAssistant, config_entry: Any) -> None:
+    """A battery reset forgets the old pack's estCap series too (4.4.1).
+
+    MaintenanceStore.reset_battery() clears the capacity baseline; the
+    learned estCap noise lives in the robot profile and goes with it.
+    """
+    profile = getattr(getattr(config_entry, "runtime_data", None), "robot_profile_store", None)
+    if isinstance(profile, RobotProfileStore):
+        profile.forget_battery_readings()
+        await profile.async_save(hass, config_entry.entry_id)
+
+
 async def _handle_reset_service(
     hass: HomeAssistant, call: ServiceCall, part: str
 ) -> None:
@@ -1461,6 +1474,8 @@ async def _handle_reset_service(
             current_hr = lifetime_hours(data.roomba_reported_state())
         getattr(data.maintenance_store, f"reset_{part}")(current_hr)
         await data.maintenance_store.async_save(hass, config_entry.entry_id)
+        if part == "battery":
+            await async_forget_old_battery(hass, config_entry)
         _fire_maintenance_reset_event(hass, config_entry, part, current_hr)
 
         # PUSH THE RESET TO IROBOT TOO, so the app and this integration

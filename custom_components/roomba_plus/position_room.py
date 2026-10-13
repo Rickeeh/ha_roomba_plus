@@ -37,6 +37,9 @@ DWELL_SEC = 15.0
 MIN_SAMPLES = 3
 #: Seconds without a position after which room tracking falls back.
 STALE_SEC = 60.0
+#: How recent a position must be to say the robot is still in a room
+#: it was told to skip (4.4.1).
+SKIP_STILL_IN_SEC = 10.0
 
 #: Grid cell of the 900-series areas (room_seg_store.CELL_MM).
 _SEG_CELL_MM = 150.0
@@ -66,6 +69,11 @@ class PositionRoomTracker:
         self.last_in_room: float | None = None
         #: Confirmed changes this mission (diagnostics).
         self.changes = 0
+        #: Positions this mission per room, None for those in no room
+        #: (4.4.1, diagnostics): a turn that puts the path beside the
+        #: floor plan shows as positions in no room, without a
+        #: coordinate leaving the house.
+        self.counts: dict[str | None, int] = {}
 
     def add_listener(
         self, listener: Callable[[str | None, str], None]
@@ -84,6 +92,7 @@ class PositionRoomTracker:
         now = self._clock()
         self.last_seen = now
         self.last_room = room
+        self.counts[room] = self.counts.get(room, 0) + 1
         if room is None:
             return
         self.last_in_room = now
@@ -126,7 +135,22 @@ class PositionRoomTracker:
                 else None
             ),
             "changes_this_mission": self.changes,
+            # Room names and counts; "(none)" for positions in no room.
+            "positions_by_room": {
+                ("(none)" if room is None else room): n
+                for room, n in sorted(
+                    self.counts.items(), key=lambda kv: (kv[0] is None, kv[0] or "")
+                )
+            },
         }
+
+    def still_in(self, room: str) -> bool:
+        """Whether the latest position, a moment ago, lay in `room`."""
+        return (
+            self.last_room == room
+            and self.last_seen is not None
+            and self._clock() - self.last_seen <= SKIP_STILL_IN_SEC
+        )
 
 
 def room_at_position(data: Any, x_mm: float, y_mm: float, *, frame: str) -> str | None:

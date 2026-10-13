@@ -709,6 +709,16 @@ class RobotProfileStore:
         total = len(self.reloc_history)
         return round((less + 0.5 * equal) / total * 100, 1)
 
+    def forget_battery_readings(self) -> None:
+        """A new battery (4.4.1): its estCap starts a new series. The jump
+        from the old pack to the new one is no reading-to-reading noise,
+        and fed in as one it would have widened the noise floor until no
+        real decline cleared it."""
+        self.estcap_noise_mean = None
+        self.estcap_noise_m2 = 0.0
+        self.estcap_noise_count = 0
+        self.last_estcap_mah = None
+
     def update_estcap_noise(self, estcap_delta: float) -> None:
         """v3.1.0 L9-BATTERY — feed one estCap-vs-previous-reading delta into
         the running noise-floor baseline using Welford's online algorithm.

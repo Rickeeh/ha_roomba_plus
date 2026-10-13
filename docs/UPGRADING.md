@@ -9,6 +9,22 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.4.1 — from v4.4.0
+
+**Turn of the live path turns the path already drawn.** A path saved
+before 4.4.1 stays as drawn until the next run replaces it.
+
+**Map rotation, canvas size and millimetres per pixel apply as soon as
+they are saved**, to the cleaning path and the coverage map as well; no
+reload is needed any more.
+
+**Battery capacity retention far above 100 % after a new battery?** Press
+*Battery replaced* again (or call `roomba_plus.reset_battery`): since
+4.4.1 that clears the old pack's baseline, and the next reading with the
+pack charged to 95 % or more sets the new one.
+
+---
+
 ## v4.4.0 — from v4.3.7
 
 **A map turned in the iRobot app:** the live path is turned back by the

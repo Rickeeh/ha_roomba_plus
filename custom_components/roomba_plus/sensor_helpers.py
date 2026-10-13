@@ -1147,11 +1147,16 @@ def _mop_behavior(entity: "IRobotEntity") -> StateType:
 
 # ── F5d — Battery capacity retention ─────────────────────────────────────────
 
+#: The charge at which the capacity baseline may be taken (4.4.1).
+BASELINE_MIN_BATTERY_PCT = 95
+
+
 def _battery_capacity_retention(entity: "IRobotEntity") -> StateType:
     """F5d — battery capacity as % of learned initial capacity.
 
-    Denominator: store.baseline_estcap (first observed mAh after install or
-    battery reset) so the sensor measures actual degradation of the installed
+    Denominator: store.baseline_estcap (first mAh observed at 95 % charge
+    or more after install or a battery reset -- the reset clears it since
+    4.4.1) so the sensor measures actual degradation of the installed
     battery — 100% = full health, <100% = degraded — independent of whether
     it is OEM or aftermarket.
 
@@ -1173,7 +1178,14 @@ def _battery_capacity_retention(entity: "IRobotEntity") -> StateType:
     # Record converted mAh (not raw BMS value) as self-learning baseline.
     # When the baseline is set for the first time, schedule a save so it
     # survives an HA restart (baseline is only set once — idempotent).
-    if store.record_estcap_if_needed(capacity_mah):
+    #
+    # ONLY FROM A CHARGED PACK (4.4.1, @azrael): his old pack's baseline
+    # was 436 mAh, taken at a low charge, against ~2500 mAh his new pack
+    # reports charged. The baseline is taken once, so it is taken where
+    # the pack's estimate is settled: at BASELINE_MIN_BATTERY_PCT or more.
+    battery_pct = entity.vacuum_state.get("batPct")
+    charged = isinstance(battery_pct, (int, float)) and battery_pct >= BASELINE_MIN_BATTERY_PCT
+    if charged and store.record_estcap_if_needed(capacity_mah):
         entity.hass.async_create_task(
             store.async_save(entity.hass, entity._config_entry.entry_id),
             name="roomba_plus_estcap_baseline_save",

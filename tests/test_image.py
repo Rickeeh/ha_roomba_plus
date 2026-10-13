@@ -1566,6 +1566,9 @@ class TestMissionCheckpointV282:
             "mission_start_ts": "2026-06-18T09:00:00+00:00",
             "started_on_dock": None,
             "renderer_state": {"r": 1},
+            # The mission's turn (4.4.1); none drawn from requests here.
+            "live_turn_rad": None,
+            "live_turn_auto_rad": None,
             "last_stuck_count": 0,
             "dock_anchor_buffering": False,
             "pending_segment_points": [],
@@ -5249,6 +5252,246 @@ class TestTheRequestedPathTurnsBackWithTheApp:
         assert (x, y) == (pytest.approx(1000.0, abs=1.0), pytest.approx(0.0, abs=1.0))
 
 
+class TestTheTurnFollowsTheSetting:
+    """4.4.1, @frnchfrgg: he changed "Turn of the live path" to 270 and to
+    0, reloaded each time, and the path stayed exactly as it was. Its
+    positions are turned as they arrive and kept turned; the setting
+    reached only the next mission. Now the path drawn so far turns with
+    the setting, so an angle can be checked against the floor plan."""
+
+    _base = TestTheRequestedPathTurnsBackWithTheApp()
+    _pos = _base._pos
+    QUARTER = _base._turned(3.1454, 4.7163)   # auto reads a quarter turn
+
+    def _entity(self, setting):
+        from types import MappingProxyType
+
+        from custom_components.roomba_plus.map_renderer import (
+            MapRenderer,
+            RendererConfig,
+        )
+
+        m, _r, entry, scheduled = TestRequestedPositionsOnTheCleaningMap()._entity()
+        m._renderer = MapRenderer(RendererConfig(size_px=600, scale=10.0, mirror_x=True))
+        entry.runtime_data.cloud_coordinator.umf_data = self.QUARTER
+        entry.options = MappingProxyType({"live_path_turn": setting})
+        return m, entry, scheduled
+
+    def _drawn(self, setting):
+        m, _e, _s = self._entity(setting)
+        for x, y in ((1.0, 0.0), (1.5, 0.5), (2.0, 1.0)):
+            m._handle_live_position(self._pos(x, y))
+        return m
+
+    @staticmethod
+    def _close(a, b):
+        return len(a) == len(b) and all(
+            abs(p[0] - q[0]) <= 1 and abs(p[1] - q[1]) <= 1 for p, q in zip(a, b)
+        )
+
+    def test_a_drawn_path_turns_to_the_new_angle(self):
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        fixed = self._drawn("0")
+        assert not self._close(m._renderer._points, fixed._renderer._points)
+        m._config_entry.options = MappingProxyType({"live_path_turn": "0"})
+        m._handle_map_options_changed()
+        assert self._close(m._renderer._points, fixed._renderer._points)
+        assert m._renderer._theta == pytest.approx(fixed._renderer._theta)
+        assert m._live_position_turn_rad == pytest.approx(0.0)
+        assert m._renderer.requested_turn_rad == pytest.approx(0.0)
+
+    def test_back_to_auto_is_back_to_where_it_was(self):
+        """To what auto read for the mission, not to a header saved since."""
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        before = list(m._renderer._points)
+        entry = m._config_entry
+        entry.options = MappingProxyType({"live_path_turn": "180"})
+        m._handle_map_options_changed()
+        entry.runtime_data.cloud_coordinator.umf_data = self._base._turned(1.0, 1.0)
+        entry.options = MappingProxyType({"live_path_turn": "auto"})
+        m._handle_map_options_changed()
+        assert self._close(m._renderer._points, before)
+
+    def test_positions_after_the_change_get_the_new_angle(self):
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        m._config_entry.options = MappingProxyType({"live_path_turn": "0"})
+        m._handle_map_options_changed()
+        m._handle_live_position(self._pos(3.0, 0.0))
+        fresh = self._drawn("0")
+        fresh._handle_live_position(self._pos(3.0, 0.0))
+        assert self._close(m._renderer._points, fresh._renderer._points)
+
+    def test_a_finished_path_is_saved_with_its_new_turn(self):
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        scheduled: list = []
+        m._config_entry.async_create_task = (
+            lambda _h, coro, *a, **k: (scheduled.append(coro.__qualname__), coro.close())
+        )
+        m._config_entry.options = MappingProxyType({"live_path_turn": "90"})
+        m._handle_map_options_changed()
+        assert any("_async_save_map_state" in n for n in scheduled)
+
+    def test_an_unchanged_setting_only_redraws(self):
+        m = self._drawn("auto")
+        before = list(m._renderer._points)
+        m.async_write_ha_state.reset_mock()
+        m._handle_map_options_changed()
+        assert m._renderer._points == before
+        m.async_write_ha_state.assert_called_once()
+
+    def test_a_pose_path_is_not_turned(self):
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        m._position_source = img.POSITION_SOURCE_POSE
+        before = list(m._renderer._points)
+        m._config_entry.options = MappingProxyType({"live_path_turn": "0"})
+        m._handle_map_options_changed()
+        assert m._renderer._points == before
+
+    @pytest.mark.asyncio
+    async def test_a_reload_after_the_change_turns_the_saved_path(self, monkeypatch):
+        """His way: change the setting, reload. The saved path keeps its
+        turn, and the restore turns it to the setting."""
+        from types import MappingProxyType
+
+        saved: dict = {}
+
+        class _Store:
+            def __init__(self, *_a, **_k): pass
+            async def async_save(self, data): saved.update(data)
+            async def async_load(self): return dict(saved)
+
+        monkeypatch.setattr(img, "Store", _Store)
+        m = self._drawn("auto")
+        m._config_entry.entry_id = "e"
+        m._config_entry.options = MappingProxyType(
+            {"live_path_turn": "auto", "live_position_requests": True}
+        )
+        await m._async_save_map_state()
+        assert saved["live_turn_rad"] == pytest.approx(m._live_position_turn_rad)
+
+        fresh, entry, _s = self._entity("0")
+        entry.entry_id = "e"
+        entry.options = MappingProxyType(
+            {"live_path_turn": "0", "live_position_requests": True}
+        )
+        await fresh._async_restore_map_state()
+        assert self._close(fresh._renderer._points, self._drawn("0")._renderer._points)
+
+    @pytest.mark.asyncio
+    async def test_a_path_saved_before_4_4_1_stays_as_drawn(self, monkeypatch):
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        state = {**m._renderer.dump_state(), "position_source": img.POSITION_SOURCE_REQUEST}
+
+        class _Store:
+            def __init__(self, *_a, **_k): pass
+            async def async_load(self): return dict(state)
+
+        monkeypatch.setattr(img, "Store", _Store)
+        fresh, entry, _s = self._entity("0")
+        entry.entry_id = "e"
+        entry.options = MappingProxyType(
+            {"live_path_turn": "0", "live_position_requests": True}
+        )
+        await fresh._async_restore_map_state()
+        assert fresh._renderer._points == m._renderer._points
+        assert fresh._live_position_turn_rad is None
+
+    def test_turned_exactly_as_if_drawn_so(self):
+        """From the millimetres, as if drawn so: the same positions to a
+        hair, not a pixel's bias on every point."""
+        from types import MappingProxyType
+
+        m = self._drawn("auto")
+        m._config_entry.options = MappingProxyType({"live_path_turn": "90"})
+        m._handle_map_options_changed()
+        want = self._drawn("90")._renderer._points_mm
+        got = m._renderer._points_mm
+        assert len(got) == len(want)
+        assert all(
+            p == pytest.approx(q, abs=0.5) for p, q in zip(got, want)
+        )
+
+    def test_map_rotation_moves_the_path_and_the_grid(self):
+        """@frnchfrgg: "some of these settings do not apply to some of the
+        maps" -- rotation, size and scale were read at setup only."""
+        from types import MappingProxyType
+
+        from custom_components.roomba_plus.grid_store import GridStore
+
+        m = self._drawn("0")
+        grid = GridStore()
+        m._config_entry.runtime_data.grid_store = grid
+        m._config_entry.entry_id = "e"
+        m._config_entry.options = MappingProxyType(
+            {"live_path_turn": "0", "map_rotation": "90", "map_size_px": 800}
+        )
+        with patch("homeassistant.helpers.dispatcher.async_dispatcher_send") as send:
+            m._handle_map_options_changed()
+        assert m._renderer._cfg.quarter_turns == 1
+        assert m._renderer._cfg.size_px == 800
+        assert grid.quarter_turns == 1
+        assert any("coverage_updated_e" in c.args[1] for c in send.call_args_list)
+        fresh = self._drawn("0")
+        fresh._renderer.reconfigure(size_px=800, scale=10.0, quarter_turns=1)
+        assert m._renderer._points == fresh._renderer._points
+
+    def test_a_resumed_mission_keeps_its_own_turn(self):
+        """Review of 4.4.1: the restored last path brought its turn; a
+        mission resumed from its checkpoint went on with that one."""
+        m = self._drawn("auto")
+        m._live_position_turn_rad = 0.0          # the last finished path's
+        m._live_turn_auto_rad = 0.0
+        checkpoint = {"live_turn_rad": -1.5708, "live_turn_auto_rad": -1.5708}
+        m._take_live_turn(checkpoint)
+        assert m._live_position_turn() == pytest.approx(-1.5708)
+        # A checkpoint from before 4.4.1: read again at the next position,
+        # as 4.4.0 did, not the last finished path's.
+        m._take_live_turn({})
+        assert m._live_position_turn_rad is None
+        assert m._live_turn_auto_rad is None
+
+    def test_the_checkpoint_carries_the_turn_into_both_branches(self):
+        import inspect
+
+        src = inspect.getsource(img.RoombaMapImage._consume_pending_checkpoint)
+        assert "_take_live_turn(checkpoint)" in src
+        assert "_take_live_turn(checkpoint)" in inspect.getsource(
+            img.RoombaMapImage._salvage_orphaned_checkpoint
+        )
+        assert '"live_turn_rad"' in inspect.getsource(
+            img.RoombaMapImage._async_save_mission_checkpoint
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_entity_listens_for_saved_options(self):
+        from custom_components.roomba_plus.const import map_options_changed_signal
+
+        m, _r, entry, _s = TestRequestedPositionsOnTheCleaningMap()._entity()
+        entry.runtime_data.blid = "B1"
+        removers: list = []
+        m.async_on_remove = removers.append
+        m._async_restore_map_state = AsyncMock()
+        m._async_load_pending_checkpoint = AsyncMock()
+        m._handle_map_options_changed = MagicMock()
+        with patch.object(img, "async_dispatcher_connect") as connect:
+            await m.async_added_to_hass()
+        assert any(
+            c.args[1] == map_options_changed_signal("B1") for c in connect.call_args_list
+        )
+
+
 class TestRequestedPathReviewFindings:
     """Found in the independent review of the first version."""
 
@@ -5532,6 +5775,25 @@ class TestPositionRoomTracker:
         while clock["t"] < end:
             tracker.observe(room)
             clock["t"] += step
+
+    def test_positions_are_counted_by_room(self):
+        """4.4.1, @Thonno: room tracking found Soggiorno and then nothing,
+        and no diagnostics said where the positions fell. Counts by room,
+        "(none)" for no room; no coordinates."""
+        tracker, clock, _changes = self._tracker()
+        self._feed(tracker, clock, "Soggiorno", 3)
+        self._feed(tracker, clock, None, 5)
+        assert tracker.diagnostics()["positions_by_room"] == {"Soggiorno": 3, "(none)": 5}
+        tracker.reset()
+        assert tracker.diagnostics()["positions_by_room"] == {}
+
+    def test_still_in_a_room_only_on_a_recent_position(self):
+        tracker, clock, _changes = self._tracker()
+        tracker.observe("Studio")
+        assert tracker.still_in("Studio") is True
+        assert tracker.still_in("Bagno") is False
+        clock["t"] += 11
+        assert tracker.still_in("Studio") is False
 
     def test_a_room_counts_after_the_dwell(self):
         tracker, clock, changes = self._tracker()

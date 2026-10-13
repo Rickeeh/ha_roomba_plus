@@ -3746,3 +3746,45 @@ class TestEnterRoom:
         mts.set_mission_plan("m2", ["A"], None, _make_hass(), "e")
         assert mts.visited_rooms == []
         assert mts.rooms_from_positions is False
+
+
+class TestASkippedRoom:
+    """4.4.1, @Thonno: a skip settles the room at once; where the robot
+    is comes later (move_to_room)."""
+
+    @staticmethod
+    def _mts(index=0):
+        mts = MissionTimerStore()
+        mts.mission_id = "B_7"
+        mts.planned_rooms = ["Studio", "Bagno", "Hall"]
+        mts.current_room_idx = index
+        mts.run_sec = 50.0
+        return mts
+
+    def test_marked_done_once(self):
+        mts, hass = self._mts(), MagicMock()
+        with patch.object(MissionTimerStore, "_schedule_save") as save:
+            assert mts.mark_skipped(0, hass, "e") is True
+            assert mts.mark_skipped(0, hass, "e") is False
+            assert mts.mark_skipped(7, hass, "e") is False
+        assert mts.visited_rooms == [0]
+        assert save.call_count == 1
+        assert mts.current_room_idx == 0, "the display waits for evidence"
+
+    def test_the_next_room_not_yet_done(self):
+        mts = self._mts()
+        mts.visited_rooms = [0, 1]
+        assert mts.next_unvisited_after(0) == 2
+        assert mts.next_unvisited_after(2) is None
+
+    def test_moved_to_a_room(self):
+        mts, hass = self._mts(), MagicMock()
+        with patch.object(MissionTimerStore, "_schedule_save"):
+            assert mts.move_to_room(1, hass, "e") is True
+            assert mts.move_to_room(1, hass, "e") is False
+            assert mts.move_to_room(9, hass, "e") is False
+        assert mts.current_room_idx == 1
+        assert mts.room_progress_observed is True
+        assert mts.room_entered_run_sec == 50.0
+        assert mts.visited_rooms == [1]
+

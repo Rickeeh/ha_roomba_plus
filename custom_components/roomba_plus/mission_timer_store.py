@@ -520,6 +520,38 @@ class MissionTimerStore:
         )
         return True
 
+    def mark_skipped(self, idx: int, hass: HomeAssistant, entry_id: str) -> bool:
+        """A planned room skipped by command (4.4.1): nothing more is
+        cleaned there, so the end of the mission no longer waits for it,
+        and the remaining time leaves it out. Where the robot IS is a
+        separate question (move_to_room). True when it changed anything.
+        """
+        if not 0 <= idx < len(self.planned_rooms) or idx in self.visited_rooms:
+            return False
+        self.visited_rooms = [*self.visited_rooms, idx]
+        self._schedule_save(hass, entry_id)
+        return True
+
+    def next_unvisited_after(self, idx: int) -> int | None:
+        """The first planned room after `idx` not yet visited or skipped."""
+        for later in range(idx + 1, len(self.planned_rooms)):
+            if later not in self.visited_rooms:
+                return later
+        return None
+
+    def move_to_room(self, idx: int, hass: HomeAssistant, entry_id: str) -> bool:
+        """Show planned room `idx` as the current one (4.4.1, after a skip
+        no position settled). True when it moved."""
+        if not 0 <= idx < len(self.planned_rooms) or idx == self.current_room_idx:
+            return False
+        self.current_room_idx = idx
+        self.room_progress_observed = True
+        self.room_entered_run_sec = self.run_sec
+        if idx not in self.visited_rooms:
+            self.visited_rooms = [*self.visited_rooms, idx]
+        self._schedule_save(hass, entry_id)
+        return True
+
     def enter_room(
         self, name: str, hass: HomeAssistant, entry_id: str
     ) -> tuple[str | None, float] | None:

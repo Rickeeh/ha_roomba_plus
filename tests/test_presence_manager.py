@@ -552,12 +552,20 @@ class TestPreferredWindow:
             assert 0 <= hr <= 23
 
     def test_filters_to_today_weekday(self):
-        """preferred_window must only consider today's weekday."""
+        """preferred_window must only consider today's weekday.
+
+        TODAY IN HOME ASSISTANT'S TIME ZONE, as the code reads it
+        (dt_util.now(), R2), and the events in it too. The machine's own
+        clock and a UTC timestamp disagree on the date for part of every
+        day wherever the local date is not UTC's, and the test failed
+        there (reported by @JoshHobbs, #213).
+        """
         pm = _make_pm()
-        today = datetime_v240_scheduling.now().weekday()
-        # Record 5 events today
+        now = dt_util.now()
+        today = now.weekday()
+        # Record 5 events today, at 10:00 local
         for _ in range(5):
-            pm.record_clean_event(datetime_v240_scheduling.now(UTC).replace(hour=10))
+            pm.record_clean_event(now.replace(hour=10, minute=0))
         result = pm.preferred_window()
         if result is not None:
             assert result[0] == today

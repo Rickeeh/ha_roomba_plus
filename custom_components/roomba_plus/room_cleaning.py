@@ -1960,7 +1960,12 @@ class ClassicRoomCleaning(RoomCleaningBackend):
                 # for the same name and id says it is a zone. Keeping
                 # the bare id would send it as whatever the bare-id
                 # lookup says, which is a room when the ids collide.
-                if rid != bare and rooms[name] == bare:
+                #
+                # NOT A ROOM FROM ANOTHER MAP. `<map>/<id>` differs from
+                # its bare id too, so a second map with the same room
+                # name and the same number replaced the active map's
+                # room, and the command went out on the other map.
+                if rid != bare and not qualified and rooms[name] == bare:
                     rooms[name] = rid
                 continue
             # FIRST ONE WINS. `rooms[name] = rid` overwrote, so the last

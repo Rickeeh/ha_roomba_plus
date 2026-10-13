@@ -4534,3 +4534,75 @@ class TestClassicZonesGoOutAsZones:
         await self._sent(backend, ["zid_21"])
 
         assert backend._data.roomba.send_command.await_count == 1
+
+
+class TestTheSameRoomOnTwoMaps:
+    """Two saved maps of the same floor: a re-mapped home keeps the old
+    map, and both have a "Hallway" numbered 1.
+
+    While the robot names its map (`lastCommand.pmap_id`), only that
+    map is offered. A dock, a stop or a whole-home start leaves the last
+    command without one, every map is offered, and the other map's
+    `<map>/1` followed the active map's `1` under the same name. The
+    branch that gives a stored bare id its zone type compared `rid`
+    with the bare id, and a map-qualified id differs from it as well:
+    `clean_room: Hallway` went out with the other map's `pmap_id`, and
+    the robot cleaned whatever that map calls room 1.
+    """
+
+    @staticmethod
+    def _backend(last_command):
+        from custom_components.roomba_plus.room_cleaning import (
+            ClassicRoomCleaning,
+        )
+
+        cloud = MagicMock()
+        cloud.data = {"pmaps": []}
+        cloud.active_pmap_id = "MAP-A"
+        cloud.regions = [
+            {"id": "0", "name": "Kitchen", "pmap_id": "MAP-A"},
+            {"id": "1", "name": "Hallway", "pmap_id": "MAP-A"},
+        ]
+        cloud.zones = []
+        cloud.regions_by_pmap = {
+            "MAP-A": {"0": "Kitchen", "1": "Hallway"},
+            "MAP-B": {"0": "Kitchen", "1": "Hallway", "2": "Office"},
+        }
+        data = MagicMock()
+        data.blid = "BLID1"
+        data.roomba = robot_mock()
+        data.cloud_coordinator = cloud
+        data.roomba_reported_state = MagicMock(
+            return_value={"lastCommand": last_command}
+        )
+        entry = SimpleNamespace(options={}, runtime_data=None)
+        return ClassicRoomCleaning(data, entry, MagicMock())
+
+    @pytest.mark.asyncio
+    async def test_the_active_maps_room_keeps_its_id(self) -> None:
+        backend = self._backend({"command": "dock"})
+
+        rooms = await backend.available_rooms()
+
+        assert rooms["Hallway"] == "1"
+        assert rooms["Kitchen"] == "0"
+
+    @pytest.mark.asyncio
+    async def test_a_room_only_the_other_map_has_still_carries_its_map(self) -> None:
+        rooms = await self._backend({"command": "dock"}).available_rooms()
+
+        assert rooms["Office"] == "MAP-B/2"
+
+    @pytest.mark.asyncio
+    async def test_the_command_names_the_active_map(self) -> None:
+        from unittest.mock import patch
+
+        backend = self._backend({"command": "dock"})
+        rooms = await backend.available_rooms()
+
+        with patch.object(backend, "_raise_if_map_updating"):
+            await backend.clean_rooms([rooms["Hallway"]])
+        params = backend._data.roomba.send_command.await_args.args[1]
+
+        assert params["pmap_id"] == "MAP-A"
+        assert [(r["region_id"], r["type"]) for r in params["regions"]] == [("1", "rid")]

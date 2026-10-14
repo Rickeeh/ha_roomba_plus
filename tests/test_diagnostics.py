@@ -12,6 +12,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import patch
+import logging
 import pytest
 
 from tests.conftest import robot_mock
@@ -2414,12 +2415,12 @@ class TestTheCloudMapVersionsAreVisible:
         }]}],
     }
 
-    async def _dump(self):
+    async def _dump(self, **extra):
         from custom_components.roomba_plus.diagnostics import (
             async_get_config_entry_diagnostics,
         )
 
-        reported = {"pmaps": [{"ejhUEjqiTK2h2KedgFwzqQ": "260913T011853"}]}
+        reported = {"pmaps": [{"ejhUEjqiTK2h2KedgFwzqQ": "260913T011853"}], **extra}
         entry = _make_entry(reported)
         entry.runtime_data.cloud_coordinator = MagicMock()
         entry.runtime_data.cloud_coordinator.data = self._CLOUD
@@ -2454,6 +2455,50 @@ class TestTheCloudMapVersionsAreVisible:
         assert smart_map["version_for_room_commands"] == {
             "ejhUEjqiTK2h2KedgFwzqQ": "250610T143229"
         }
+
+    @pytest.mark.asyncio
+    async def test_the_cleaning_settings_of_a_command_are_in_the_download(self) -> None:
+        """4.4.2, #214: what the app sends to clean the whole home in a
+        chosen mode is unknown, and the robot's record of it was cut to
+        its ids. Settings come through; times and days do not."""
+        smart_map = (await self._dump(
+            lastCommand={
+                "command": "start", "initiator": "rmtApp", "time": 1700000000,
+                "params": {"operatingMode": 6, "padWetness": {"disposable": 2}},
+                "regions": [{"region_id": "3", "params": {"twoPass": True}}],
+            },
+            cleanSchedule2=[
+                {"enabled": True, "start": {"day": [1], "hour": 9, "min": 0},
+                 "cmd": {"command": "start", "params": {"operatingMode": 4}}},
+                {"cmd": {"command": "start", "pmap_id": "m", "regions": [{"region_id": "1"}]}},
+            ],
+        ))["smart_map"]
+
+        summary = smart_map["last_command_summary"]
+        assert summary["params"] == {"operatingMode": 6, "padWetness": {"disposable": 2}}
+        assert summary["region_params"] == [{"twoPass": True}]
+        assert smart_map["clean_schedule2_whole_home"] == [
+            {"command": "start", "params": {"operatingMode": 4}}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_schedule_stored_as_text_is_read_too(self) -> None:
+        """4.4.2: the app stores some schedules as `cmdStr`, JSON with '
+        for ". Reading only `cmd` left them out of both lists."""
+        smart_map = (await self._dump(cleanSchedule2=[
+            {"cmdStr": "{'command': 'start', 'params': {'operatingMode': 6}}"},
+            {"cmdStr": "{'command': 'start', 'pmap_id': 'm', 'user_pmapv_id': 'v', "
+                       "'regions': [{'region_id': '3'}]}"},
+            {"cmdStr": "not json"},
+            "junk",
+        ]))["smart_map"]
+
+        assert smart_map["clean_schedule2_whole_home"] == [
+            {"command": "start", "params": {"operatingMode": 6}}
+        ]
+        assert smart_map["clean_schedule2_pmaps"] == [
+            {"pmap_id": "m", "user_pmapv_id": "v", "region_ids": ["3"]}
+        ]
 
     def test_a_map_only_the_cloud_knows_is_included(self) -> None:
         """lewis firmware often reports no `pmaps` locally; the cloud's
@@ -2682,3 +2727,42 @@ class TestFieldEvidence:
             "command": "start", "initiator": "localApp",
             "time": 1791645031, "regions": 2,
         }
+
+
+class TestTheTrajectoryOnlyWithDebugLogging:
+    """4.4.2: the path of a mission in millimetres is the floor plan of a
+    home, and a diagnostics file goes into public issues."""
+
+    async def _map(self, level: int) -> dict:
+        from custom_components.roomba_plus.diagnostics import (
+            async_get_config_entry_diagnostics,
+        )
+
+        entry = _make_entry({})
+        entry.runtime_data.renderer = MagicMock(
+            point_count=2, points_mm=[[100.0, 200.0], [300.0, 400.0]],
+        )
+        entry.runtime_data.renderer.diagnostic_info.return_value = {}
+        hass = MagicMock()
+        hass.config_entries.async_entries.return_value = []
+        logger = logging.getLogger("custom_components.roomba_plus")
+        before = logger.level
+        logger.setLevel(level)
+        try:
+            with patch(
+                "custom_components.roomba_plus.roomba_reported_state",
+                side_effect=lambda r: r.master_state["state"]["reported"],
+            ):
+                return (await async_get_config_entry_diagnostics(hass, entry))["map"]
+        finally:
+            logger.setLevel(before)
+
+    @pytest.mark.asyncio
+    async def test_withheld_by_default(self) -> None:
+        trajectory = (await self._map(logging.INFO))["last_mission_trajectory_mm"]
+        assert isinstance(trajectory, str) and "debug logging" in trajectory
+
+    @pytest.mark.asyncio
+    async def test_included_with_debug_logging(self) -> None:
+        trajectory = (await self._map(logging.DEBUG))["last_mission_trajectory_mm"]
+        assert trajectory == [[100.0, 200.0], [300.0, 400.0]]

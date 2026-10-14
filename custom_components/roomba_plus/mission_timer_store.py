@@ -120,6 +120,13 @@ class MissionTimerStore:
         #: The rooms of a whole-home run, as positions found them
         #: (4.4.0): planned_rooms then lists rooms entered, not a plan.
         self.rooms_from_positions: bool = False
+        #: Rooms skipped by command this mission (4.4.2), by name and by
+        #: region id. They are not cleaned rooms: the mission record keeps
+        #: them, and room history leaves them out -- on lewis a skipped
+        #: room ends on status 3 with some floor done, which reads as
+        #: cleaned otherwise. Kept across a replan: the skip happened.
+        self.skipped_rooms: list[str] = []
+        self.skipped_rids: list[str] = []
         self.recharge_positions: list[int] = []
         self.snapshot_ts: float = 0.0
         self._last_phase_ts: float = 0.0
@@ -195,6 +202,12 @@ class MissionTimerStore:
                 int(i) for i in data.get("visited_rooms") or [] if isinstance(i, int)
             ]
             self.rooms_from_positions = bool(data.get("rooms_from_positions", False))
+            self.skipped_rooms = [
+                str(n) for n in data.get("skipped_rooms") or [] if isinstance(n, str)
+            ]
+            self.skipped_rids = [
+                str(r) for r in data.get("skipped_rids") or [] if isinstance(r, str)
+            ]
             self.mission_started_wall_ts = float(data.get("mission_started_wall_ts", 0))
             self.recharge_min          = float(data.get("recharge_min", 0))
             self.snapshot_ts          = snapshot_ts
@@ -221,6 +234,8 @@ class MissionTimerStore:
             "room_estimates_sec":  self.room_estimates_sec,
             "visited_rooms":       self.visited_rooms,
             "rooms_from_positions": self.rooms_from_positions,
+            "skipped_rooms":       self.skipped_rooms,
+            "skipped_rids":        self.skipped_rids,
             "mission_started_wall_ts": self.mission_started_wall_ts,
             "recharge_min":        self.recharge_min,
             "snapshot_ts":         time.time(),
@@ -327,6 +342,8 @@ class MissionTimerStore:
             self.room_entered_run_sec = 0.0
             self.visited_rooms       = []
             self.rooms_from_positions = False
+            self.skipped_rooms       = []
+            self.skipped_rids        = []
         elif replan:
             self.current_room_idx    = 0
             self.room_progress_observed = False
@@ -425,6 +442,8 @@ class MissionTimerStore:
             self.recharge_positions = []
             self.visited_rooms = []
             self.rooms_from_positions = False
+            self.skipped_rooms = []
+            self.skipped_rids = []
             self._schedule_save(hass, entry_id)
             return
 
@@ -520,17 +539,34 @@ class MissionTimerStore:
         )
         return True
 
-    def mark_skipped(self, idx: int, hass: HomeAssistant, entry_id: str) -> bool:
+    def mark_skipped(
+        self, idx: int, hass: HomeAssistant, entry_id: str, rid: str | None = None
+    ) -> bool:
         """A planned room skipped by command (4.4.1): nothing more is
         cleaned there, so the end of the mission no longer waits for it,
         and the remaining time leaves it out. Where the robot IS is a
         separate question (move_to_room). True when it changed anything.
+
+        RECORDED AS SKIPPED (4.4.2), with its region id where the command
+        named one, even when a position had already put the robot in the
+        room -- being there is what makes a room skippable.
         """
-        if not 0 <= idx < len(self.planned_rooms) or idx in self.visited_rooms:
+        if not 0 <= idx < len(self.planned_rooms):
             return False
-        self.visited_rooms = [*self.visited_rooms, idx]
-        self._schedule_save(hass, entry_id)
-        return True
+        changed = False
+        name = self.planned_rooms[idx]
+        if isinstance(name, str) and name not in self.skipped_rooms:
+            self.skipped_rooms = [*self.skipped_rooms, name]
+            changed = True
+        if rid and str(rid) not in self.skipped_rids:
+            self.skipped_rids = [*self.skipped_rids, str(rid)]
+            changed = True
+        if idx not in self.visited_rooms:
+            self.visited_rooms = [*self.visited_rooms, idx]
+            changed = True
+        if changed:
+            self._schedule_save(hass, entry_id)
+        return changed
 
     def next_unvisited_after(self, idx: int) -> int | None:
         """The first planned room after `idx` not yet visited or skipped."""
@@ -603,6 +639,8 @@ class MissionTimerStore:
         self.room_estimates_sec  = []
         self.visited_rooms       = []
         self.rooms_from_positions = False
+        self.skipped_rooms       = []
+        self.skipped_rids        = []
         self.mission_started_wall_ts = 0.0
         self.recharge_min        = 0.0
         self.snapshot_ts         = 0.0

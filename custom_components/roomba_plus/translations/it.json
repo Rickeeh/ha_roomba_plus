@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Abilita mappa in tempo reale",
           "live_position_requests": "Chiedere la posizione al robot",
-          "live_path_turn": "Rotazione del percorso in diretta",
+          "live_path_turn": "Allinea il percorso alle stanze",
           "map_size_px": "Dimensione mappa (pixel)",
           "map_scale_mm_per_px": "Scala (mm/pixel)",
           "floor_label": "Piano (es. Piano terra)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Mostra zone senza lavaggio",
           "enable_maintenance_list": "Mostra la manutenzione come elenco attività",
           "region_sensors": "Sensore separato per stanza e zona",
-          "map_rotation": "Rotazione della mappa",
+          "map_rotation": "Ruota l’immagine della mappa",
           "care_reminders": "Promemoria di pulizia",
           "pets_in_household": "Animali in casa"
         },
         "data_description": {
           "map_enabled": "Abilita la mappa di pulizia in tempo reale per i robot con rilevamento della posizione (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Offerto solo per i robot che non comunicano da soli la propria posizione. Interroga il robot circa una volta al secondo durante la pulizia per disegnare il percorso in tempo reale. Disattivato: la mappa mostra invece l'ultima missione completata dal cloud iRobot, se l'accesso al cloud è configurato.",
-          "live_path_turn": "Solo con l’opzione qui sopra. Di quanto viene ruotato il percorso di pulizia per sovrapporsi alla mappa delle stanze. Automatico lo legge dalla mappa salvata dal robot stesso, compresa una rotazione impostata nell’app iRobot. Scegli un angolo solo se il percorso risulta ruotato rispetto alla mappa delle stanze, e in quel caso allega la diagnostica a una segnalazione, così che l’impostazione automatica possa essere corretta per il tuo robot.",
+          "live_path_turn": "Solo con l’opzione qui sopra. Ruota il percorso di pulizia rispetto alla planimetria finché non si sovrappone alle sue stanze. Il rilevamento della stanza usa le stesse posizioni ruotate, quindi un angolo sbagliato indica anche la stanza sbagliata. Non è come «Ruota l’immagine della mappa», che ruota l’intera immagine e non sposta mai il percorso rispetto alle stanze. Automatico ricava la rotazione dalla mappa salvata dal robot, compresa una rotazione impostata nell’app iRobot. Se il percorso attraversa i muri o resta accanto alle sue stanze, prova gli angoli: il percorso già disegnato ruota non appena salvi. Poi allega la diagnostica a una segnalazione, così che l’impostazione automatica possa essere corretta per il tuo robot.",
           "map_size_px": "Dimensione del canvas della mappa in pixel (400–1200). Predefinito: 600.",
           "map_scale_mm_per_px": "Millimetri per pixel (5–30). Predefinito 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Testo libero, ad esempio Piano terra. Raggruppa i robot nella vista flotta.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Evidenzia il contorno delle zone senza lavaggio sull'immagine della mappa.",
           "enable_maintenance_list": "Mostra la manutenzione in scadenza come elenco di attività.",
           "region_sensors": "Crea un sensore separato per ogni stanza e zona.",
-          "map_rotation": "Ruota ogni immagine della mappa in senso orario. La mappa non ha un nord: in alto è la direzione del robot quando lascia la base, quindi dipende da come è posizionata la base.",
+          "map_rotation": "Ruota ogni immagine della mappa per intero in senso orario, stanze e percorso insieme, ad esempio per farla coincidere con l’app iRobot. Non sposta mai il percorso rispetto alle stanze: per questo c’è «Allinea il percorso alle stanze». La mappa non ha un nord: in alto è la direzione del robot quando lascia la base, quindi dipende da come è posizionata la base.",
           "care_reminders": "Ricorda di pulire filtro, spazzole, ruote, sensori anticaduta e contatti di ricarica secondo il calendario di cura di iRobot. Aggiunge un sensore «prossima pulizia» e pulsanti «pulito». I promemoria di sostituzione funzionano anche senza.",
           "pets_in_household": "Ricorda di pulire il filtro e le spazzole principali due volte a settimana invece di una, come iRobot consiglia per le case con animali. Solo con i promemoria di pulizia attivi."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "La stanza da saltare non è nota. Indicala con params: room (una stanza di questa missione)."
+    },
+    "prime_start_blocked": {
+      "message": "Non avviato: {reason}"
     }
   },
   "selector": {

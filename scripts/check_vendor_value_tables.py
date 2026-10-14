@@ -147,7 +147,13 @@ NO_VENDOR_ENUM: dict[str, str] = {
         "mop only) and are an interpretation, not a table iRobot "
         "publishes. No vendor enum expresses \"which modes remain\"."
     ),
-    "sensor_prime.PRIME_BLOCKING_FAULTS": "Re-export of the const table.",
+    "const._MODE_NEEDS": (
+        "Which of PRIME_BLOCKING_FAULTS' two words (vacuum, mop) each "
+        "operating mode needs (4.4.2). The KEYS are the vendor's "
+        "CommandOperatingMode values (2, 4, 6, 512, with 32 and 256 that "
+        "the Prime app normalises, APK_MODUS_RECHERCHE F8); the VALUES "
+        "follow from the mode names, not from a vendor table."
+    ),
     "const.BIN_LABELS": "Two display strings over a boolean.",
     "const.YES_NO_LABELS": "Two display strings over a boolean.",
 }

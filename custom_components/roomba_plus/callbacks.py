@@ -186,6 +186,18 @@ def _observed_rooms(entry: Any, last_room_worked: bool = True) -> list[str] | No
         return None
 
 
+def _skipped_rooms(entry: Any) -> tuple[list[str], list[str]]:
+    """(names, region ids) of the rooms skipped by command this mission
+    (4.4.2). Read when the mission ends, before the timer store clears."""
+    store = getattr(getattr(entry, "runtime_data", None), "mission_timer_store", None)
+    names = getattr(store, "skipped_rooms", None)
+    rids = getattr(store, "skipped_rids", None)
+    return (
+        [str(n) for n in names] if isinstance(names, list) else [],
+        [str(r) for r in rids] if isinstance(rids, list) else [],
+    )
+
+
 def _rooms_are_guesses(entry: Any, *, saw_travelling: bool) -> bool:
     """Whether the rooms room tracking recorded for this mission are a
     guess to be replaced by the cloud's (4.2.15): the robot never reported
@@ -688,6 +700,7 @@ async def async_record_mission(
     npicks_delta: int = 0,
     scope: str | None = None,
     stuck_at: float = 0.0,
+    skipped: tuple[list[str], list[str]] = ([], []),
 ) -> None:
     """Build and append a mission record to MissionStore.
 
@@ -853,10 +866,21 @@ async def async_record_mission(
         # falls back to, so no new source is needed -- the timeline
         # still wins where it exists, because it reports real
         # completions with a status.
-        "last_cleaned_rooms": (
-            [] if rooms_are_guesses and observed_rooms is not None
-            else observed_rooms if observed_rooms is not None else zones
-        ),
+        "last_cleaned_rooms": [
+            room for room in (
+                [] if rooms_are_guesses and observed_rooms is not None
+                else observed_rooms if observed_rooms is not None else zones
+            )
+            # NOT A SKIPPED ROOM (4.4.2): room tracking passed through it,
+            # which is not cleaning it.
+            if room not in skipped[0]
+        ],
+        # ROOMS SKIPPED BY COMMAND (4.4.2, @Thonno): names, and the
+        # region ids room history leaves out of the cloud's room events
+        # (MissionStore). On lewis a skipped room ends on status 3 with
+        # some floor done, which otherwise reads as cleaned.
+        "skipped_rooms": list(skipped[0]),
+        "skipped_rids": list(skipped[1]),
         "error_code": error_code if error_code else None,
         "bbrun_hr": bbrun_hr,
         "battery_cycles": battery_cycles,   # v2.9.0 DAILY-DIGEST
@@ -1915,7 +1939,7 @@ def _confirm_mission_end(
                 result_override = "stuck_and_abandoned"
 
         entry.async_create_task(
-            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed_rooms(entry, last_room_worked=ms.ran_in_room), rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope, stuck_at=ms.stuck_at if ms.had_stuck_event else 0.0)
+            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed_rooms(entry, last_room_worked=ms.ran_in_room), rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope, stuck_at=ms.stuck_at if ms.had_stuck_event else 0.0, skipped=_skipped_rooms(entry))
         )
         # MP1 (v2.6.0): clear mission timer at end
         _mts = getattr(entry.runtime_data, "mission_timer_store", None)

@@ -55,6 +55,9 @@ from .const import (
     CONF_SMART_ZONE_DATA,
     DOMAIN,
     MAP_UPDATING_NOT_READY,
+    cleaning_modes_for,
+    get_localized_error_entry,
+    prime_start_refusal,
 )
 from .structural_failures import record_failure, record_success
 from .zone_naming import map_room_label
@@ -397,6 +400,42 @@ class RoomCleaningBackend(ABC):
         """
 
 
+def raise_if_prime_start_blocked(data: Any, modes: list[int | None]) -> None:
+    """Refuse a Prime mission start the robot's own fault rules out (4.4.2).
+
+    const.prime_start_refusal() decides; this reads the robot's current
+    state from the entry's runtime data and says why, in the vendor's
+    words for the fault. Nothing known about the state means nothing
+    refused.
+    """
+    from roombapy_prime.models import CurrentStateShadow  # noqa: PLC0415
+
+    coordinator = getattr(data, "prime_status_coordinator", None)
+    shadows = getattr(coordinator, "data", None)
+    raw = shadows.get("ro-currentstate") if isinstance(shadows, dict) else None
+    if not isinstance(raw, dict):
+        return
+    try:
+        status = CurrentStateShadow.from_json(raw).clean_mission_status
+    except Exception:  # noqa: BLE001
+        return
+    codes = prime_start_refusal(status, modes)
+    if not codes:
+        return
+    hass = getattr(data, "hass_ref", None)
+    language = getattr(getattr(hass, "config", None), "language", None) or "en"
+    reason = " · ".join(
+        f"{get_localized_error_entry(code, language).get('label') or 'Error'} ({code})"
+        for code in codes
+    )
+    raise ServiceValidationError(
+        f"Not started: {reason}",
+        translation_domain=DOMAIN,
+        translation_key="prime_start_blocked",
+        translation_placeholders={"reason": reason},
+    )
+
+
 def _selected_cleaning_mode(config_entry: Any) -> int | None:
     """The mode the cleaning-mode select is showing, if there is one.
 
@@ -423,12 +462,14 @@ def _selected_cleaning_mode(config_entry: Any) -> int | None:
         state = hass.states.get(entity_id)
         if state is None:
             return None
-        # LATE ON PURPOSE: select_prime imports back into this module,
-        # so a module-level import here is a real cycle -- unlike the
-        # other flagged pairs in this project, which were only laziness.
-        from .select_prime import PrimeCleaningModeSelect  # noqa: PLC0415
-
-        return PrimeCleaningModeSelect.MODES.get(state.state)
+        # THIS ROBOT'S TABLE, NOT THE PRIME ONE (4.4.2). The lookup went
+        # through the select's class-level table, which is Prime's, so
+        # "vacuum and mop" picked on a Classic robot sent Prime's 32
+        # instead of the 6 Classic takes. The select itself already
+        # held the right table per instance; only this reader did not.
+        return cleaning_modes_for(
+            getattr(data, "connection_type", None) is ConnectionType.CLOUD_ONLY
+        ).get(state.state)
     except Exception:  # noqa: BLE001
         _LOGGER.debug("roomba_plus: could not read the cleaning mode", exc_info=True)
         return None
@@ -643,6 +684,38 @@ class PrimeRoomCleaning(RoomCleaningBackend):
         for rid in ambiguous:
             del seen[rid]
         return seen
+
+    async def whole_home_room_ids(self) -> list[str]:
+        """Every room of the map the robot is on, map-qualified, zones
+        left out (4.4.2). Empty where that map is not known.
+
+        HOW THE PRIME APP CLEANS THE WHOLE HOME IN A CHOSEN MODE (3.2.0,
+        claude/APK_MODUS_RECHERCHE.md F1): not a bare `start`, but a
+        room command listing every room of the map, each carrying the
+        mode. Unnamed rooms included -- the app lists room ids, not
+        names -- which `available_rooms()`, keyed by name, cannot give.
+        """
+        current = await self._current_map_id()
+        if not current:
+            return []
+        try:
+            map_data = await self._map_metadata(current)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "roomba_plus: could not read the rooms of map %s for %s",
+                current, self._data.blid, exc_info=True,
+            )
+            return []
+        ids: list[str] = []
+        for room in getattr(map_data, "rooms_metadata", None) or []:
+            region_type = getattr(room, "region_type", None)
+            region_type = getattr(region_type, "value", region_type)
+            if not room.room_id or (region_type and str(region_type).lower() == "zid"):
+                continue
+            rid = f"{current}/{room.room_id}"
+            if rid not in ids:
+                ids.append(rid)
+        return ids
 
     async def available_rooms(self) -> dict[str, str]:
         """Rooms across ALL maps, not just the current one.
@@ -1505,6 +1578,10 @@ class PrimeRoomCleaning(RoomCleaningBackend):
             _selected = _selected_cleaning_mode(self._config_entry)
             if _selected is not None:
                 operating_mode = [_selected]
+        # NOT INTO A FAULT THAT RULES THE MODE OUT (4.4.2): mopping with
+        # the pad plate missing, vacuuming with it fitted, anything with
+        # the robot off the floor. Here, so every region start has it.
+        raise_if_prime_start_blocked(self._data, list(operating_mode or []))
         from roombapy_prime.models.mission_control import (  # noqa: PLC0415
             CommandParams,
             MissionCommandType,

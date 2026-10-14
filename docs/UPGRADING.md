@@ -9,6 +9,32 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.4.2 — from v4.4.1
+
+**The Start button now uses the *Cleaning mode* selector** on a robot
+that can mop. Until 4.4.1 a plain start cleaned in the robot's own
+setting from the iRobot app. If you relied on that, set the selector to
+the mode you want before starting. A vacuum-only robot starts as before.
+
+**Prime: a start the robot's pad fault rules out is refused** with the
+reason (for example mopping with the pad plate missing). Docking and the
+dock controls are never held back.
+
+**Classic mopping robots with "Vacuum and mop" selected** now get the
+value Classic takes for it. Nothing to change.
+
+**Two map settings have clearer names.** *Turn of the live path* is now
+*Align the path with the rooms*, and *Map rotation* is *Rotate the map
+picture*. Their values are kept. If the cleaning path lies beside its
+rooms, or room tracking names the wrong room, the first one is the
+setting to change; the second only turns the whole picture.
+
+**The path of the last mission is left out of the diagnostics** unless
+debug logging is on for Roomba+ (the integration page, *Enable debug
+logging*), because it shows the floor plan of your home.
+
+---
+
 ## v4.4.1 — from v4.4.0
 
 **Turn of the live path turns the path already drawn.** A path saved

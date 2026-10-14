@@ -6,6 +6,8 @@ Accessible via Settings → Devices & Services → Roomba+ → Download diagnost
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
+import logging
 import math
 import re
 
@@ -716,6 +718,65 @@ def _active_map_versions(data: Any, state: dict[str, Any] | None = None) -> Any:
             if isinstance(entry, dict) and entry
         }
     return "not read yet this session"
+
+
+#: Command parameters that say how a run cleans (4.4.2).
+#:
+#: Settings only: no ids, times or positions. `scrub` is the app's
+#: constant name, `swScrub` what a Classic capture carried.
+_MODE_PARAM_KEYS = (
+    "operatingMode", "padWetness", "swScrub", "scrub", "twoPass",
+    "noAutoPasses", "vacHigh", "carpetBoost", "speed",
+)
+
+
+def _mode_params(params: Any) -> dict[str, Any] | None:
+    """The cleaning settings a command or schedule carried, if any.
+
+    WHY (4.4.2, #214): a plain start sends no cleaning mode, and nobody
+    knows what the iRobot app sends to clean the whole home in a chosen
+    mode. A Classic robot records the command it received, parameters
+    included, and this file dropped them. One diagnostics file taken
+    after such a start from the app answers it.
+    """
+    if not isinstance(params, dict):
+        return None
+    kept = {key: params[key] for key in _MODE_PARAM_KEYS if key in params}
+    return kept or None
+
+
+def _debug_logging_on() -> bool:
+    """Whether debug logging is on for this integration.
+
+    What "Enable debug logging" on the integration's page turns on.
+    """
+    return logging.getLogger(__package__ or "custom_components.roomba_plus").isEnabledFor(
+        logging.DEBUG
+    )
+
+
+def _schedule_cmd(entry: Any) -> dict[str, Any] | None:
+    """The command of one `cleanSchedule2` entry, in either form.
+
+    TWO FORMS (4.4.2, APK 7.18.0): the iRobot app writes the command as
+    the object `cmd`, or for some robots as `cmdStr`, the same JSON as
+    text with ' for ". lewis firmware refuses `cmdStr`
+    (classic_schedule_write), so it is read for the robots that take it.
+    Reading only `cmd` left those schedules out of this file.
+    """
+    if not isinstance(entry, dict):
+        return None
+    cmd = entry.get("cmd")
+    if isinstance(cmd, dict):
+        return cmd
+    text = entry.get("cmdStr")
+    if not isinstance(text, str):
+        return None
+    try:
+        parsed = json.loads(text.replace("'", '"'))
+    except ValueError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _sent_commands(data: Any) -> list[dict[str, Any]] | str:
@@ -2224,8 +2285,19 @@ async def _build_diagnostics(
         # Include raw trajectory in mm for gap-analysis and door-detection tuning.
         # Uses the initial-scale inverse transform (cfg.scale / cfg.size_px centre).
         # Kept at top-level map_diag so Claude/devs can paste the list directly.
+        #
+        # ONLY WITH DEBUG LOGGING ON (4.4.2). The path of a whole mission
+        # in millimetres from the dock is the floor plan of a home, and
+        # this file goes into public issues. Whoever turns on debug
+        # logging for Roomba+ is already collecting for a bug hunt; a
+        # plain download says the path is there and how to get it.
         if data.renderer.point_count > 0:
-            map_diag["last_mission_trajectory_mm"] = data.renderer.points_mm
+            if _debug_logging_on():
+                map_diag["last_mission_trajectory_mm"] = data.renderer.points_mm
+            else:
+                map_diag["last_mission_trajectory_mm"] = (
+                    "withheld: turn on debug logging for Roomba+ to include it"
+                )
     # F-EPHEMERAL: outline_store diagnostics
     _outline = getattr(data, "outline_store", None)
     if _outline is not None:
@@ -2385,21 +2457,38 @@ async def _build_diagnostics(
                     r.get("region_id")
                     for r in (state.get("lastCommand", {}).get("regions") or [])
                 ],
+                "params": _mode_params(state.get("lastCommand", {}).get("params")),
+                "region_params": [
+                    _mode_params(r.get("params"))
+                    for r in (state.get("lastCommand", {}).get("regions") or [])
+                    if isinstance(r, dict)
+                ],
             },
+            # SCHEDULES WITHOUT ROOMS (4.4.2): how the app stores a
+            # whole-home run, settings only -- no days or times.
+            "clean_schedule2_whole_home": [
+                {
+                    "command": cmd.get("command"),
+                    "params": _mode_params(cmd.get("params")),
+                }
+                for entry in state.get("cleanSchedule2", [])
+                if (cmd := _schedule_cmd(entry)) is not None
+                and not cmd.get("regions")
+            ],
             # cleanSchedule2 stores scheduled/recent app-initiated region cleans.
             # Shows the exact pmap_id and user_pmapv_id the app used — useful for
             # verifying that our resolved values match what works.
             "clean_schedule2_pmaps": [
                 {
-                    "pmap_id": entry.get("cmd", {}).get("pmap_id"),
-                    "user_pmapv_id": entry.get("cmd", {}).get("user_pmapv_id"),
+                    "pmap_id": cmd.get("pmap_id"),
+                    "user_pmapv_id": cmd.get("user_pmapv_id"),
                     "region_ids": [
-                        r.get("region_id")
-                        for r in (entry.get("cmd", {}).get("regions") or [])
+                        r.get("region_id") if isinstance(r, dict) else r
+                        for r in (cmd.get("regions") or [])
                     ],
                 }
                 for entry in state.get("cleanSchedule2", [])
-                if entry.get("cmd", {}).get("pmap_id")
+                if (cmd := _schedule_cmd(entry)) is not None and cmd.get("pmap_id")
             ],
         },
 

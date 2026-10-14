@@ -1676,8 +1676,8 @@ class TestTheFaultSceneReachesTheEntity:
 
 
 class TestTheBlockingReportDoesNotBlock:
-    """This reports; it does not gate — and that distinction is the same
-    one made for the dock controls.
+    """This reports; it gates only mission starts (4.4.2) — never the
+    dock controls.
 
     App 3.0.0 greys out every Dock Control once a task begins, so a
     drying cycle it started cannot be stopped there. @chairstacker calls
@@ -1688,10 +1688,12 @@ class TestTheBlockingReportDoesNotBlock:
     the robot's refusal is explainable in advance.
     """
 
-    def test_no_command_path_consults_the_table(self):
-        """The guard. If a future change gates a command on this, the
-        integration starts refusing things the robot would accept —
-        which is the app's mistake, not one worth copying."""
+    def test_only_mission_starts_consult_the_table(self):
+        """The guard. 4.4.2 gates a mission START on it, and only on
+        what the fault itself rules out (const.prime_start_refusal).
+        Anything beyond that -- the dock, a stop, a pause -- would refuse
+        what the robot accepts, the app's mistake @chairstacker named."""
+        import ast
         import pathlib
 
         base = pathlib.Path("custom_components/roomba_plus")
@@ -1700,21 +1702,29 @@ class TestTheBlockingReportDoesNotBlock:
             for p in base.glob("*.py")
             if "PRIME_BLOCKING_FAULTS" in p.read_text()
             or "_blocking_faults" in p.read_text()
+            or "prime_start_refusal" in p.read_text()
+            or "raise_if_prime_start_blocked" in p.read_text()
         )
-
-        # binary_sensor.py joined the list when the visible sensor was
-        # added -- it REPORTS the same answer on a non-diagnostic
-        # entity. What must never appear here is a command path:
-        # room_cleaning, services, vacuum, button_prime.
         assert readers == [
             "binary_sensor.py",
             "const.py",
+            "room_cleaning.py",
             "sensor_prime.py",
-        ], (
-            f"{readers} read the blocking table. It is advisory: a command "
-            "path reading it would refuse what the robot accepts, which is "
-            "the app's mistake and not one worth copying."
+            "vacuum.py",
+        ], readers
+
+        # In vacuum.py, only the start asks.
+        tree = ast.parse((base / "vacuum.py").read_text())
+        callers = sorted(
+            fn.name
+            for fn in ast.walk(tree)
+            if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(
+                isinstance(n, ast.Name) and n.id == "raise_if_prime_start_blocked"
+                for n in ast.walk(fn)
+            )
         )
+        assert callers == ["async_start"], callers
 
     def test_a_message_comes_with_the_mode_lists(self):
         """Mode lists without words are half an answer. The vendor's own

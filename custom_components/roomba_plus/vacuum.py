@@ -75,7 +75,13 @@ from .command_record import record_command
 from .mission_store import MissionStore
 from .mission_timer_store import MissionTimerStore
 from .position_room import PositionRoomTracker
-from .room_cleaning import region_names_across_maps
+from .room_cleaning import (
+    PrimeRoomCleaning,
+    _selected_cleaning_mode,
+    async_get_room_cleaning_backend,
+    raise_if_prime_start_blocked,
+    region_names_across_maps,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -304,8 +310,6 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
         # is_mop stays: a Braava targets rooms through padWetness rather
         # than region segments, which is a device difference rather than
         # a generation one.
-        from .room_cleaning import async_get_room_cleaning_backend  # noqa: PLC0415
-
         if (
             self._config_entry is not None
             and async_get_room_cleaning_backend(self._config_entry) is not None
@@ -999,12 +1003,84 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
         live-working (roombapy-prime README's confidence table).
         """
         if self._connection_type is ConnectionType.CLOUD_ONLY:
+            mode = self._start_mode()
+            raise_if_prime_start_blocked(
+                getattr(self._config_entry, "runtime_data", None), [mode]
+            )
+            if mode is not None and self._prime_cycle_is_idle():
+                if await self._prime_start_whole_home(mode):
+                    return
             await _send_confirmed(self._prime_robot, "start")
             return
         if self.activity == VacuumActivity.PAUSED:
             await self.vacuum.send_command("resume")
-        else:
+            return
+        mode = self._start_mode()
+        if mode is None:
             await self.vacuum.send_command("start")
+            return
+        # THE CLASSIC APP'S WHOLE-HOME START (7.18.0, APK_MODUS_RECHERCHE
+        # F5): the mode in `params` at the top, no map, no rooms.
+        payload = {"params": {"operatingMode": mode}}
+        await self.vacuum.send_command("start", payload)
+        record_command(self._config_entry, "start (mode)", payload)
+
+    def _robot_o_mode(self) -> object:
+        """`cap.oMode`: Classic in its state, Prime in a shadow (as the
+        cleaning-mode select reads it)."""
+        state = self.vacuum_state if self._connection_type is not ConnectionType.CLOUD_ONLY else None
+        if isinstance(state, dict):
+            caps = state.get("cap")
+            if isinstance(caps, dict) and caps.get("oMode") is not None:
+                return caps["oMode"]
+        coordinator = getattr(
+            getattr(self._config_entry, "runtime_data", None), "prime_status_coordinator", None
+        )
+        shadows = getattr(coordinator, "data", None)
+        if isinstance(shadows, dict):
+            for body in shadows.values():
+                block = body.get("cap") if isinstance(body, dict) else None
+                if isinstance(block, dict) and block.get("oMode") is not None:
+                    return block["oMode"]
+        return None
+
+    def _start_mode(self) -> int | None:
+        """The cleaning mode a plain start carries, or None for a bare
+        start (4.4.2, #214).
+
+        @homux-tech set his Combo 505 to mopping, pressed Start, and it
+        vacuumed: the selector went only with room and zone commands.
+        Both iRobot apps send the mode with a whole-home start
+        (APK_MODUS_RECHERCHE).
+
+        ONLY FOR A ROBOT THAT CAN MOP, by its own `cap.oMode` (4 or 256).
+        A vacuum's selector has nothing to choose, and an unknown
+        capability keeps the start as it always was.
+
+        Classic: only 2, 4 and 6 -- the Classic app knows no 512.
+        """
+        o_mode = self._robot_o_mode()
+        if not isinstance(o_mode, int) or isinstance(o_mode, bool) or not o_mode & (4 | 256):
+            return None
+        mode = _selected_cleaning_mode(self._config_entry)
+        if mode is None:
+            return None
+        if self._connection_type is not ConnectionType.CLOUD_ONLY and mode not in (2, 4, 6):
+            return None
+        return mode
+
+    async def _prime_start_whole_home(self, mode: int) -> bool:
+        """The whole home in `mode`, as the Prime app sends it: every room
+        of the map, each with the mode (4.4.2). False where the rooms are
+        not known -- the caller then sends the bare start."""
+        backend = async_get_room_cleaning_backend(self._config_entry, self.hass)
+        if not isinstance(backend, PrimeRoomCleaning):
+            return False
+        rooms = await backend.whole_home_room_ids()
+        if not rooms:
+            return False
+        await backend.clean_rooms(rooms, ordered=False, operating_mode=[mode])
+        return True
 
     def _prime_cycle_is_idle(self) -> bool:
         """True when the robot reports no active cleaning cycle.
@@ -1470,6 +1546,10 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
                 # `run`, cleaning the room it had been told to skip.
                 record["paused_first"] = True
                 await self.async_return_to_base()
+                # SKIPPED ALL THE SAME (4.4.2): @Thonno's last room, sent
+                # home this way, ended on status 5 with floor done, and
+                # room history counted it as cleaned.
+                self._track_skip(how)
             else:
                 await self.vacuum.send_command(verb, payload)
                 self._track_skip(how)
@@ -1525,7 +1605,7 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
         mission = mts.mission_id
         skipped = mts.planned_rooms[idx]
         was_current = idx == mts.current_room_idx
-        mts.mark_skipped(idx, self.hass, entry_id)
+        mts.mark_skipped(idx, self.hass, entry_id, rid=how.get("rid"))
         if not was_current:
             return
 
@@ -1596,6 +1676,9 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
 
         index, how = self._skip_room_index(regions, params)
         region = regions[index]
+        # The room's id goes with the record (4.4.2): room history leaves
+        # a skipped room out by it.
+        how = {**how, "rid": str(MissionStore.extract_rid(region))}
         if index == len(regions) - 1:
             return "dock", {}, {**how, "last_room": True}
         payload: dict[str, Any] = {

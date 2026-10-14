@@ -91,7 +91,7 @@ from .const import (
 from .entity import IRobotEntity
 from .geometry_utils import pose_point_to_map_mm
 from .cloud_coordinator import requested_position_turn
-from .position_room import PositionRoomTracker, room_at_position
+from .position_room import PositionRoomTracker, in_room_by_turn, room_at_position
 from .live_position import LivePositionStream
 from .room_cleaning import region_names_across_maps
 from .segment_anchoring import anchor_segment
@@ -2328,6 +2328,24 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             return
         tracker.observe(room_at_position(data, x, y, frame=frame))
 
+    def _observe_turn_candidates(self, x: float, y: float) -> None:
+        """Count, per angle, whether this position lies in a room (4.4.2).
+
+        As the robot answered, before the turn. Only while cleaning, as
+        room tracking itself (_observe_position_room).
+        """
+        data = (
+            getattr(self._config_entry, "runtime_data", None)
+            if self._config_entry is not None
+            else None
+        )
+        tracker = getattr(data, "position_room", None)
+        if not isinstance(tracker, PositionRoomTracker) or self._last_phase != "run":
+            return
+        tried = in_room_by_turn(data, x, y)
+        if tried is not None:
+            tracker.observe_turns(tried)
+
     @callback
     def _handle_live_position(self, position: Any) -> None:
         """Draw a position requested from the robot (4.3, live_position.py).
@@ -2364,6 +2382,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             return
         x, y = position.x * 1000.0, position.y * 1000.0
         heading = math.degrees(position.theta)
+        # Every angle tried before this mission's is applied (4.4.2).
+        self._observe_turn_candidates(x, y)
         turn = self._live_position_turn()
         if turn:
             # TURNED BACK INTO THE MAP'S OWN FRAME (4.3.4, @frnchfrgg):

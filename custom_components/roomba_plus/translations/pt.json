@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Ativar mapa em tempo real",
           "live_position_requests": "Perguntar a posição ao robô",
-          "live_path_turn": "Rotação do percurso em direto",
+          "live_path_turn": "Alinhar o percurso com as divisões",
           "map_size_px": "Tamanho do mapa (píxeis)",
           "map_scale_mm_per_px": "Escala (mm/píxel)",
           "floor_label": "Andar (ex.: Rés do chão)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Mostrar zonas sem esfregar",
           "enable_maintenance_list": "Mostrar manutenção como lista de tarefas",
           "region_sensors": "Sensor separado por divisão e zona",
-          "map_rotation": "Rotação do mapa",
+          "map_rotation": "Rodar a imagem do mapa",
           "care_reminders": "Lembretes de limpeza",
           "pets_in_household": "Animais em casa"
         },
         "data_description": {
           "map_enabled": "Ativar o mapa de limpeza em tempo real para robôs com deteção de posição (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Apenas para robôs que não informam a sua posição por si próprios. Pergunta ao robô cerca de uma vez por segundo durante a limpeza para desenhar o percurso em direto. Desligado: o mapa mostra em vez disso a última missão concluída a partir da cloud da iRobot, se o acesso à cloud estiver configurado.",
-          "live_path_turn": "Só com a opção acima. Quanto o percurso de limpeza é rodado para coincidir com o mapa das divisões. Automático lê-o do mapa que o próprio robô guardou, incluindo uma rotação definida na app iRobot. Escolha um ângulo só se o percurso aparecer rodado em relação ao mapa das divisões e, nesse caso, anexe o diagnóstico a um pedido para que a definição automática possa ser corrigida para o seu robô.",
+          "live_path_turn": "Só com a opção acima. Roda o percurso de limpeza em relação à planta até ficar sobre as suas divisões. A deteção da divisão usa as mesmas posições rodadas, por isso um ângulo errado também indica a divisão errada. Não é o mesmo que «Rodar a imagem do mapa», que roda a imagem inteira e nunca move o percurso em relação às divisões. Automático obtém a rotação do mapa que o robô guardou, incluindo uma rotação definida na app iRobot. Se o percurso atravessar paredes ou ficar ao lado das suas divisões, experimente os ângulos: o percurso já desenhado roda assim que guardar. Depois anexe o diagnóstico a um pedido para que a definição automática possa ser corrigida para o seu robô.",
           "map_size_px": "Tamanho do canvas do mapa em píxeis (400–1200). Predefinição: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predefinição 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto livre, por exemplo Rés-do-chão. Agrupa os robôs na vista de frota.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Contorna as zonas sem lavagem na imagem do mapa.",
           "enable_maintenance_list": "Mostra a manutenção pendente como lista de tarefas.",
           "region_sensors": "Cria um sensor próprio para cada divisão e zona.",
-          "map_rotation": "Roda cada imagem do mapa no sentido dos ponteiros do relógio. O mapa não tem norte: o topo é a direção em que o robô estava virado ao sair da base, por isso depende de como a base está colocada.",
+          "map_rotation": "Roda cada imagem do mapa por inteiro no sentido dos ponteiros do relógio, divisões e percurso juntos, por exemplo para coincidir com a app iRobot. Nunca move o percurso em relação às divisões; para isso existe «Alinhar o percurso com as divisões». O mapa não tem norte: o topo é a direção em que o robô estava virado ao sair da base, por isso depende de como a base está colocada.",
           "care_reminders": "Lembra de limpar o filtro, as escovas, as rodas, os sensores de queda e os contactos de carga segundo o calendário de cuidados da iRobot. Adiciona um sensor «próxima limpeza» e botões «limpo». Os lembretes de substituição funcionam sem isto.",
           "pets_in_household": "Lembra de limpar o filtro e as escovas principais duas vezes por semana em vez de uma, como a iRobot recomenda para casas com animais. Apenas com os lembretes de limpeza ativos."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "Não se sabe que divisão saltar. Indique-a com params: room (uma divisão desta missão)."
+    },
+    "prime_start_blocked": {
+      "message": "Não iniciado: {reason}"
     }
   },
   "selector": {

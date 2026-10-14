@@ -31,6 +31,8 @@ import math
 from time import monotonic
 from typing import Any
 
+from .const import LIVE_PATH_TURN_CHOICES
+
 #: Seconds in a room before it counts.
 DWELL_SEC = 15.0
 #: Positions in a room before it counts (with DWELL_SEC).
@@ -74,6 +76,11 @@ class PositionRoomTracker:
         #: floor plan shows as positions in no room, without a
         #: coordinate leaving the house.
         self.counts: dict[str | None, int] = {}
+        #: Per angle of "Align the path with the rooms", how many of this
+        #: mission's positions would lie in a room turned by it (4.4.2).
+        #: Counts only, like `counts`.
+        self.in_room_by_turn: dict[str, int] = {}
+        self.turn_samples = 0
 
     def add_listener(
         self, listener: Callable[[str | None, str], None]
@@ -115,6 +122,20 @@ class PositionRoomTracker:
             for listener in list(self._listeners):
                 listener(previous, room)
 
+    def observe_turns(self, in_room: dict[str, bool]) -> None:
+        """One position, tried at every angle the setting offers (4.4.2).
+
+        WHICH TURN PUTS THE PATH ON THE ROOMS. "Automatic" reads the turn
+        from the map's header, and that read wrong on @Thonno's i7+ and
+        @manni-72's j7 -- the same angles that were right for
+        @frnchfrgg's i-series. The share of positions inside a room at
+        each angle says which turn fits, from the robot's own path.
+        """
+        self.turn_samples += 1
+        for angle, inside in in_room.items():
+            if inside:
+                self.in_room_by_turn[angle] = self.in_room_by_turn.get(angle, 0) + 1
+
     def active(self) -> bool:
         """Whether positions are arriving: room tracking follows them."""
         return (
@@ -142,6 +163,19 @@ class PositionRoomTracker:
                     self.counts.items(), key=lambda kv: (kv[0] is None, kv[0] or "")
                 )
             },
+            # Positions in a room at each angle of "Align the path with
+            # the rooms", of `positions` tried (4.4.2). None without any.
+            "in_room_by_turn": (
+                {
+                    "positions": self.turn_samples,
+                    **{
+                        angle: self.in_room_by_turn.get(angle, 0)
+                        for angle in TURN_ANGLES
+                    },
+                }
+                if self.turn_samples
+                else None
+            ),
         }
 
     def still_in(self, room: str) -> bool:
@@ -151,6 +185,33 @@ class PositionRoomTracker:
             and self.last_seen is not None
             and self._clock() - self.last_seen <= SKIP_STILL_IN_SEC
         )
+
+
+#: The fixed angles of "Align the path with the rooms", in its sense
+#: (cloud_coordinator.requested_position_turn).
+TURN_ANGLES: tuple[str, ...] = tuple(a for a in LIVE_PATH_TURN_CHOICES if a != "auto")
+
+
+def in_room_by_turn(data: Any, x_mm: float, y_mm: float) -> dict[str, bool] | None:
+    """Whether a requested position, turned by each angle, lies in a room.
+
+    `x_mm`, `y_mm` as the robot answered, before any turn: the same turn
+    image._handle_live_position applies, tried at every angle. None
+    where no room can be said at all (no aligner, no rooms), so that a
+    missing floor plan does not count as "in no room" at every angle.
+    """
+    aligner = getattr(data, "umf_aligner", None)
+    if aligner is None or not (math.isfinite(x_mm) and math.isfinite(y_mm)):
+        return None
+    if not getattr(aligner, "room_polygons_umf", None):
+        return None
+    result: dict[str, bool] = {}
+    for angle in TURN_ANGLES:
+        turn = math.radians(int(angle))
+        cos_t, sin_t = math.cos(turn), math.sin(turn)
+        x, y = x_mm * cos_t - y_mm * sin_t, x_mm * sin_t + y_mm * cos_t
+        result[angle] = bool(aligner.room_name_at(x, y))
+    return result
 
 
 def room_at_position(data: Any, x_mm: float, y_mm: float, *, frame: str) -> str | None:

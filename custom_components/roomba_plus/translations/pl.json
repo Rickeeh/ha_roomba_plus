@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Włącz mapę na żywo",
           "live_position_requests": "Pytaj robota o pozycję",
-          "live_path_turn": "Obrót trasy na żywo",
+          "live_path_turn": "Dopasuj trasę do pomieszczeń",
           "map_size_px": "Rozmiar mapy (piksele)",
           "map_scale_mm_per_px": "Skala (mm/piksel)",
           "floor_label": "Etykieta piętra (np. Parter)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Pokaż strefy bez mopowania",
           "enable_maintenance_list": "Pokaż konserwację jako listę zadań",
           "region_sensors": "Osobny czujnik dla każdego pomieszczenia i strefy",
-          "map_rotation": "Obrót mapy",
+          "map_rotation": "Obróć obraz mapy",
           "care_reminders": "Przypomnienia o czyszczeniu",
           "pets_in_household": "Zwierzęta w domu"
         },
         "data_description": {
           "map_enabled": "Włącz mapę sprzątania na żywo dla robotów z wykrywaniem pozycji (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Dostępne tylko dla robotów, które same nie podają swojej pozycji. Podczas sprzątania pyta robota mniej więcej raz na sekundę, aby rysować trasę na żywo. Wyłączone: mapa pokazuje zamiast tego ostatnią zakończoną misję z chmury iRobot, jeśli dostęp do chmury jest skonfigurowany.",
-          "live_path_turn": "Tylko z opcją powyżej. O ile trasa sprzątania jest obracana, aby leżała na mapie pomieszczeń. Automatycznie odczytuje to z mapy zapisanej przez samego robota, łącznie z obrotem ustawionym w aplikacji iRobot. Wybierz kąt tylko wtedy, gdy trasa jest obrócona względem mapy pomieszczeń, i wtedy dołącz diagnostykę do zgłoszenia, aby ustawienie automatyczne można było poprawić dla Twojego robota.",
+          "live_path_turn": "Tylko z opcją powyżej. Obraca trasę sprzątania względem planu, aż leży na swoich pomieszczeniach. Rozpoznawanie pomieszczenia używa tych samych obróconych pozycji, więc zły kąt wskazuje też złe pomieszczenie. To nie to samo co „Obróć obraz mapy”, które obraca cały obraz i nigdy nie przesuwa trasy względem pomieszczeń. Automatycznie bierze obrót z mapy zapisanej przez robota, łącznie z obrotem ustawionym w aplikacji iRobot. Jeśli trasa przechodzi przez ściany lub leży obok swoich pomieszczeń, wypróbuj kąty: narysowana już trasa obraca się zaraz po zapisaniu. Następnie dołącz diagnostykę do zgłoszenia, aby ustawienie automatyczne można było poprawić dla Twojego robota.",
           "map_size_px": "Rozmiar płótna mapy w pikselach (400–1200). Domyślnie: 600.",
           "map_scale_mm_per_px": "Milimetry na piksel (5–30). Domyślnie 10 = 6 m × 6 m przy 600 px.",
           "floor_label": "Dowolny tekst, np. Parter. Grupuje roboty w widoku floty.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Obrysowuje strefy bez mopowania na obrazie mapy.",
           "enable_maintenance_list": "Pokazuje należną konserwację jako listę zadań.",
           "region_sensors": "Tworzy osobny czujnik dla każdego pomieszczenia i strefy.",
-          "map_rotation": "Obraca każdy obraz mapy zgodnie z ruchem wskazówek zegara. Mapa nie ma północy: góra to kierunek, w którym robot był zwrócony, opuszczając stację, więc zależy od ustawienia stacji.",
+          "map_rotation": "Obraca każdy obraz mapy w całości zgodnie z ruchem wskazówek zegara, pomieszczenia i trasę razem, na przykład tak, aby pasował do aplikacji iRobot. Nigdy nie przesuwa trasy względem pomieszczeń; do tego służy „Dopasuj trasę do pomieszczeń”. Mapa nie ma północy: góra to kierunek, w którym robot był zwrócony, opuszczając stację, więc zależy od ustawienia stacji.",
           "care_reminders": "Przypomina o czyszczeniu filtra, szczotek, kół, czujników uskoku i styków ładowania według harmonogramu pielęgnacji iRobot. Dodaje czujnik „następne czyszczenie” i przyciski „wyczyszczono”. Przypomnienia o wymianie działają bez tego.",
           "pets_in_household": "Przypomina o czyszczeniu filtra i szczotek głównych dwa razy w tygodniu zamiast raz, jak zaleca iRobot dla domów ze zwierzętami. Tylko przy włączonych przypomnieniach o czyszczeniu."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "Nie wiadomo, które pomieszczenie pominąć. Podaj je w params: room (pomieszczenie tej misji)."
+    },
+    "prime_start_blocked": {
+      "message": "Nie uruchomiono: {reason}"
     }
   },
   "selector": {

@@ -1133,12 +1133,25 @@ class MissionStore:
         )
 
     @staticmethod
+    def _skipped_rids(rec: dict[str, Any]) -> set[str]:
+        """Region ids this mission skipped by command (4.4.2).
+
+        Not cleaned, whatever their room event says: on lewis a skipped
+        room ends on status 3 and a last room sent home on 5, both with
+        some floor done, which room_event_was_cleaned() counts.
+        """
+        rids = rec.get("skipped_rids")
+        return {str(r) for r in rids} if isinstance(rids, list) else set()
+
+    @staticmethod
     def _timeline_cleaned_rids(rec: dict[str, Any]) -> list[str]:
         """Region ids the cloud's room events count as cleaned, in
-        completion order, each once. Empty without a timeline."""
+        completion order, each once. Empty without a timeline. Rooms
+        skipped by command are left out (_skipped_rids)."""
         timeline = rec.get("timeline")
         if not isinstance(timeline, dict):
             return []
+        skipped = MissionStore._skipped_rids(rec)
         ordered: list[str] = []
         for ev in fin_events_in_order(timeline):   # the cloud sends newest first
             if ev.get("type") != "room":
@@ -1147,7 +1160,7 @@ class MissionStore:
             if not room_event_was_cleaned(room):   # history: finished OR cleaned floor
                 continue
             rid = str(room.get("rid", ""))
-            if rid and rid not in ordered:
+            if rid and rid not in ordered and rid not in skipped:
                 ordered.append(rid)
         return ordered
 
@@ -1542,7 +1555,8 @@ class MissionStore:
         timeline = rec.get("timeline")
         if isinstance(timeline, dict):
             ordered: list[str] = []
-            seen: set[str] = set()
+            # Rooms skipped by command are not cleaned (4.4.2).
+            seen: set[str] = MissionStore._skipped_rids(rec)
             for ev in fin_events_in_order(timeline):   # the cloud sends newest first
                 if ev.get("type") != "room":
                     continue

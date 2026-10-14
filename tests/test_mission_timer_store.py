@@ -3771,6 +3771,30 @@ class TestASkippedRoom:
         assert save.call_count == 1
         assert mts.current_room_idx == 0, "the display waits for evidence"
 
+    @pytest.mark.asyncio
+    async def test_kept_as_skipped_also_once_visited(self):
+        """4.4.2: a position had put the robot in the room before the
+        skip; the skip is recorded all the same, and survives a replan
+        and a restart, but not the next mission."""
+        mts, hass = self._mts(), MagicMock()
+        mts.visited_rooms = [0]
+        with patch.object(MissionTimerStore, "_schedule_save"):
+            assert mts.mark_skipped(0, hass, "e", rid="19") is True
+            assert mts.mark_skipped(0, hass, "e", rid="19") is False
+            mts.set_mission_plan("B_7", ["Studio", "Hall"], None, hass, "e", replan=True)
+        assert (mts.skipped_rooms, mts.skipped_rids) == (["Studio"], ["19"])
+
+        payload = {**mts._payload(), "snapshot_ts": __import__("time").time()}
+        restored = MissionTimerStore()
+        with patch("custom_components.roomba_plus.mission_timer_store.Store") as store:
+            store.return_value.async_load = AsyncMock(return_value=payload)
+            await restored.async_load(hass, "e")
+        assert (restored.skipped_rooms, restored.skipped_rids) == (["Studio"], ["19"])
+
+        with patch.object(MissionTimerStore, "_schedule_save"):
+            mts.set_mission_plan("B_8", ["Hall"], None, hass, "e")
+        assert (mts.skipped_rooms, mts.skipped_rids) == ([], [])
+
     def test_the_next_room_not_yet_done(self):
         mts = self._mts()
         mts.visited_rooms = [0, 1]

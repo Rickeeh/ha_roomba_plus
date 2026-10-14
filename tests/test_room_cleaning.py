@@ -164,6 +164,23 @@ class TestPrimeRoomCleaning:
         assert command.to_json()["initiator"] == "rmtApp"
 
     @pytest.mark.asyncio
+    async def test_a_mode_the_active_fault_rules_out_is_not_sent(self):
+        """4.4.2: every Prime region start passes this point. Mopping
+        with the pad plate missing (290) is refused; vacuuming is not."""
+        backend, robot = self._backend()
+        backend._data.hass_ref = None
+        backend._data.prime_status_coordinator.data = {
+            "ro-currentstate": {"cleanMissionStatus": {"error": 290}},
+        }
+        with pytest.raises(ServiceValidationError) as err:
+            await backend.clean_rooms(["12"], operating_mode=[4])
+        assert err.value.translation_key == "prime_start_blocked"
+        robot.send_routine_command_via_cmd_topic.assert_not_called()
+
+        await backend.clean_rooms(["12"], operating_mode=[2])
+        robot.send_routine_command_via_cmd_topic.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_the_command_uses_start_and_region_id(self):
         """The other half of the finding. `clean` and `id` were an
         assumption in this project's own code until real data settled
@@ -4038,6 +4055,29 @@ class TestPrimeRegionToMap:
         assert await b._region_to_map() == {"4": "m1", "8": "m2"}
 
 
+class TestPrimeWholeHomeRooms:
+    """4.4.2: the Prime app cleans the whole home in a chosen mode by
+    listing every room of the map (APK_MODUS_RECHERCHE F1)."""
+
+    @pytest.mark.asyncio
+    async def test_every_room_of_the_current_map_and_no_zone(self):
+        meta = {"m2": SimpleNamespace(rooms_metadata=[
+            _room("7", "Kitchen"), _room("8", ""), _room("7", "Kitchen"), _room(None),
+            SimpleNamespace(room_id="z1", name="Rug", region_type=SimpleNamespace(value="zid")),
+        ])}
+        b = _prime(versions=_vers("m2"), metadata=meta)
+        b._current_map_id = AsyncMock(return_value="m2")
+        assert await b.whole_home_room_ids() == ["m2/7", "m2/8"]
+
+    @pytest.mark.asyncio
+    async def test_no_map_or_an_unreadable_one_gives_none(self):
+        b = _prime(versions=_vers("m1"), metadata={}, meta_error={"m1"})
+        b._current_map_id = AsyncMock(return_value=None)
+        assert await b.whole_home_room_ids() == []
+        b._current_map_id = AsyncMock(return_value="m1")
+        assert await b.whole_home_room_ids() == []
+
+
 class TestPrimeAvailableRooms:
 
     def _b(self, monkeypatch, current):
@@ -4095,6 +4135,24 @@ class TestSelectedCleaningMode:
         monkeypatch.setattr(__import__("homeassistant.helpers.entity_registry", fromlist=["x"]), "async_get",
                             lambda _h: MagicMock(async_get_entity_id=lambda *a: "select.robbie_mode"))
         assert rc._selected_cleaning_mode(self._entry(hass, state=mode_name)) == mode_value
+
+    @pytest.mark.parametrize(
+        ("connection", "expected"),
+        [("classic", 6), ("prime", 32)],
+    )
+    def test_vacuum_and_mop_uses_this_robots_table(
+        self, hass, monkeypatch, connection, expected
+    ):
+        # A Classic robot sent Prime's 32 for "vacuum and mop" (4.4.2).
+        from custom_components.roomba_plus.models import ConnectionType
+
+        monkeypatch.setattr(__import__("homeassistant.helpers.entity_registry", fromlist=["x"]), "async_get",
+                            lambda _h: MagicMock(async_get_entity_id=lambda *a: "select.robbie_mode"))
+        entry = self._entry(hass, state="vacuum_and_mop")
+        entry.runtime_data.connection_type = (
+            ConnectionType.CLOUD_ONLY if connection == "prime" else ConnectionType.LOCAL_PUSH
+        )
+        assert rc._selected_cleaning_mode(entry) == expected
 
     @pytest.mark.parametrize("entity_id", [None, "select.never_set"])
     def test_a_missing_select_or_state_gives_no_mode(self, hass, monkeypatch, entity_id):

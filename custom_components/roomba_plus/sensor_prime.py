@@ -63,11 +63,11 @@ from .const import (
     CLEANING_PHASES,
     DOCK_TASK_PHASES,
     JOB_INITIATOR_SLUGS,
-    PRIME_BLOCKING_FAULTS,
     PRIME_ERROR_SEVERITY,
     READINESS_STATE_LABELS,
     decode_not_ready,
     get_localized_error_entry,
+    prime_blocking_faults,
     state_slug,
 )
 from .entity import IRobotEntity
@@ -1267,29 +1267,8 @@ class PrimeSerialNumberSensor(IRobotEntity, SensorEntity):
 
 
 def _blocking_faults(status: Any) -> dict[int, frozenset[str]]:
-    """The start-blocking faults currently reported, with what each still allows.
-
-    READS BOTH FIELDS. `error` carries a fault the robot hit; a readiness
-    REFUSAL leaves `error` at 0 and puts its reasons in `cond_not_ready`
-    instead. The four blocking codes can arrive either way, so checking
-    one of the two would miss the case the check exists for.
-
-    Returns an empty mapping when nothing blocks -- callers should treat
-    that as "no opinion", not as "everything is possible", because this
-    only knows about four codes out of a hundred and twelve.
-    """
-    if status is None:
-        return {}
-    codes: set[int] = set()
-    error = getattr(status, "error", None)
-    if isinstance(error, int) and error:
-        codes.add(error)
-    for reason in getattr(status, "cond_not_ready", None) or []:
-        if isinstance(reason, int):
-            codes.add(reason)
-        elif isinstance(reason, str) and reason.isdigit():
-            codes.add(int(reason))
-    return {c: PRIME_BLOCKING_FAULTS[c] for c in codes if c in PRIME_BLOCKING_FAULTS}
+    """const.prime_blocking_faults(), under the name the sensors use."""
+    return prime_blocking_faults(status)
 
 
 class PrimeErrorSensor(_PrimeCurrentStateSensorBase):

@@ -441,6 +441,26 @@ class TestAsyncRecordMissionBatteryCycles:
             loop.close()
         return store.latest()
 
+    def test_a_skipped_room_is_recorded_and_not_as_cleaned(self):
+        """4.4.2, @Thonno: room tracking passed through the skipped room,
+        and the record listed it among the cleaned ones."""
+        from custom_components.roomba_plus.callbacks import async_record_mission
+        store = _make_store()
+        loop = asyncio.new_event_loop()
+        entry = _make_entry(store)
+        hass = _make_hass(loop)
+        try:
+            loop.run_until_complete(async_record_mission(
+                hass, entry, {"phase": "charge", "error": 0}, {}, ["Foyer", "Couch"],
+                int(loop.time()) - 3600, 0, observed_rooms=["Foyer", "Couch"],
+                skipped=(["Foyer"], ["21"]),
+            ))
+        finally:
+            loop.close()
+        rec = store.latest()
+        assert rec["last_cleaned_rooms"] == ["Couch"]
+        assert (rec["skipped_rooms"], rec["skipped_rids"]) == (["Foyer"], ["21"])
+
     def test_nimh_cycles_captured(self):
         rec = self._run({"bbchg3": {"nNimhChrg": 12, "nLithChrg": 87}})
         assert rec["battery_cycles"] == 12
@@ -4905,6 +4925,20 @@ class TestEndGateRoomChecksDirectly:
 
         entry = self._entry(records=[self._record(status=6)])
         assert _cloud_confirms_all_rooms_done(self._ms(), entry, ["1", "2", "3"]) is True
+
+    @pytest.mark.parametrize("status", [3, 5, 7, 8])
+    def test_a_closed_or_skipped_room_counts_too(self, status):
+        """4.4.2, @Thonno's i7+: a room skipped on lewis ends on 3."""
+        from custom_components.roomba_plus.callbacks import _cloud_confirms_all_rooms_done
+
+        entry = self._entry(records=[self._record(status=status)])
+        assert _cloud_confirms_all_rooms_done(self._ms(), entry, ["1", "2", "3"]) is True
+
+    def test_a_pass_with_more_to_follow_does_not(self):
+        from custom_components.roomba_plus.callbacks import _cloud_confirms_all_rooms_done
+
+        entry = self._entry(records=[self._record(status=1)])
+        assert _cloud_confirms_all_rooms_done(self._ms(), entry, ["1", "2", "3"]) is False
 
     def test_another_missions_record_is_not_evidence(self):
         """Matched by start time within 120 s. A record from a different

@@ -38,7 +38,8 @@ clean_room:
       description: >-
         Vacuum, mop, or both, for this run only. Leave empty to use whatever
         the Cleaning mode selector shows — that is the everyday default, and
-        this field is for a run that should differ from it. Prime robots only.
+        this field is for a run that should differ from it. Pick a mode the
+        robot can perform; the selector lists only those.
       selector:
         select:
           options:
@@ -592,7 +593,8 @@ clean_zone:
       name: Cleaning mode
       description: >-
         Vacuum, mop, or both, for this run only. Leave empty to use whatever
-        the Cleaning mode selector shows. Prime robots only.
+        the Cleaning mode selector shows. Pick a mode the robot can perform;
+        the selector lists only those.
       selector:
         select:
           options:

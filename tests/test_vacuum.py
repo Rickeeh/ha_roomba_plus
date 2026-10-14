@@ -3478,7 +3478,7 @@ class TestSkipTheCurrentRoom:
         (attempt,) = data.skip_attempts
         assert attempt["generation"] == "classic"
         assert attempt["sent"] == "skip"
-        assert attempt["room"] == {"source": "tracked", "index": 1, "of": 3, "last_room": False}
+        assert attempt["room"] == {"source": "tracked", "index": 1, "of": 3, "rid": "5", "last_room": False}
         assert (attempt["before"]["room_index"], attempt["before"]["rooms_planned"]) == (1, 3)
         assert data.sent_commands[-1]["verb"] == "skip (skip)"
 
@@ -3578,6 +3578,32 @@ class TestSkipTheCurrentRoom:
         assert mts.current_room_idx == 1
         assert mts.room_progress_observed is True
         assert 1 in mts.visited_rooms
+
+    @pytest.mark.asyncio
+    async def test_the_skipped_room_is_recorded_as_skipped(self, monkeypatch):
+        """4.4.2, @Thonno's i7+: the skipped room ended on status 3 with
+        some floor done and entered room history as cleaned. The skip is
+        kept by name and id -- also when a position had already put the
+        robot in the room, which is the usual case."""
+        self._all_timers(monkeypatch)
+        v, _data, mts, _clock = self._tracked(index=0)
+
+        await v.async_send_command("skip")
+        assert mts.skipped_rooms == ["Foyer"]
+        assert mts.skipped_rids == ["21"]
+
+    @pytest.mark.asyncio
+    async def test_the_last_room_sent_home_is_recorded_as_skipped(self, monkeypatch):
+        """Its event ended on 5 with floor done: skipped all the same."""
+        from custom_components.roomba_plus import vacuum as vac
+
+        self._all_timers(monkeypatch)
+        monkeypatch.setattr(vac.asyncio, "sleep", AsyncMock())
+        v, _data, mts, _clock = self._tracked(index=2)
+
+        await v.async_send_command("skip")
+        assert mts.skipped_rooms == ["Bathroom"]
+        assert mts.skipped_rids == ["9"]
 
     @pytest.mark.asyncio
     async def test_a_position_in_the_skipped_room_keeps_it(self, monkeypatch):
@@ -3730,3 +3756,118 @@ class TestSkipTheCurrentRoom:
         await v.async_send_command("evac")
 
         assert data.sent_commands[-1]["verb"] == "evac (send_command)"
+
+
+class TestAPlainStartCarriesTheSelectedMode:
+    """4.4.2, @homux-tech (#214): the cleaning mode set to mopping, Start
+    pressed, the robot vacuumed. Both iRobot apps send the mode with a
+    whole-home start (claude/APK_MODUS_RECHERCHE.md): Classic in the
+    start's `params`, Prime as a room command listing every room."""
+
+    @staticmethod
+    def _classic(o_mode, mode, monkeypatch):
+        v = _make_vacuum_entity({"cap": {"oMode": o_mode}})
+        v.vacuum.send_command = AsyncMock()
+        monkeypatch.setattr(vac, "_selected_cleaning_mode", lambda _e: mode)
+        return v
+
+    @pytest.mark.asyncio
+    async def test_classic_sends_the_mode_in_params(self, monkeypatch):
+        v = self._classic(6, 4, monkeypatch)
+        await v.async_start()
+        v.vacuum.send_command.assert_awaited_once_with(
+            "start", {"params": {"operatingMode": 4}}
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("o_mode", "mode"), [
+        (2, 2),        # a vacuum: nothing to choose
+        (None, 4),     # capabilities unknown
+        (6, None),     # no mode selected
+        (6, 512),      # the Classic app knows no 512
+    ])
+    async def test_classic_stays_bare_otherwise(self, monkeypatch, o_mode, mode):
+        v = self._classic(o_mode, mode, monkeypatch)
+        await v.async_start()
+        v.vacuum.send_command.assert_awaited_once_with("start")
+
+    @staticmethod
+    def _prime(monkeypatch, *, idle=True, rooms=("M/1", "M/2"), mode=4, o_mode=38):
+        v = _make_prime_vacuum_entity()
+        v.hass = MagicMock()
+        v._config_entry.runtime_data.prime_status_coordinator.data = {
+            "ro-currentstate": {"cap": {"oMode": o_mode}},
+        }
+        monkeypatch.setattr(vac.IRobotVacuum, "_prime_cycle_is_idle", lambda _s: idle)
+        monkeypatch.setattr(vac, "_selected_cleaning_mode", lambda _e: mode)
+        backend = MagicMock(spec=vac.PrimeRoomCleaning)
+        backend.whole_home_room_ids = AsyncMock(return_value=list(rooms))
+        backend.clean_rooms = AsyncMock()
+        monkeypatch.setattr(vac, "async_get_room_cleaning_backend", lambda *_a: backend)
+        return v, backend
+
+    @pytest.mark.asyncio
+    async def test_prime_sends_every_room_with_the_mode(self, monkeypatch):
+        v, backend = self._prime(monkeypatch)
+        await v.async_start()
+        backend.clean_rooms.assert_awaited_once_with(
+            ["M/1", "M/2"], ordered=False, operating_mode=[4]
+        )
+        v._prime_robot.send_simple_command.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("case", ["running", "no_rooms", "vacuum_only"])
+    async def test_prime_stays_bare_otherwise(self, monkeypatch, case):
+        """A running mission takes no room command (field evidence: they
+        are refused in an open cycle); without rooms, or on a vacuum,
+        the start is what it always was."""
+        v, backend = self._prime(
+            monkeypatch,
+            idle=case != "running",
+            rooms=() if case == "no_rooms" else ("M/1",),
+            o_mode=2 if case == "vacuum_only" else 38,
+        )
+        await v.async_start()
+        backend.clean_rooms.assert_not_called()
+        v._prime_robot.send_simple_command.assert_awaited_once_with("start")
+
+
+class TestAPrimeStartAgainstAPadFault:
+    """4.4.2: a start the robot's own fault rules out is refused with the
+    vendor's words; the dock is never held back (@chairstacker)."""
+
+    @staticmethod
+    def _v(monkeypatch, *, error, mode):
+        v = _make_prime_vacuum_entity()
+        v.hass = MagicMock()
+        v._config_entry.runtime_data.hass_ref = None
+        v._config_entry.runtime_data.prime_status_coordinator.data = {
+            "ro-currentstate": {
+                "cap": {"oMode": 38},
+                "cleanMissionStatus": {"cycle": "none", "phase": "charge", "error": error},
+            },
+        }
+        monkeypatch.setattr(vac.IRobotVacuum, "_prime_cycle_is_idle", lambda _s: False)
+        monkeypatch.setattr(vac, "_selected_cleaning_mode", lambda _e: mode)
+        return v
+
+    @pytest.mark.asyncio
+    async def test_mopping_without_the_plate_is_refused(self, monkeypatch):
+        v = self._v(monkeypatch, error=290, mode=4)
+        with pytest.raises(ServiceValidationError) as err:
+            await v.async_start()
+        assert err.value.translation_key == "prime_start_blocked"
+        assert "290" in err.value.translation_placeholders["reason"]
+        v._prime_robot.send_simple_command.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vacuuming_without_the_plate_goes_out(self, monkeypatch):
+        v = self._v(monkeypatch, error=290, mode=2)
+        await v.async_start()
+        v._prime_robot.send_simple_command.assert_awaited_once_with("start")
+
+    @pytest.mark.asyncio
+    async def test_the_dock_is_never_held_back(self, monkeypatch):
+        v = self._v(monkeypatch, error=286, mode=4)
+        await v.async_return_to_base()
+        v._prime_robot.send_simple_command.assert_awaited_once_with("dock")

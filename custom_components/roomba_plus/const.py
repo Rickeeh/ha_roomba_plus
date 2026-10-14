@@ -1415,9 +1415,16 @@ ROOM_EVENT_DONE_STATUSES: Final[frozenset[int]] = frozenset({0, 6})
 #: 7 and 8 are a skipped room (4.3.7): the iRobot app (7.18.0,
 #: `TimelineItem::isSkippedEvent`) shows a room event with either status
 #: as skipped. Nothing more will happen in that room either.
+#:
+#: 3 as well (4.4.2, @Thonno's i7+, lewis 22.52.10): the room he skipped
+#: ended on 3, not 7 or 8. The firmware writes 3 for a finished room
+#: ("done, another variant") and for one left unfinished; either way the
+#: event is closed and the robot will not come back to the room. Without
+#: it, a room skipped from the iRobot app kept the end gate waiting out
+#: its cap.
 ROOM_EVENT_SKIPPED_STATUSES: Final[frozenset[int]] = frozenset({7, 8})
 ROOM_EVENT_CLOSED_AT_END_STATUSES: Final[frozenset[int]] = (
-    frozenset({0, 5, 6}) | ROOM_EVENT_SKIPPED_STATUSES
+    frozenset({0, 3, 5, 6}) | ROOM_EVENT_SKIPPED_STATUSES
 )
 
 #: "Was a PASS completed here?" — 0 and 1. A completed pass means the
@@ -3255,6 +3262,70 @@ PRIME_BLOCKING_FAULTS: Final[dict[int, frozenset[str]]] = {
     287: frozenset({"mop"}),
     290: frozenset({"vacuum"}),
 }
+
+
+def prime_blocking_faults(status: Any) -> dict[int, frozenset[str]]:
+    """The start-blocking faults currently reported, with what each still allows.
+
+    READS BOTH FIELDS. `error` carries a fault the robot hit; a readiness
+    REFUSAL leaves `error` at 0 and puts its reasons in `cond_not_ready`
+    instead. The four blocking codes can arrive either way, so checking
+    one of the two would miss the case the check exists for.
+
+    Returns an empty mapping when nothing blocks -- callers should treat
+    that as "no opinion", not as "everything is possible", because this
+    only knows about four codes out of a hundred and twelve.
+    """
+    if status is None:
+        return {}
+    codes: set[int] = set()
+    error = getattr(status, "error", None)
+    if isinstance(error, int) and error:
+        codes.add(error)
+    for reason in getattr(status, "cond_not_ready", None) or []:
+        if isinstance(reason, int):
+            codes.add(reason)
+        elif isinstance(reason, str) and reason.isdigit():
+            codes.add(int(reason))
+    return {c: PRIME_BLOCKING_FAULTS[c] for c in codes if c in PRIME_BLOCKING_FAULTS}
+
+
+#: What each operating mode needs of the robot, in the words of
+#: PRIME_BLOCKING_FAULTS (4.4.2). 256 is the app's other mop bit.
+_MODE_NEEDS: Final[dict[int, frozenset[str]]] = {
+    2: frozenset({"vacuum"}),
+    4: frozenset({"mop"}),
+    256: frozenset({"mop"}),
+    6: frozenset({"vacuum", "mop"}),
+    32: frozenset({"vacuum", "mop"}),
+    512: frozenset({"vacuum", "mop"}),
+}
+
+
+def prime_start_refusal(status: Any, modes: list[int | None]) -> list[int]:
+    """The faults that rule out starting in `modes`, or [] (4.4.2).
+
+    ONLY A START, AND ONLY WHAT THE FAULT ITSELF RULES OUT. The Prime
+    app refuses a mission start while one of the four codes is active
+    (`PadPlateMissionIntercept.blockFault`, 3.2.0). This is narrower:
+    mopping with the plate missing (290) is refused, vacuuming with it
+    missing is not. A mode of None -- a start that names none -- is
+    refused only where nothing is possible (286, the robot off the
+    floor).
+
+    NEVER FOR THE DOCK. The app greys out every dock control during a
+    task, so a drying cycle it started cannot be stopped; @chairstacker
+    called that the big drawback of its UI, and nothing here copies it.
+    """
+    blocking = prime_blocking_faults(status)
+    if not blocking:
+        return []
+    allowed = frozenset.intersection(*blocking.values())
+    for mode in modes or [None]:
+        need = _MODE_NEEDS.get(mode, frozenset()) if mode is not None else frozenset()
+        if (need and not need <= allowed) or (not need and not allowed):
+            return sorted(blocking)
+    return []
 
 
 #: FOUR CODES BLOCK A START, not three. `blockFault` (app 3.0.0) checks

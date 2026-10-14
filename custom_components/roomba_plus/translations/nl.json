@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Live kaart inschakelen",
           "live_position_requests": "Robot naar zijn positie vragen",
-          "live_path_turn": "Draaiing van het live-pad",
+          "live_path_turn": "Pad uitlijnen op de kamers",
           "map_size_px": "Kaartgrootte (pixels)",
           "map_scale_mm_per_px": "Schaal (mm/pixel)",
           "floor_label": "Verdieping (bijv. Begane grond)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Zones zonder dweilen tonen",
           "enable_maintenance_list": "Onderhoud als takenlijst tonen",
           "region_sensors": "Aparte sensor per kamer en zone",
-          "map_rotation": "Kaartrotatie",
+          "map_rotation": "Kaartafbeelding draaien",
           "care_reminders": "Reinigingsherinneringen",
           "pets_in_household": "Huisdieren in huis"
         },
         "data_description": {
           "map_enabled": "De live reinigingskaart inschakelen voor robots met positiebepaling (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Alleen aangeboden voor robots die hun positie niet zelf doorgeven. Vraagt de robot tijdens het schoonmaken ongeveer eens per seconde naar zijn positie om de route live te tekenen. Uit: de kaart toont in plaats daarvan de laatste voltooide missie uit de iRobot-cloud, als cloudtoegang is ingesteld.",
-          "live_path_turn": "Alleen met de optie hierboven. Hoe ver het schoonmaakpad wordt gedraaid om op de kamerkaart te liggen. Automatisch leest het uit de kaart die de robot zelf heeft opgeslagen, inclusief een draaiing die in de iRobot-app is ingesteld. Kies alleen een hoek als het pad gedraaid ligt ten opzichte van de kamerkaart, en voeg dan de diagnose toe aan een issue zodat de automatische instelling voor je robot kan worden verbeterd.",
+          "live_path_turn": "Alleen met de optie hierboven. Draait het schoonmaakpad ten opzichte van de plattegrond tot het op zijn kamers ligt. Kamerherkenning gebruikt dezelfde gedraaide posities, dus een verkeerde hoek noemt ook de verkeerde kamer. Niet hetzelfde als ‘Kaartafbeelding draaien’, dat de hele afbeelding draait en het pad nooit ten opzichte van de kamers verschuift. Automatisch haalt de draaiing uit de kaart die de robot heeft opgeslagen, inclusief een draaiing uit de iRobot-app. Loopt het pad door muren of naast zijn kamers, probeer dan de hoeken: het al getekende pad draait zodra je opslaat. Voeg daarna de diagnose toe aan een issue zodat de automatische instelling voor je robot kan worden verbeterd.",
           "map_size_px": "Kaartcanvasgrootte in pixels (400–1200). Standaard: 600.",
           "map_scale_mm_per_px": "Millimeter per pixel (5–30). Standaard 10 = 6 m × 6 m bij 600 px.",
           "floor_label": "Vrije tekst, bijvoorbeeld Begane grond. Groepeert robots in het vlootoverzicht.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Tekent de zones zonder dweilen op de kaartafbeelding.",
           "enable_maintenance_list": "Toont onderhoud dat eraan komt als takenlijst.",
           "region_sensors": "Maakt een aparte sensor voor elke kamer en zone.",
-          "map_rotation": "Draait elke kaartafbeelding met de klok mee. De kaart heeft geen noorden: boven is de richting waarin de robot keek toen hij het dock verliet, dus het hangt af van hoe het dock staat.",
+          "map_rotation": "Draait elke kaartafbeelding als geheel met de klok mee, kamers en pad samen, bijvoorbeeld zodat ze overeenkomt met de iRobot-app. Het pad verschuift nooit ten opzichte van de kamers; daarvoor is ‘Pad uitlijnen op de kamers’. De kaart heeft geen noorden: boven is de richting waarin de robot keek toen hij het dock verliet, dus het hangt af van hoe het dock staat.",
           "care_reminders": "Herinnert je volgens het onderhoudsschema van iRobot aan het reinigen van filter, borstels, wielen, valsensoren en laadcontacten. Voegt een sensor „volgende reiniging“ en „gereinigd“-knoppen toe. Vervangingsherinneringen werken ook zonder.",
           "pets_in_household": "Herinnert je twee keer per week in plaats van één keer aan het reinigen van het filter en de hoofdborstels, zoals iRobot aanraadt voor huishoudens met huisdieren. Alleen met reinigingsherinneringen aan."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "Het is niet bekend welke kamer moet worden overgeslagen. Geef die op met params: room (een kamer van deze missie)."
+    },
+    "prime_start_blocked": {
+      "message": "Niet gestart: {reason}"
     }
   },
   "selector": {

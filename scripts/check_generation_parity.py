@@ -94,6 +94,12 @@ DELIBERATE: dict[str, dict[str, str]] = {
             "made roombapy async -- the executor disappeared and the call "
             "underneath it became visible for the first time"
         ),
+        "record_command": (
+            "Classic records its mode start here (4.4.2). Prime's mode "
+            "start goes through PrimeRoomCleaning.clean_rooms(), which "
+            "records the region command itself; its bare start never "
+            "recorded"
+        ),
     },
     "vacuum.py::async_return_to_base": {
         "send_command": (

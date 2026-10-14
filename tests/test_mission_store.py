@@ -4202,6 +4202,26 @@ class TestRegionLastCleaned:
 
         assert store.region_last_cleaned() == {}
 
+    def test_rooms_skipped_by_command_are_not_cleaned(self):
+        """4.4.2, @Thonno's i7+ (lewis 22.52.10): the skipped room ended
+        on status 3 with 7 of 254 done -- below the 10 % share, already
+        left out. The last room, sent home, ended on 5 with 10 of 45:
+        22 %, read as cleaned unless the record says it was skipped. A
+        skip later in a room is the same case."""
+        from custom_components.roomba_plus.mission_store import MissionStore
+
+        rec = {"timeline": {"finEvents": [
+            {"type": "room", "ts": 1, "room": {"rid": "2", "status": 3, "area": 254, "passArea": 7}},
+            {"type": "room", "ts": 2, "room": {"rid": "15", "status": 5, "area": 45, "passArea": 10}},
+            {"type": "room", "ts": 3, "room": {"rid": "4", "status": 0, "area": 30, "passArea": 30}},
+        ]}}
+        assert MissionStore.record_region_ids(rec) == ["15", "4"]
+        assert MissionStore._timeline_cleaned_rids(rec) == ["15", "4"]
+
+        rec["skipped_rids"] = ["2", "15"]
+        assert MissionStore.record_region_ids(rec) == ["4"]
+        assert MissionStore._timeline_cleaned_rids(rec) == ["4"]
+
     def test_ids_survive_a_rename(self):
         """The point of keying on ids: `record_region_ids` never looks
         at names, so renaming a room in the app cannot orphan its

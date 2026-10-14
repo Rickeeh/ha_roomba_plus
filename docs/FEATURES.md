@@ -63,7 +63,7 @@ marked in their own headings.
 | Control | Type | Notes |
 |---|---|---|
 | Cleaning passes | Select | Auto / One pass / Two passes. Did nothing at all on i/s/j robots before v4.2 — the firmware reads this and the setting below as key pairs, and dropped both halves when they arrived in separate messages, reporting success either way |
-| Cleaning mode | Select | Vacuum / Mop / Vacuum and mop / Vacuum then mop. **Only the modes your robot can actually perform are offered** — a vacuum does not list mopping. Read from the robot's own capabilities; if it has not reported them yet, all four are shown |
+| Cleaning mode | Select | Vacuum / Mop / Vacuum and mop / Vacuum then mop. **Only the modes your robot can actually perform are offered** — a vacuum does not list mopping. Read from the robot's own capabilities; if it has not reported them yet, all four are shown. **Applies to every start** (4.4.2): room and zone cleaning (`roomba_plus.clean_room`, `roomba_plus.clean_zone`, the zone buttons, rooms picked on the card) and, on a robot that can mop, a plain start of the whole home (`vacuum.start`, the Start button) the way the iRobot apps send it — Classic with the mode in the start command, Prime as every room of the current map, each with the mode. A vacuum, or a robot that has not reported its capabilities, starts as before. Classic never gets *Vacuum then mop* with a plain start; its app has no such value. Resuming a paused run sends no mode |
 | Carpet boost | Select | Automatic / Eco / Performance (900-series). Same pairing, same silent failure until v4.2 |
 | Edge cleaning | Switch | |
 | Always finish | Switch | Keep cleaning even when bin is full (i7+/s9+/j7+ with Clean Base) |
@@ -382,12 +382,14 @@ alignment; for a Smart Map robot's own positions, through the alignment once the
 
 **A map turned in the iRobot app** turns the positions the robot answers, once the robot has saved a
 map with that turn after a cleaning run (4.4.0). Roomba+ turns them back by the angles of the map
-version the robot saved itself, so the path lies on the rooms map. *Turn of the live path*, beside
-the option above, replaces that with a fixed angle for a robot where it reads wrong; the diagnostics
+version the robot saved itself, so the path lies on the rooms map. *Align the path with the rooms*
+(called *Turn of the live path* before 4.4.2), beside the option above, replaces that with a fixed angle for a robot where it reads wrong; the diagnostics
 show the angle read (`requested_path_turn_deg`), where it came from and the one drawn. Since 4.4.1
 the path already drawn turns with the setting as soon as it is saved, during a run and after it, so
 an angle can be checked against the floor plan; `requested_path_turn_in_picture_deg` gives the turn
-of the path shown.
+of the path shown. Room tracking uses the same turned positions, so a path that lies beside its
+rooms also puts the robot in the wrong room; *Rotate the map picture* turns the whole picture and
+does not change that.
 
 **Seen through (4.4.1).** The cleaned area is laid over the floor plan at half opacity, so the rooms
 show through; the path stays opaque, and the room names are drawn over it.
@@ -470,7 +472,7 @@ same way round.
 
 **Turn the map to suit you** *(4.3.2)*: the map has no north. Its top is
 the way the robot faced as it left the dock, so it depends on how the
-dock stands. Configure → Settings → *Map rotation* turns every picture
+dock stands. Configure → Settings → *Rotate the map picture* (called *Map rotation* before 4.4.2) turns every picture
 clockwise by 90, 180 or 270 degrees — the cleaning path with the robot's
 heading, doors and overlays, the area map, the coverage map and, on a
 Smart Map robot, the cloud coverage the map shows when it has no path,
@@ -1277,9 +1279,12 @@ you would ask is impossible right now. `287` is the pad plate fitted (mop
 works), `290` the plate missing (vacuum works), `234` the plate fitted with no
 cloth on it (vacuum works), `286` the robot off the floor (neither).
 
-**Nothing is refused.** A vacuum command against `287` still goes out; what
-changes is that the robot's refusal is explainable in advance. A device
-trigger, *Start blocked by a fault*, fires when a block appears.
+**A start is refused only for what the fault rules out** (4.4.2): mopping
+with `290` or `234`, vacuuming with `287`, anything with `286`, with the
+vendor's text for the fault. A start that names no mode is refused only with
+`286`. Docking, stopping and pausing are never held back, nor are the dock
+controls. A device trigger, *Start blocked by a fault*, fires when a block
+appears.
 
 ---
 
@@ -1301,7 +1306,7 @@ Settings → Devices → Roomba+ → Configure
 |---|---|---|
 | Map enabled | `true` | Enable live map rendering (900-series) |
 | Ask the robot for its position | `true` | Robots that report no position themselves only (4.3): asked about once a second while cleaning, for the live path |
-| Turn of the live path | Automatic | Same robots (4.4.0): how far requested positions are turned to lie on the rooms map. Automatic reads the map the robot saved itself; 0°/90°/180°/270° fix it |
+| Align the path with the rooms | Automatic | Same robots (4.4.0; *Turn of the live path* before 4.4.2): how far requested positions are turned to lie on the rooms map. Room tracking uses the same positions. Automatic reads the map the robot saved itself; 0°/90°/180°/270° fix it |
 | Map size (px) | `600` | Rendered map image size (400–1200) |
 | Map scale (mm/px) | `10.0` | Millimetres per pixel |
 
@@ -1362,7 +1367,7 @@ what a robot does out of the box.
 | Enable the live cleaning map | on | Robots with position sensing only (900, i, s, j, Braava m) |
 | Map canvas size in pixels | 600 | 400–1200 |
 | Millimetres per pixel | 10 | 5–30. At 600 px, 10 gives you a 6 m × 6 m room |
-| Map rotation | 0° | Turns every map picture clockwise (4.3.2). The map's top is the way the robot left the dock; turn it until it matches how you picture the floor. Since 4.4.1 a saved change reaches every picture at once, as do canvas size and millimetres per pixel |
+| Rotate the map picture | 0° | Turns every map picture clockwise as a whole, rooms and path together (4.3.2; *Map rotation* before 4.4.2). It never moves the path against the rooms. The map's top is the way the robot left the dock; turn it until it matches how you picture the floor. Since 4.4.1 a saved change reaches every picture at once, as do canvas size and millimetres per pixel |
 | Draw room names | off | The [xiaomi-vacuum-map-card](xiaomi-vacuum-map-card.md) draws its own names, so drawing them into the image as well would show each one twice. Switch it on for a plain picture card. A room without a name shows its number, as in the naming notice |
 | Draw clean zones | off | |
 | Draw keep-out zones | off | |

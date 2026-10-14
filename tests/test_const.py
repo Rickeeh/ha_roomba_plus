@@ -2143,3 +2143,36 @@ class TestAPauseResumeOrSkipKeepsTheMissionsRooms:
                 if name in wanted and len(node.args) + len(node.keywords) < wanted[name]:
                     short.append(f"{path.name}:{node.lineno} {name}")
         assert short == []
+
+
+class TestPrimeStartRefusal:
+    """4.4.2: a Prime mission start is refused only for what the active
+    fault rules out; the app refuses any start while one is active."""
+
+    @staticmethod
+    def _status(error=0, cond=()):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(error=error, cond_not_ready=list(cond))
+
+    @pytest.mark.parametrize(("fault", "modes", "refused"), [
+        (290, [4], True),        # plate missing: no mopping
+        (290, [2], False),       # ... but vacuuming
+        (234, [6], True),        # no cloth: nothing with mopping
+        (287, [2], True),        # plate fitted: no vacuuming
+        (287, [4], False),
+        (286, [None], True),     # off the floor: nothing
+        (290, [None], False),    # a start naming no mode, something possible
+        (0, [4], False),         # no fault
+        (46, [4], False),        # a fault this does not know
+    ])
+    def test_only_what_the_fault_rules_out(self, fault, modes, refused):
+        from custom_components.roomba_plus.const import prime_start_refusal
+
+        assert bool(prime_start_refusal(self._status(error=fault), modes)) is refused
+
+    def test_a_readiness_refusal_counts_too(self):
+        from custom_components.roomba_plus.const import prime_start_refusal
+
+        assert prime_start_refusal(self._status(cond=["290"]), [4]) == [290]
+        assert prime_start_refusal(None, [4]) == []

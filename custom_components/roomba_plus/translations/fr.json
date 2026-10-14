@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Activer la carte en direct",
           "live_position_requests": "Demander sa position au robot",
-          "live_path_turn": "Rotation du trajet en direct",
+          "live_path_turn": "Aligner le trajet sur les pièces",
           "map_size_px": "Taille de la carte (pixels)",
           "map_scale_mm_per_px": "Échelle (mm/pixel)",
           "floor_label": "Étage (ex. : Rez-de-chaussée)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Afficher les zones sans lavage",
           "enable_maintenance_list": "Afficher l'entretien comme liste de tâches",
           "region_sensors": "Capteur distinct par pièce et zone",
-          "map_rotation": "Rotation de la carte",
+          "map_rotation": "Faire pivoter l’image de la carte",
           "care_reminders": "Rappels de nettoyage",
           "pets_in_household": "Animaux dans le foyer"
         },
         "data_description": {
           "map_enabled": "Activer la carte de nettoyage en direct pour les robots avec détection de position (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Proposé uniquement pour les robots qui ne signalent pas eux-mêmes leur position. Interroge le robot environ une fois par seconde pendant le nettoyage pour tracer le trajet en direct. Désactivé : la carte affiche à la place la dernière mission terminée depuis le cloud iRobot, si l'accès au cloud est configuré.",
-          "live_path_turn": "Uniquement avec l’option ci-dessus. De combien le trajet de nettoyage est tourné pour se superposer à la carte des pièces. Automatique le lit dans la carte que le robot a lui-même enregistrée, y compris une rotation réglée dans l’application iRobot. Ne choisissez un angle que si le trajet est tourné par rapport à la carte des pièces, et joignez alors les diagnostics à un ticket pour que le réglage automatique puisse être corrigé pour votre robot.",
+          "live_path_turn": "Uniquement avec l’option ci-dessus. Fait pivoter le trajet de nettoyage par rapport au plan jusqu’à ce qu’il se superpose à ses pièces. La détection de la pièce utilise les mêmes positions pivotées : un mauvais angle donne donc aussi la mauvaise pièce. Ce n’est pas la même chose que « Faire pivoter l’image de la carte », qui fait pivoter toute l’image et ne déplace jamais le trajet par rapport aux pièces. Automatique prend la rotation dans la carte que le robot a enregistrée, y compris une rotation réglée dans l’application iRobot. Si le trajet traverse les murs ou passe à côté de ses pièces, essayez les angles : le trajet déjà dessiné pivote dès que vous enregistrez. Joignez ensuite les diagnostics à un ticket pour que le réglage automatique puisse être corrigé pour votre robot.",
           "map_size_px": "Taille du canevas de la carte en pixels (400–1200). Par défaut : 600.",
           "map_scale_mm_per_px": "Millimètres par pixel (5–30). Par défaut 10 = 6 m × 6 m à 600 px.",
           "floor_label": "Texte libre, par exemple Rez-de-chaussée. Regroupe les robots dans la vue de flotte.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Trace le contour des zones sans lavage sur l'image de la carte.",
           "enable_maintenance_list": "Affiche l'entretien à faire sous forme de liste de tâches.",
           "region_sensors": "Crée un capteur distinct pour chaque pièce et zone.",
-          "map_rotation": "Fait pivoter chaque image de carte dans le sens horaire. La carte n'a pas de nord : son haut est la direction du robot quand il quitte la base, elle dépend donc de l'orientation de la base.",
+          "map_rotation": "Fait pivoter chaque image de carte en entier dans le sens horaire, pièces et trajet ensemble, par exemple pour correspondre à l’application iRobot. Elle ne déplace jamais le trajet par rapport aux pièces : pour cela, utilisez « Aligner le trajet sur les pièces ». La carte n'a pas de nord : son haut est la direction du robot quand il quitte la base, elle dépend donc de l'orientation de la base.",
           "care_reminders": "Rappelle de nettoyer le filtre, les brosses, les roues, les capteurs de vide et les contacts de charge selon le calendrier d'entretien d'iRobot. Ajoute un capteur « prochain nettoyage » et des boutons « nettoyé ». Les rappels de remplacement fonctionnent sans cela.",
           "pets_in_household": "Rappelle de nettoyer le filtre et les brosses principales deux fois par semaine au lieu d'une, comme iRobot le recommande pour les foyers avec animaux. Uniquement avec les rappels de nettoyage activés."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "La pièce à passer n'est pas connue. Indiquez-la avec params: room (une pièce de cette mission)."
+    },
+    "prime_start_blocked": {
+      "message": "Non démarré : {reason}"
     }
   },
   "selector": {

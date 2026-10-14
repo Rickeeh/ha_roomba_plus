@@ -1135,7 +1135,7 @@ class TestTheServiceFieldOutranksTheSelect:
         text = pathlib.Path(
             "custom_components/roomba_plus/services.yaml"
         ).read_text()
-        block = text[text.index("cleaning_mode:"):][:600]
+        block = text[text.index("cleaning_mode:"):][:700]
 
         assert "Cleaning mode selector" in block
         assert "vacuum_then_mop" in block

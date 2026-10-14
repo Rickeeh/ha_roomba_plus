@@ -5065,6 +5065,61 @@ class TestRequestedPositionsOnTheCleaningMap:
         px, py = renderer._mm_to_px(x_mm, y_mm)
         assert px > 300 and py < 300, (px, py)
 
+    @staticmethod
+    def _square_aligner():
+        """One room, the square from (0, 0) to (1000, 1000) mm."""
+        from types import SimpleNamespace
+
+        def room_name_at(x, y):
+            return "Studio" if 0 <= x <= 1000 and 0 <= y <= 1000 else None
+
+        return SimpleNamespace(
+            room_polygons_umf={"1": [(0, 0), (1000, 0), (1000, 1000), (0, 1000)]},
+            room_name_at=room_name_at,
+        )
+
+    def test_every_turn_is_tried_and_counted(self):
+        """4.4.2, @Thonno and @manni-72: Automatic took a quarter turn
+        from the map's header that put the path beside the rooms. Each
+        position is tried at every angle of the setting, before the turn,
+        and the diagnostics count which angles put it in a room."""
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        m, _r, entry, _s = self._entity()
+        entry.runtime_data.umf_aligner = self._square_aligner()
+        entry.runtime_data.position_room = PositionRoomTracker()
+        m._last_phase = "run"
+        # (500, -500) as answered: in the room only once turned by 90.
+        m._handle_live_position(self._pos(0.5, -0.5))
+        assert entry.runtime_data.position_room.diagnostics()["in_room_by_turn"] == {
+            "positions": 1, "0": 0, "90": 1, "180": 0, "270": 0,
+        }
+
+    @pytest.mark.parametrize("phase", ["hmPostMsn", None])
+    def test_turns_are_tried_only_while_cleaning(self, phase):
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        m, _r, entry, _s = self._entity()
+        entry.runtime_data.umf_aligner = self._square_aligner()
+        entry.runtime_data.position_room = PositionRoomTracker()
+        m._last_phase = phase
+        m._handle_live_position(self._pos(0.5, 0.5))
+        assert entry.runtime_data.position_room.diagnostics()["in_room_by_turn"] is None
+
+    def test_without_rooms_no_turn_counts_as_outside(self):
+        """No floor plan is no evidence: nothing is counted rather than
+        "in no room" at every angle."""
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.position_room import in_room_by_turn
+
+        assert in_room_by_turn(SimpleNamespace(umf_aligner=None), 1.0, 1.0) is None
+        empty = SimpleNamespace(umf_aligner=SimpleNamespace(room_polygons_umf={}))
+        assert in_room_by_turn(empty, 1.0, 1.0) is None
+        assert in_room_by_turn(
+            SimpleNamespace(umf_aligner=self._square_aligner()), float("nan"), 1.0
+        ) is None
+
     def test_not_fed_to_the_learning_stores(self):
         """The requested frame is not confirmed against the cloud map; a
         wrong frame in GridStore would not wash out."""

@@ -198,7 +198,7 @@
         "data": {
           "map_enabled": "Activar mapa en tiempo real",
           "live_position_requests": "Preguntar al robot su posición",
-          "live_path_turn": "Giro del recorrido en directo",
+          "live_path_turn": "Alinear el recorrido con las habitaciones",
           "map_size_px": "Tamaño del mapa (píxeles)",
           "map_scale_mm_per_px": "Escala (mm/píxel)",
           "floor_label": "Planta (p. ej. Planta baja)",
@@ -211,14 +211,14 @@
           "map_nomop_zones": "Dibujar zonas sin fregado",
           "enable_maintenance_list": "Mostrar el mantenimiento como lista de tareas",
           "region_sensors": "Sensor propio por habitación y zona",
-          "map_rotation": "Rotación del mapa",
+          "map_rotation": "Girar la imagen del mapa",
           "care_reminders": "Recordatorios de limpieza",
           "pets_in_household": "Mascotas en casa"
         },
         "data_description": {
           "map_enabled": "Activar el mapa de limpieza en tiempo real para robots con detección de posición (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Solo se ofrece para robots que no informan de su posición por sí mismos. Pregunta al robot aproximadamente una vez por segundo durante la limpieza para dibujar el recorrido en directo. Desactivado: el mapa muestra en su lugar la última misión terminada desde la nube de iRobot, si el acceso a la nube está configurado.",
-          "live_path_turn": "Solo con la opción de arriba. Cuánto se gira el recorrido de limpieza para que coincida con el mapa de habitaciones. Automático lo lee del mapa que el propio robot guardó, incluido un giro ajustado en la app de iRobot. Elige un ángulo solo si el recorrido aparece girado respecto al mapa de habitaciones y, en ese caso, adjunta el diagnóstico a una incidencia para que el ajuste automático pueda corregirse para tu robot.",
+          "live_path_turn": "Solo con la opción de arriba. Gira el recorrido de limpieza respecto al plano hasta que quede sobre sus habitaciones. La detección de habitación usa las mismas posiciones giradas, así que un ángulo incorrecto también indica la habitación equivocada. No es lo mismo que «Girar la imagen del mapa», que gira la imagen entera y nunca mueve el recorrido respecto a las habitaciones. Automático toma el giro del mapa que guardó el robot, incluido un giro ajustado en la app de iRobot. Si el recorrido atraviesa paredes o queda junto a sus habitaciones, prueba los ángulos: el recorrido ya dibujado gira en cuanto guardas. Después adjunta el diagnóstico a una incidencia para que el ajuste automático pueda corregirse para tu robot.",
           "map_size_px": "Tamaño del lienzo del mapa en píxeles (400–1200). Predeterminado: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predeterminado 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto libre, por ejemplo Planta baja. Agrupa los robots en la vista de flota.",
@@ -231,7 +231,7 @@
           "map_nomop_zones": "Marca el contorno de las zonas sin fregado en la imagen del mapa.",
           "enable_maintenance_list": "Muestra el mantenimiento pendiente como lista de tareas.",
           "region_sensors": "Crea un sensor independiente para cada habitación y zona.",
-          "map_rotation": "Gira cada imagen del mapa en el sentido de las agujas del reloj. El mapa no tiene norte: arriba es hacia donde mira el robot al salir de la base, así que depende de cómo esté colocada la base.",
+          "map_rotation": "Gira cada imagen del mapa entera en el sentido de las agujas del reloj, habitaciones y recorrido juntos, por ejemplo para que coincida con la app de iRobot. Nunca mueve el recorrido respecto a las habitaciones; para eso está «Alinear el recorrido con las habitaciones». El mapa no tiene norte: arriba es hacia donde mira el robot al salir de la base, así que depende de cómo esté colocada la base.",
           "care_reminders": "Recuerda limpiar el filtro, los cepillos, las ruedas, los sensores de desnivel y los contactos de carga según el calendario de cuidado de iRobot. Añade un sensor «próxima limpieza» y botones «limpiado». Los recordatorios de sustitución funcionan sin esto.",
           "pets_in_household": "Recuerda limpiar el filtro y los cepillos principales dos veces por semana en lugar de una, como recomienda iRobot para hogares con mascotas. Solo con los recordatorios de limpieza activados."
         }
@@ -2334,6 +2334,9 @@
     },
     "skip_room_unknown": {
       "message": "No se sabe qué habitación saltar. Indícala con params: room (una habitación de esta misión)."
+    },
+    "prime_start_blocked": {
+      "message": "No se ha iniciado: {reason}"
     }
   },
   "selector": {

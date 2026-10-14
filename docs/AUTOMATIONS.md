@@ -276,8 +276,9 @@ that will be refused.
 There is a device trigger for it too, *Start blocked by a fault*, which fires
 when a block appears rather than being polled.
 
-**Nothing is prevented.** The command still goes out if you send it; this only
-lets you ask first.
+**Since 4.4.2 a start that the fault rules out is refused** (mopping
+without the plate, vacuuming with it fitted, anything off the floor), with
+the reason in the error. Docking, stopping and pausing always go out.
 
 ### Cleaning a room the way it is set up
 

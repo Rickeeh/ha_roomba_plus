@@ -47,6 +47,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CLEANING_MODES_PRIME,
+    cleaning_mode_select_unique_id,
     cleaning_modes_available,
     cleaning_modes_for,
 )
@@ -1088,7 +1089,9 @@ class PrimeCleaningModeSelect(IRobotEntity, RestoreEntity, SelectEntity):
             self, roomba=None, blid=blid, config_entry=config_entry
         )
         self._config_entry = config_entry
-        self._attr_unique_id = f"{self.robot_unique_id}_prime_cleaning_mode"
+        # The reader builds the same id (4.4.3): room_cleaning looked
+        # for another one for two years and never found this entity.
+        self._attr_unique_id = cleaning_mode_select_unique_id(blid)
         self._restored: str | None = None
         # THE TABLE FOR THIS ROBOT'S GENERATION, shadowing the
         # class-level Prime one. The two differ on "vacuum and mop":

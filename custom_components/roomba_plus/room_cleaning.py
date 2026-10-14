@@ -55,6 +55,7 @@ from .const import (
     CONF_SMART_ZONE_DATA,
     DOMAIN,
     MAP_UPDATING_NOT_READY,
+    cleaning_mode_select_unique_id,
     cleaning_modes_for,
     get_localized_error_entry,
     prime_start_refusal,
@@ -455,7 +456,7 @@ def _selected_cleaning_mode(config_entry: Any) -> int | None:
         return None
     try:
         registry = er.async_get(hass)
-        unique = f"{data.blid}_prime_cleaning_mode"
+        unique = cleaning_mode_select_unique_id(data.blid)
         entity_id = registry.async_get_entity_id("select", DOMAIN, unique)
         if entity_id is None:
             return None
@@ -695,7 +696,14 @@ class PrimeRoomCleaning(RoomCleaningBackend):
         mode. Unnamed rooms included -- the app lists room ids, not
         names -- which `available_rooms()`, keyed by name, cannot give.
         """
-        current = await self._current_map_id()
+        # A DOCKED PRIME ROBOT NAMES NO MAP (4.4.3): its status carries
+        # one only while it is localised, and its last command none. So
+        # the map it last named, else the account's only map. Two maps
+        # and no memory is no answer: the bare start goes out instead.
+        current, _live = await self.where_the_robot_is()
+        if not current:
+            maps = await self._all_map_ids()
+            current = maps[0] if len(maps) == 1 else None
         if not current:
             return []
         try:

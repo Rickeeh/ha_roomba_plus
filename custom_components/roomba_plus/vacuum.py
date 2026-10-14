@@ -1007,9 +1007,18 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             raise_if_prime_start_blocked(
                 getattr(self._config_entry, "runtime_data", None), [mode]
             )
-            if mode is not None and self._prime_cycle_is_idle():
-                if await self._prime_start_whole_home(mode):
+            if mode is not None:
+                idle = self._prime_cycle_is_idle()
+                if idle and await self._prime_start_whole_home(mode):
                     return
+                # SAY WHY THE MODE STAYED BEHIND (4.4.3): a bare start in
+                # a mopping mode looks exactly like the bug it replaced.
+                _LOGGER.info(
+                    "Roomba+: started without the cleaning mode (%s): %s",
+                    mode,
+                    "a mission is open, so it is resumed" if not idle
+                    else "the rooms of the robot's map are not known",
+                )
             await _send_confirmed(self._prime_robot, "start")
             return
         if self.activity == VacuumActivity.PAUSED:

@@ -9,6 +9,16 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.4.3 — from v4.4.2
+
+**The *Cleaning mode* selector now actually reaches the robot**: the
+Start button, and room or zone cleaning that names no mode of its own.
+Until now the selector was never read. If you set it once and forgot
+it, check what it shows before the next run, especially on a robot that
+mops. Nothing else to change.
+
+---
+
 ## v4.4.2 — from v4.4.1
 
 **The Start button now uses the *Cleaning mode* selector** on a robot

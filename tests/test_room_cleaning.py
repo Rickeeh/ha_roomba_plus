@@ -4070,12 +4070,29 @@ class TestPrimeWholeHomeRooms:
         assert await b.whole_home_room_ids() == ["m2/7", "m2/8"]
 
     @pytest.mark.asyncio
-    async def test_no_map_or_an_unreadable_one_gives_none(self):
+    async def test_an_unreadable_map_gives_none(self):
         b = _prime(versions=_vers("m1"), metadata={}, meta_error={"m1"})
-        b._current_map_id = AsyncMock(return_value=None)
-        assert await b.whole_home_room_ids() == []
         b._current_map_id = AsyncMock(return_value="m1")
         assert await b.whole_home_room_ids() == []
+
+    @pytest.mark.asyncio
+    async def test_a_docked_robot_uses_the_map_it_last_named_or_the_only_one(self):
+        """4.4.3: docked, a Prime robot names no map, and the Start
+        button sent the bare start. The remembered map, else the only
+        one; with two maps and no memory, nothing."""
+        meta = {m: SimpleNamespace(rooms_metadata=[_room("1", "Hall")]) for m in ("m1", "m2")}
+
+        only = _prime(versions=_vers("m1"), metadata=meta)
+        only._current_map_id = AsyncMock(return_value=None)
+        only._data.last_known_map_id = None
+        assert await only.whole_home_room_ids() == ["m1/1"]
+
+        two = _prime(versions=_vers("m1", "m2"), metadata=meta)
+        two._current_map_id = AsyncMock(return_value=None)
+        two._data.last_known_map_id = None
+        assert await two.whole_home_room_ids() == []
+        two._data.last_known_map_id = "m2"
+        assert await two.whole_home_room_ids() == ["m2/1"]
 
 
 class TestPrimeAvailableRooms:
@@ -4135,6 +4152,31 @@ class TestSelectedCleaningMode:
         monkeypatch.setattr(__import__("homeassistant.helpers.entity_registry", fromlist=["x"]), "async_get",
                             lambda _h: MagicMock(async_get_entity_id=lambda *a: "select.robbie_mode"))
         assert rc._selected_cleaning_mode(self._entry(hass, state=mode_name)) == mode_value
+
+    @pytest.mark.parametrize("connection", ["classic", "prime"])
+    def test_the_select_it_reads_is_the_one_registered(self, hass, connection):
+        """4.4.3, @homux-tech: Mop selected, Start pressed, the robot
+        vacuumed. The reader looked the select up under another unique
+        id than the one the select registers, since 4.0.0a37; the tests
+        mocked the registry and so never noticed. Real registry here,
+        real entity's id."""
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.roomba_plus.const import DOMAIN
+        from custom_components.roomba_plus.models import ConnectionType
+        from custom_components.roomba_plus.select_prime import PrimeCleaningModeSelect
+
+        entry = self._entry(hass)
+        entry.runtime_data.blid = "0123456789ABCDEF"
+        entry.runtime_data.connection_type = (
+            ConnectionType.CLOUD_ONLY if connection == "prime" else ConnectionType.LOCAL_PUSH
+        )
+        select = PrimeCleaningModeSelect("0123456789ABCDEF", entry)
+        er.async_get(hass).async_get_or_create(
+            "select", DOMAIN, select.unique_id, suggested_object_id="robbie_cleaning_mode",
+        )
+        hass.states.async_set("select.robbie_cleaning_mode", "mop")
+        assert rc._selected_cleaning_mode(entry) == 4
 
     @pytest.mark.parametrize(
         ("connection", "expected"),

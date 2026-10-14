@@ -735,6 +735,20 @@ CLEANING_MODES_CLASSIC: Final[dict[str, int]] = {
 }
 
 
+def cleaning_mode_select_unique_id(blid: str) -> str:
+    """The unique id of the *Cleaning mode* select (4.4.3).
+
+    ONE PLACE FOR BOTH SIDES. The select registered itself as
+    `roomba_plus_<blid>_prime_cleaning_mode` (IRobotEntity.robot_unique_id)
+    while the reader looked it up as `<blid>_prime_cleaning_mode` --
+    since 4.0.0a37. The lookup never found the entity, so the selector's
+    mode reached no command at all, on either generation: not a room,
+    not a zone, and in 4.4.2 not the Start button (@homux-tech, #214).
+    The tests mocked the registry and so agreed with whatever was asked.
+    """
+    return f"roomba_plus_{blid}_prime_cleaning_mode"
+
+
 def cleaning_modes_for(is_prime: bool) -> dict[str, int]:
     """The mode table for one generation.
 

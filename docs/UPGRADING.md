@@ -9,6 +9,27 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.4.4 — from v4.4.3
+
+**A new button, *Skip current room***, on Classic robots that offer
+skipping. It does what `vacuum.send_command` with `command: skip` has
+done since 4.3.7 and can be pressed only while the robot cleans. Nothing
+to change; hide it if you don't want it.
+
+**A Combo j7+ or j9+ set up cloud-only moves to the local connection**
+with one *Reconfigure*: enter its IP address, leave the password empty
+(it comes from your iRobot account). The entry and its settings stay;
+the old cloud-only entities stay behind as unavailable, remove them from
+the device page. Robots added from now on take the local path directly.
+
+**Adding a robot from an account that lists none now says why.** Until
+4.4.3 the setup ended with "every robot is already configured", also
+when nothing was. It now says whether the robot is registered to
+another iRobot account, or that the account returned no robots. Needs
+roombapy-prime 0.7.1, which Home Assistant installs with this version.
+
+---
+
 ## v4.4.3 — from v4.4.2
 
 **The *Cleaning mode* selector now actually reaches the robot**: the

@@ -39,6 +39,7 @@ def _account(expires_in: float | None = 3600.0) -> MagicMock:
     token = MagicMock()
     token.seconds_until_expiry.return_value = expires_in
     account.login_result.token_for_blid.return_value = token
+    account.login_result.conflicted_robots = ()
     account.relogin = AsyncMock()
     return account
 
@@ -481,6 +482,7 @@ class TestDiagnostics:
             "entries_sharing": 2,
             "login_age_s": 42,
             "robots_on_account": 2,
+            "ownership_conflicts_on_account": 0,
             "acquire_in_progress": 0,
             "recent_failure_reason": None,
             "recent_failure_age_s": None,
@@ -488,6 +490,19 @@ class TestDiagnostics:
         text = repr(diag)
         for secret in ("user@example.com", "hunter2", *hass_.data[DATA_KEY]):
             assert secret not in text
+
+    def test_the_conflict_is_a_count_never_an_id(self):
+        """4.4.4: robots the login names as another account's are
+        counted; an account built before roombapy-prime 0.7.1, or one
+        whose field is odd, says None rather than 0."""
+        from custom_components.roomba_plus.cloud_account import _conflict_count
+
+        account = _account()
+        account.login_result.conflicted_robots = ("0123456789ABCDEF",)
+        assert _conflict_count(account) == 1
+        account.login_result.conflicted_robots = ["0123456789ABCDEF"]
+        assert _conflict_count(account) is None
+        assert _conflict_count(None) is None
 
     def test_an_entry_without_a_share_says_so(self, hass_):
         from custom_components.roomba_plus.cloud_account import async_diagnostics

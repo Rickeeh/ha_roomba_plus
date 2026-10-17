@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -44,6 +45,9 @@ def _fake_account(robots: dict | None = None) -> MagicMock:
     login response lists `robots`."""
     account = MagicMock()
     account.login_result.raw = {"robots": robots if robots is not None else {}}
+    account.login_result.conflicted_robots = ()
+    account.login_result.conflicted_user_count = None
+    account.get_associated_robots_raw = AsyncMock(return_value=[])
     return account
 
 
@@ -1864,6 +1868,158 @@ class TestReconfigureStep:
         assert geschrieben["data"]["blid"] == "B1"
         assert geschrieben["data"]["host"] == "10.0.0.9"
 
+    # ── 4.4.4: a working local connection decides the path ─────────────────
+    #
+    # A Combo j9+ set up from the account while its SKU was unknown ran
+    # cloud-only. Reconfigure proved the local connection and kept
+    # `cloud_only`; and it asked for a robot password the account had
+    # carried all along.
+
+    _ACCOUNT_ENTRY = {
+        "connection_type": "cloud_only", "blid": "0123456789ABCDEF",
+        "irobot_username": "user@example.com", "irobot_password": "hunter2",
+    }
+    _ROBOT_PASSWORD = ":1:1234567890:RobotSecretValue"
+
+    def _saving_flow(self, monkeypatch, data, validate=None):
+        from unittest.mock import AsyncMock
+
+        from custom_components.roomba_plus import config_flow as cf
+
+        validate = validate or AsyncMock(return_value={})
+        monkeypatch.setattr(cf, "validate_input", validate)
+        flow = self._flow(data)
+        written: dict = {}
+        flow.hass.config_entries.async_update_entry = (
+            lambda entry, **kw: written.update(kw)
+        )
+        flow.hass.config_entries.async_reload = AsyncMock()
+        return flow, written, validate
+
+    def _account_with(self, robots):
+        account = MagicMock()
+        account.login_result.raw = {"robots": robots}
+        return account
+
+    @pytest.mark.asyncio
+    async def test_a_cloud_only_entry_moves_to_the_local_connection(self, monkeypatch):
+        flow, written, _v = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+
+        result = await flow.async_step_reconfigure(
+            {"host": "192.0.2.10", "password": self._ROBOT_PASSWORD}
+        )
+
+        assert result["reason"] == "reconfigure_successful"
+        data = written["data"]
+        assert data["connection_type"] == "local_push"
+        assert data["host"] == "192.0.2.10"
+        assert data["password"] == self._ROBOT_PASSWORD
+        # The entry keeps what it had: the robot and its account.
+        assert data["blid"] == "0123456789ABCDEF"
+        assert data["irobot_username"] == "user@example.com"
+        assert data["irobot_password"] == "hunter2"
+
+    @pytest.mark.asyncio
+    async def test_a_local_entry_gains_no_connection_type(self, monkeypatch):
+        flow, written, _v = self._saving_flow(
+            monkeypatch, {"host": "192.0.2.2", "blid": "B1", "password": "pw"}
+        )
+        await flow.async_step_reconfigure({"host": "192.0.2.9", "password": "pw"})
+        assert "connection_type" not in written["data"]
+
+    @pytest.mark.asyncio
+    async def test_a_failed_local_check_leaves_the_entry_cloud_only(self, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from custom_components.roomba_plus import config_flow as cf
+
+        flow, written, _v = self._saving_flow(
+            monkeypatch, self._ACCOUNT_ENTRY,
+            validate=AsyncMock(side_effect=cf.CannotConnect),
+        )
+        result = await flow.async_step_reconfigure({"host": "192.0.2.10", "password": "x"})
+        assert result["errors"] == {"base": "cannot_connect"}
+        assert written == {}
+
+    @pytest.mark.asyncio
+    async def test_an_empty_password_comes_from_the_login_the_entry_holds(self, monkeypatch, caplog):
+        from custom_components.roomba_plus import config_flow as cf
+
+        caplog.set_level(logging.DEBUG)
+        account = self._account_with(
+            {"0123456789ABCDEF": {"password": self._ROBOT_PASSWORD, "sku": "c975860"}}
+        )
+        monkeypatch.setattr(cf, "async_peek", lambda hass, u, p: account)
+        login = AsyncMock()
+        monkeypatch.setattr(cf, "_async_check_cloud_login", login)
+        flow, written, validate = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+
+        result = await flow.async_step_reconfigure({"host": "192.0.2.10", "password": ""})
+
+        assert result["reason"] == "reconfigure_successful"
+        assert validate.await_args.args[1]["password"] == self._ROBOT_PASSWORD
+        assert written["data"]["password"] == self._ROBOT_PASSWORD
+        assert written["data"]["connection_type"] == "local_push"
+        login.assert_not_awaited()
+        assert self._ROBOT_PASSWORD not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_without_a_held_login_it_logs_in_once(self, monkeypatch):
+        from custom_components.roomba_plus import config_flow as cf
+
+        account = self._account_with({"0123456789ABCDEF": {"password": self._ROBOT_PASSWORD}})
+        monkeypatch.setattr(cf, "async_peek", lambda hass, u, p: None)
+        login = AsyncMock(return_value=(account, None))
+        monkeypatch.setattr(cf, "_async_check_cloud_login", login)
+        flow, written, _v = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+
+        await flow.async_step_reconfigure({"host": "192.0.2.10"})
+
+        login.assert_awaited_once()
+        assert login.await_args.args[1:] == ("user@example.com", "hunter2")
+        assert written["data"]["password"] == self._ROBOT_PASSWORD
+
+    @pytest.mark.asyncio
+    async def test_an_entry_without_an_account_asks_for_the_password(self, monkeypatch):
+        flow, written, validate = self._saving_flow(
+            monkeypatch, {"host": "192.0.2.2", "blid": "B1", "password": "pw"}
+        )
+        result = await flow.async_step_reconfigure({"host": "192.0.2.9", "password": ""})
+        assert result["errors"] == {"base": "robot_password_needed"}
+        validate.assert_not_awaited()
+        assert written == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("robots", [{}, {"0123456789ABCDEF": {"sku": "c975860"}},
+                                        {"0123456789ABCDEF": {"password": ""}}])
+    async def test_an_account_without_the_password_says_so(self, monkeypatch, robots):
+        from custom_components.roomba_plus import config_flow as cf
+
+        account = self._account_with(robots)
+        monkeypatch.setattr(cf, "async_peek", lambda hass, u, p: account)
+        monkeypatch.setattr(cf, "_async_check_cloud_login", AsyncMock(return_value=(account, None)))
+        flow, written, validate = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+
+        result = await flow.async_step_reconfigure({"host": "192.0.2.10", "password": ""})
+
+        assert result["errors"] == {"base": "robot_password_not_in_account"}
+        validate.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_login_shows_its_own_error(self, monkeypatch):
+        from custom_components.roomba_plus import config_flow as cf
+
+        monkeypatch.setattr(cf, "async_peek", lambda hass, u, p: None)
+        monkeypatch.setattr(
+            cf, "_async_check_cloud_login", AsyncMock(return_value=(None, "cloud_account_locked"))
+        )
+        flow, written, validate = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+
+        result = await flow.async_step_reconfigure({"host": "192.0.2.10", "password": ""})
+
+        assert result["errors"] == {"base": "cloud_account_locked"}
+        validate.assert_not_awaited()
+
 
 class TestDiscoverRoombas:
     """`_async_discover_roombas` — the search that populates the picker.
@@ -2901,7 +3057,7 @@ class TestAsyncStepPrimeAccount:
                     CONF_IROBOT_PASSWORD: "hunter2",
                 })
         assert flow._prime_account_robots == {}
-        assert result["reason"] == "no_new_robots_found"
+        assert result["reason"] == "no_robots_on_account"
 
     @pytest.mark.parametrize("name,key", [
         ("AuthCredentialsError", "cloud_credentials_rejected"),
@@ -2956,13 +3112,88 @@ class TestAsyncStepPrimeAccount:
 @pytest.mark.usefixtures('_mock_clientsession')
 class TestAsyncStepPrimeRobotPicker:
     @pytest.mark.asyncio
-    async def test_aborts_when_no_new_robots(self):
+    async def test_aborts_when_every_robot_is_configured(self):
         flow = _make_flow()
-        flow._prime_account_robots = {}
-        with patch.object(flow, "_async_current_ids", return_value=set()):
+        flow._prime_account_robots = {"BLID1": {"sku": "G185020", "name": "Combo"}}
+        with patch.object(flow, "_async_current_ids", return_value={"BLID1"}):
             result = await flow.async_step_prime_robot_picker()
         assert result["type"] == "abort"
         assert result["reason"] == "no_new_robots_found"
+
+    # ── A login with no robots says why (4.4.4, #218) ──────────────────────
+    #
+    # "Every robot is already configured" answered an empty login too:
+    # @jstride had nothing set up at all.
+
+    async def _picker_with(self, account):
+        flow = _make_flow()
+        flow._prime_account_robots = {}
+        flow._prime_account = account
+        with patch.object(flow, "_async_current_ids", return_value=set()):
+            return await flow.async_step_prime_robot_picker()
+
+    @pytest.mark.asyncio
+    async def test_an_empty_login_is_not_every_robot_configured(self):
+        result = await self._picker_with(_fake_account())
+        assert result["type"] == "abort"
+        assert result["reason"] == "no_robots_on_account"
+
+    @pytest.mark.asyncio
+    async def test_no_login_at_all_is_no_robots(self):
+        result = await self._picker_with(None)
+        assert result["reason"] == "no_robots_on_account"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("robots, users", [(("0123456789ABCDEF",), None), ((), 1)])
+    async def test_a_conflict_in_the_login_names_the_other_account(self, robots, users, caplog):
+        account = _fake_account()
+        account.login_result.conflicted_robots = robots
+        account.login_result.conflicted_user_count = users
+        caplog.set_level(logging.DEBUG, logger="custom_components.roomba_plus.config_flow")
+
+        result = await self._picker_with(account)
+
+        assert result["reason"] == "robots_owned_by_other_account"
+        account.get_associated_robots_raw.assert_not_awaited()
+        assert "0123456789ABCDEF" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_robots_on_the_device_list_but_not_in_the_login(self):
+        account = _fake_account()
+        account.get_associated_robots_raw.return_value = [{"robot_id": "0123456789ABCDEF"}]
+        result = await self._picker_with(account)
+        assert result["reason"] == "robots_not_in_login"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("answer", [{"message": "odd"}, []])
+    async def test_a_device_list_that_says_nothing_is_no_robots(self, answer):
+        account = _fake_account()
+        account.get_associated_robots_raw.return_value = answer
+        result = await self._picker_with(account)
+        assert result["reason"] == "no_robots_on_account"
+
+    @pytest.mark.asyncio
+    async def test_a_failing_device_list_falls_back_to_the_login(self):
+        from roombapy_prime import RestHTTPError
+
+        account = _fake_account()
+        account.get_associated_robots_raw.side_effect = RestHTTPError("Forbidden", 403)
+        result = await self._picker_with(account)
+        assert result["reason"] == "no_robots_on_account"
+
+    @pytest.mark.parametrize(
+        "key", ["no_robots_on_account", "robots_owned_by_other_account", "robots_not_in_login"],
+    )
+    def test_every_reason_has_its_text_in_every_language(self, key):
+        import json
+        import pathlib
+
+        base = pathlib.Path(__file__).parent.parent / "custom_components" / "roomba_plus"
+        files = [base / "strings.json", *sorted((base / "translations").glob("*.json"))]
+        assert len(files) == 9
+        for path in files:
+            text = json.loads(path.read_text())["config"]["abort"][key]
+            assert text.strip(), path.name
 
     @pytest.mark.asyncio
     async def test_filters_already_configured_blids(self):
@@ -3273,7 +3504,9 @@ class TestLocalDiscoveryFiltersOnPositiveClassicMatch:
         """Every Classic robot in this project's field-test fleet. If any
         of these stops matching, real users lose local setup."""
         for sku in ("i755840", "i755640", "i857640", "i355640",
-                    "R980040", "S955840", "m613840"):
+                    "R980040", "S955840", "m613840",
+                    # 4.4.4 (roombapy-prime 0.7.1): the Combo j-series
+                    "c755020", "c975860"):
             assert self._visible(sku), f"{sku} would no longer be offered locally"
 
     def test_prime_robots_are_not_offered(self):
@@ -3766,6 +3999,9 @@ class TestAnUnknownSkuTakesThePrimePath:
         assert _goes_to_prime("G185020") is True
         assert _goes_to_prime("R980020") is False
         assert _goes_to_prime("i755840") is False
+        # 4.4.4: a Combo j9+ added from the account was set up cloud-only.
+        assert _goes_to_prime("c975860") is False
+        assert _goes_to_prime("c755020") is False
 
     @pytest.mark.parametrize("sku", [UNKNOWN_SKU, None])
     @pytest.mark.asyncio

@@ -389,6 +389,10 @@ async def async_setup_entry(
     if state.get("lastCommand"):
         entities.append(RepeatLastMissionButton(roomba, blid, config_entry))
 
+    # Skip the current room (4.4.4, #178): where the robot offers it.
+    if robot_offers_skip(state):
+        entities.append(SkipRoomButton(roomba, blid, config_entry))
+
     # Smart zone button: for Smart Map robots (i/s/j/m-series)
     from .const import has_smart_map
     if has_smart_map(state):
@@ -989,6 +993,67 @@ class RepeatLastMissionButton(IRobotEntity, ButtonEntity):
 
     def new_state_filter(self, new_state: dict[str, Any]) -> bool:
         return "lastCommand" in new_state
+
+
+def robot_offers_skip(state: dict[str, Any]) -> bool:
+    """Whether the robot offers skipping a room: `cap.mc` 2 or 3, the
+    check the iRobot app makes (claude/APK_SKIP_RECHERCHE.md, F2)."""
+    cap = state.get("cap")
+    return isinstance(cap, dict) and cap.get("mc") in (2, 3)
+
+
+class SkipRoomButton(IRobotEntity, ButtonEntity):
+    """Button: skip the room the robot is cleaning (4.4.4, #178).
+
+    THE COMMAND'S OWN PATH, NOT A COPY OF IT. Pressing it is
+    `vacuum.send_command` with `command: skip`: the vacuum entity builds
+    what the iRobot app sends, refuses with the reason where the app
+    would not offer it, sends the last room home instead, moves room
+    tracking on and keeps the attempt in the diagnostics. A second
+    implementation here would drift from that one -- the skip took three
+    releases and two robots to get right (4.3.4 to 4.4.1).
+
+    Classic only. Prime takes the plain `skip` its app sends, but no
+    Prime robot has been seen taking it yet.
+
+    Available only while the robot cleans (phase `run`), as the app's
+    skip is greyed out otherwise.
+    """
+    _live_state = True   # sends a command to the robot; unavailable when it cannot be reached
+
+    _attr_translation_key = "skip_room"
+    _attr_entity_category = None   # a mission control, beside Repeat last mission
+
+    def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
+        super().__init__(roomba, blid)
+        self._attr_unique_id = f"{self.robot_unique_id}_skip_room"
+        self._config_entry = config_entry
+
+    @property
+    def available(self) -> bool:
+        if not super().available:
+            return False
+        status = self.vacuum_state.get("cleanMissionStatus") or {}
+        return status.get("phase") == "run"
+
+    async def async_press(self) -> None:
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+        vacuum_id = er.async_get(self.hass).async_get_entity_id(
+            "vacuum", DOMAIN, self.robot_unique_id
+        )
+        if vacuum_id is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="skip_not_supported",
+            )
+        await self.hass.services.async_call(
+            "vacuum", "send_command",
+            {"entity_id": vacuum_id, "command": "skip"},
+            blocking=True,
+        )
+
+    def new_state_filter(self, new_state: dict[str, Any]) -> bool:
+        return "cleanMissionStatus" in new_state
 
 
 def pick_zone_selection(candidates: list[Any]) -> Any | None:

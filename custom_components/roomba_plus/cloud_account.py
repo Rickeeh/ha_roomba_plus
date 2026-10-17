@@ -349,6 +349,7 @@ def async_diagnostics(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
             "entries_sharing": len(slot.entries),
             "login_age_s": round(now - slot.login_at) if slot.login_at else None,
             "robots_on_account": robots,
+            "ownership_conflicts_on_account": _conflict_count(slot.account),
             "acquire_in_progress": slot.busy,
             "recent_failure_reason": str(failure.reason) if failure is not None else None,
             "recent_failure_age_s": round(now - slot.failed_at) if failure is not None else None,
@@ -361,6 +362,15 @@ def _robot_count(account: CloudAccount | None) -> int | None:
         return None
     robots: Any = account.login_result.raw.get("robots")
     return len(robots) if isinstance(robots, dict) else None
+
+
+def _conflict_count(account: CloudAccount | None) -> int | None:
+    """How many robots the login names as owned by another account
+    (4.4.4, roombapy-prime 0.7.1) -- a count, never the ids."""
+    if account is None:
+        return None
+    conflicted: Any = getattr(account.login_result, "conflicted_robots", ())
+    return len(conflicted) if isinstance(conflicted, tuple) else None
 
 
 def _log_login(account: CloudAccount) -> None:

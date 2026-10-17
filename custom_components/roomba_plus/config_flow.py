@@ -32,7 +32,7 @@ try:
 except ImportError as _exc:  # pragma: no cover - depends on environment
     RoombaClient = RoombaInfo = RoombaDiscovery = RoombaPassword = None  # type: ignore[assignment,misc]
     ROOMBAPY_IMPORT_ERROR = str(_exc)
-from roombapy_prime import CloudAccount, CloudError
+from roombapy_prime import CloudAccount, CloudError, count_associated_robots
 import voluptuous as vol
 from homeassistant.helpers.selector import (
     EntitySelector as SelectorEntitySelector,
@@ -223,6 +223,51 @@ def _robots_of(account: CloudAccount | None) -> dict[str, Any]:
         return {}
     robots = account.login_result.raw.get("robots")
     return robots if isinstance(robots, dict) else {}
+
+
+async def _async_why_no_robots(account: CloudAccount | None) -> str:
+    """The abort reason for a login that listed no robots (4.4.4).
+
+    "Every robot is already configured" was the answer to this too, and
+    it was wrong: @jstride (#218) had no robot set up at all. Three
+    causes, in the order the evidence is firm:
+
+    - `robots_owned_by_other_account`: the login itself names robots
+      registered to another iRobot account (`conflicted_robots`,
+      `conflicted_user_count`; the Classic app reads both). A
+      second-hand robot still on its previous owner's account is the
+      known case (roombapy-prime #93).
+    - `robots_not_in_login`: the Prime app's device list
+      (`/v1/user/associations/robots`) has robots the login left out.
+      Nothing to connect to: the login carries each robot's deployment
+      and password. Not seen on a real account yet.
+    - `no_robots_on_account`: neither says otherwise.
+
+    Counts go to the debug log, never robot ids. The device-list call is
+    best effort: if it fails, the answer is what the login alone says."""
+    if account is None:
+        return "no_robots_on_account"
+    result = account.login_result
+    conflicted = getattr(result, "conflicted_robots", ())
+    conflicted_count = len(conflicted) if isinstance(conflicted, tuple) else 0
+    users = getattr(result, "conflicted_user_count", None)
+    users_count = users if isinstance(users, int) and not isinstance(users, bool) else 0
+    associated: int | None = None
+    if not (conflicted_count or users_count > 0):
+        try:
+            associated = count_associated_robots(await account.get_associated_robots_raw())
+        except CloudError as exc:
+            _LOGGER.debug("iRobot cloud: device list not available: %s", exc.reason)
+    _LOGGER.debug(
+        "iRobot cloud: the login listed no robots -- conflicted robots %d, "
+        "other accounts %d, device list %s",
+        conflicted_count, users_count, "unknown" if associated is None else associated,
+    )
+    if conflicted_count or users_count > 0:
+        return "robots_owned_by_other_account"
+    if associated:
+        return "robots_not_in_login"
+    return "no_robots_on_account"
 
 
 #: The two fixed choices of the known_account step, next to the accounts.
@@ -903,6 +948,10 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
             if blid not in already_configured
         }
 
+        if not self._prime_account_robots:
+            return self.async_abort(
+                reason=await _async_why_no_robots(self._prime_account)
+            )
         if not candidates:
             return self.async_abort(reason="no_new_robots_found")
 
@@ -1482,24 +1531,41 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             new_host     = user_input[CONF_HOST].strip()
-            new_password = user_input[CONF_PASSWORD].strip()
-
-            config = {
-                **current.data,
-                CONF_HOST:     new_host,
-                CONF_PASSWORD: new_password,
-                **DEFAULT_OPTIONS,
-            }
-            try:
-                await validate_input(self.hass, config)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
+            new_password = str(user_input.get(CONF_PASSWORD) or "").strip()
+            if not new_password:
+                fetched, error = await self._async_robot_password_from_account(current)
+                if fetched is None:
+                    errors["base"] = error or "cloud_unknown"
+                else:
+                    new_password = fetched
 
             if not errors:
-                self.hass.config_entries.async_update_entry(
-                    current,
-                    data={**current.data, CONF_HOST: new_host, CONF_PASSWORD: new_password},
-                )
+                config = {
+                    **current.data,
+                    CONF_HOST:     new_host,
+                    CONF_PASSWORD: new_password,
+                    **DEFAULT_OPTIONS,
+                }
+                try:
+                    await validate_input(self.hass, config)
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+
+            if not errors:
+                data = {**current.data, CONF_HOST: new_host, CONF_PASSWORD: new_password}
+                # A WORKING LOCAL CONNECTION DECIDES THE PATH (4.4.4). A
+                # cloud-only entry kept `cloud_only` here, so the robot
+                # stayed on the Prime backend with a local connection
+                # that had just been proven to work (a Combo j9+ set up
+                # cloud-only while its SKU was unknown). A Prime robot
+                # has no local connection and never gets this far.
+                if current.data.get(CONF_CONNECTION_TYPE) == ConnectionType.CLOUD_ONLY.value:
+                    data[CONF_CONNECTION_TYPE] = ConnectionType.LOCAL_PUSH.value
+                    _LOGGER.info(
+                        "Roomba+: the local connection works, this robot now "
+                        "uses it instead of the cloud-only path"
+                    )
+                self.hass.config_entries.async_update_entry(current, data=data)
                 await self.hass.config_entries.async_reload(current.entry_id)
                 return self.async_abort(reason="reconfigure_successful")
 
@@ -1507,13 +1573,42 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=vol.Schema({
                 vol.Required(CONF_HOST, default=current.data.get(CONF_HOST, "")): str,
-                vol.Required(CONF_PASSWORD, default=""): str,
+                vol.Optional(CONF_PASSWORD, default=""): str,
             }),
             errors=errors,
             description_placeholders={
                 "name": current.data.get(CONF_BLID, ""),
             },
         )
+
+    async def _async_robot_password_from_account(
+        self, entry: RoombaConfigEntry
+    ) -> tuple[str | None, str | None]:
+        """The robot's local password from the entry's iRobot account,
+        or the form error that says why not (4.4.4).
+
+        Reconfigure asked for it by hand. An entry set up from the
+        account never showed it, and retrieving it means the HOME-button
+        routine -- while the login has carried it all along, which is
+        where async_step_prime_classic_ip() takes it from too. The login
+        the entry already holds is used when it lists the robot; only
+        otherwise is there a new one. The password is never logged."""
+        username = entry.data.get(CONF_IROBOT_USERNAME)
+        password = entry.data.get(CONF_IROBOT_PASSWORD)
+        blid = str(entry.data.get(CONF_BLID) or "")
+        if not (isinstance(username, str) and isinstance(password, str)
+                and username and password):
+            return None, "robot_password_needed"
+        account: CloudAccount | None = async_peek(self.hass, username, password)
+        if account is None or blid not in _robots_of(account):
+            account, error = await self._async_login(username, password)
+            if account is None:
+                return None, error
+        info = _robots_of(account).get(blid)
+        robot_password = info.get("password") if isinstance(info, dict) else None
+        if not isinstance(robot_password, str) or not robot_password:
+            return None, "robot_password_not_in_account"
+        return robot_password, None
 
     # ── Reauth flow (v3.5.0) ───────────────────────────────────────────────────
     #

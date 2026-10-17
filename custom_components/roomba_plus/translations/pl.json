@@ -65,7 +65,7 @@
         },
         "data_description": {
           "host": "Lokalny adres IP robota Roomba.",
-          "password": "Hasło robota (przytrzymaj przycisk HOME, aby je pobrać)."
+          "password": "Lokalne hasło robota. Zostaw puste, aby pobrać je z konta iRobot (roboty skonfigurowane z kontem)."
         }
       },
       "reauth_confirm": {
@@ -147,7 +147,9 @@
       "cloud_server_error": "Chmura iRobot ma własny problem. Problem leży po stronie iRobot i zwykle jest przejściowy; spróbuj ponownie później.",
       "cloud_response_malformed": "Chmura iRobot wysłała odpowiedź, której nie udało się odczytać. Jeśli problem się powtarza, zgłoś go, dołączając plik diagnostyczny.",
       "cloud_unknown": "Chmura iRobot zgłosiła błąd o nieznanej przyczynie.",
-      "account_password_refused": "Robot nie zaakceptował hasła z Twojego konta iRobot, więc trzeba je pobrać bezpośrednio z robota."
+      "account_password_refused": "Robot nie zaakceptował hasła z Twojego konta iRobot, więc trzeba je pobrać bezpośrednio z robota.",
+      "robot_password_needed": "Ten wpis nie ma konta iRobot, z którego można pobrać hasło robota. Wpisz je lub przytrzymaj przycisk HOME na robocie, aby je odczytać.",
+      "robot_password_not_in_account": "Konto iRobot nie zwróciło hasła dla tego robota. Wpisz je ręcznie."
     },
     "abort": {
       "already_configured": "Ten robot jest już skonfigurowany.",
@@ -156,6 +158,9 @@
       "cannot_connect": "Nie można połączyć się z robotem pod podanym adresem.",
       "reconfigure_successful": "Ustawienia połączenia zostały pomyślnie zaktualizowane.",
       "no_new_robots_found": "Nie znaleziono nowych robotów na tym koncie iRobot — wszystkie roboty są już skonfigurowane.",
+      "no_robots_on_account": "Chmura iRobot nie zwróciła żadnych robotów dla tego konta. Sprawdź, czy to konto, do którego robot został dodany w aplikacji iRobot. Robot z drugiej ręki może być nadal zarejestrowany na koncie poprzedniego właściciela.",
+      "robots_owned_by_other_account": "Konto iRobot nie zwróciło żadnych robotów: chmura iRobot zgłasza, że robot jest zarejestrowany na innym koncie iRobot. Zdarza się to w przypadku robota z drugiej ręki, który nadal jest na koncie poprzedniego właściciela. Usuń robota z tamtego konta w aplikacji iRobot (lub poproś o to właściciela), dodaj go do swojego i spróbuj ponownie.",
+      "robots_not_in_login": "Chmura iRobot ma roboty dla tego konta, ale logowanie nie zwróciło żadnego, więc nie ma z czym się połączyć. Nie widziano tego wcześniej — otwórz zgłoszenie na GitHubie i dołącz log debugowania z tej próby.",
       "prime_classic_password_missing": "Hasło tego robota nie zostało uwzględnione w odpowiedzi konta iRobot. Spróbuj zamiast tego dodać go ręcznie.",
       "demand_cleaning_not_supported": "Ten robot nie zgłasza danych wykrywania zabrudzeń wymaganych do sprzątania na żądanie.",
       "integration_not_loaded": "Integracja nie jest załadowana. Uruchom ponownie Home Assistant i spróbuj jeszcze raz.",
@@ -1480,6 +1485,9 @@
       },
       "repeat_mission": {
         "name": "Powtórz ostatnią misję"
+      },
+      "skip_room": {
+        "name": "Pomiń bieżące pomieszczenie"
       },
       "clean_smart_zone": {
         "name": "Sprzątaj strefę (Smart Map)"

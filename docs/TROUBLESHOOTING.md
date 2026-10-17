@@ -228,6 +228,48 @@ All robots on one iRobot account share one cloud login since 4.3, so a failed lo
 
 ---
 
+**A Classic robot was set up cloud-only**
+
+Until 4.4.3 a Combo j7+ or j9+ added from the iRobot account was set up
+as a cloud-only robot: their SKUs were not in the Classic table, and an
+unknown model takes the Prime path. Since 4.4.4 both are known. To move
+one that already exists: open its entry, choose **Reconfigure**, enter
+the robot's IP address and leave the password empty. Roomba+ takes the
+password from your iRobot account, checks the local connection and
+switches the entry to it. The entry, its options and its account stay.
+The entities of the cloud-only setup stay behind as unavailable; remove
+them from the device page.
+
+The same works for any Classic robot that ended up cloud-only. A Prime
+robot has no local connection, so for it the check fails and nothing
+changes.
+
+---
+
+**The iRobot account lists no robots**
+
+The login works, but the setup ends without a robot to pick. Since 4.4.4
+the message says which case it is:
+
+- **The robot is registered to another iRobot account.** Usual with a
+  second-hand robot that the previous owner never removed. Remove it from
+  that account in the iRobot app (or ask the previous owner to), add it
+  to your own account, and run the setup again. Do not retry the setup
+  over and over in the meantime: every attempt is a login, and nothing
+  changes until the robot is moved.
+- **The account returned no robots.** Check that you signed in with the
+  account the robot was added to in the iRobot app. The country is an
+  unlikely cause: every country checked so far reaches the same iRobot
+  servers.
+- **The cloud lists robots the login did not return.** Not seen on a
+  real account yet. Please open an issue with a debug log of the setup
+  attempt; it contains only counts, no robot ids.
+
+"Every robot is already configured" means exactly that: each robot of
+the account already has its entry here.
+
+---
+
 **Cloud mission history not available for my Roomba 980**
 
 Go to Settings → Roomba+ → Configure → iRobot cloud credentials, re-save your credentials, then restart HA.

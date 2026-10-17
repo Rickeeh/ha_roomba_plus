@@ -65,7 +65,7 @@
         },
         "data_description": {
           "host": "L'adresse IP locale du Roomba.",
-          "password": "Le mot de passe du robot (maintenez le bouton HOME pour l'obtenir)."
+          "password": "Le mot de passe local du robot. Laissez vide pour le reprendre de votre compte iRobot (robots configurés avec un compte)."
         }
       },
       "reauth_confirm": {
@@ -147,7 +147,9 @@
       "cloud_server_error": "Le cloud iRobot rencontre un problème qui lui est propre. Le problème vient d'iRobot et est généralement temporaire ; réessayez plus tard.",
       "cloud_response_malformed": "Le cloud iRobot a envoyé une réponse illisible. Si cela persiste, signalez-le avec un téléchargement des diagnostics.",
       "cloud_unknown": "Le cloud iRobot a signalé une erreur de cause inconnue.",
-      "account_password_refused": "Le robot n'a pas accepté le mot de passe de votre compte iRobot ; il doit donc être récupéré sur le robot lui-même."
+      "account_password_refused": "Le robot n'a pas accepté le mot de passe de votre compte iRobot ; il doit donc être récupéré sur le robot lui-même.",
+      "robot_password_needed": "Cette entrée n'a pas de compte iRobot d'où reprendre le mot de passe du robot. Saisissez-le, ou maintenez le bouton HOME du robot pour le récupérer.",
+      "robot_password_not_in_account": "Votre compte iRobot n'a pas renvoyé de mot de passe pour ce robot. Saisissez-le à la main."
     },
     "abort": {
       "already_configured": "Ce robot est déjà configuré.",
@@ -156,6 +158,9 @@
       "cannot_connect": "Impossible d'atteindre le robot à l'adresse spécifiée.",
       "reconfigure_successful": "Paramètres de connexion mis à jour.",
       "no_new_robots_found": "Aucun nouveau robot trouvé sur ce compte iRobot — tous les robots sont déjà configurés.",
+      "no_robots_on_account": "Le cloud iRobot n'a renvoyé aucun robot pour ce compte. Vérifiez qu'il s'agit du compte auquel le robot a été ajouté dans l'app iRobot. Un robot d'occasion peut encore être enregistré sur le compte de son ancien propriétaire.",
+      "robots_owned_by_other_account": "Le compte iRobot n'a renvoyé aucun robot : le cloud iRobot indique qu'un robot est enregistré sur un autre compte iRobot. Cela arrive avec un robot d'occasion encore rattaché au compte de son ancien propriétaire. Retirez le robot de ce compte dans l'app iRobot (ou demandez-le à son propriétaire), ajoutez-le au vôtre, puis réessayez.",
+      "robots_not_in_login": "Le cloud iRobot connaît des robots pour ce compte, mais sa connexion n'en a renvoyé aucun : il n'y a donc rien à connecter. Ce cas n'a encore jamais été observé — ouvrez un ticket sur GitHub et joignez un journal de débogage de cette tentative.",
       "prime_classic_password_missing": "Le mot de passe de ce robot n'était pas inclus dans la réponse du compte iRobot. Essayez plutôt de l'ajouter manuellement.",
       "demand_cleaning_not_supported": "Ce robot ne transmet pas les données de détection de saleté nécessaires au nettoyage à la demande.",
       "integration_not_loaded": "L'intégration n'est pas chargée. Redémarrez Home Assistant et réessayez.",
@@ -1480,6 +1485,9 @@
       },
       "repeat_mission": {
         "name": "Répéter la dernière mission"
+      },
+      "skip_room": {
+        "name": "Passer la pièce en cours"
       },
       "clean_smart_zone": {
         "name": "Nettoyer une zone (Smart Map)"

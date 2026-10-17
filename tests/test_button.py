@@ -700,6 +700,70 @@ class TestRepeatLastMission:
         b.vacuum.send_command.assert_not_awaited()
 
 
+class TestSkipRoomButton:
+    """The skip button (4.4.4, #178) is the command, not a copy of it."""
+
+    def _button(self, reported):
+        roomba = _make_roomba()
+        roomba.master_state = {"state": {"reported": reported}}
+        return btn.SkipRoomButton(roomba, "test_blid", _make_config_entry())
+
+    @pytest.mark.parametrize("cap,offered", [
+        ({"mc": 2}, True), ({"mc": 3}, True), ({"mc": 1}, False), ({"mc": 0}, False),
+        ({}, False), (None, False),
+    ])
+    def test_only_a_robot_that_offers_skip_gets_the_button(self, cap, offered):
+        state = {} if cap is None else {"cap": cap}
+        assert btn.robot_offers_skip(state) is offered
+
+    @pytest.mark.parametrize("phase,available", [
+        ("run", True), ("charge", False), ("stop", False), ("hmUsrDock", False), (None, False),
+    ])
+    def test_it_can_be_pressed_only_while_the_robot_cleans(self, phase, available, monkeypatch):
+        button = self._button({"cleanMissionStatus": {"phase": phase}})
+        monkeypatch.setattr("custom_components.roomba_plus.entity.is_locally_available",
+                            lambda _blid: True)
+        assert button.available is available
+
+    @pytest.mark.asyncio
+    async def test_pressing_it_sends_skip_through_the_vacuum(self, hass):
+        """Through the vacuum entity's own path, which builds what the
+        app sends, refuses with the reason and records the attempt."""
+        button = self._button({"cleanMissionStatus": {"phase": "run"}})
+        button.hass = hass
+        er.async_get(hass).async_get_or_create(
+            "vacuum", DOMAIN, button.robot_unique_id, suggested_object_id="robot",
+        )
+        calls = []
+
+        async def send_command(call):
+            calls.append(dict(call.data))
+
+        hass.services.async_register("vacuum", "send_command", send_command)
+
+        await button.async_press()
+
+        assert calls == [{"entity_id": "vacuum.robot", "command": "skip"}]
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_reaches_whoever_pressed_it(self, hass):
+        button = self._button({"cleanMissionStatus": {"phase": "run"}})
+        button.hass = hass
+        er.async_get(hass).async_get_or_create(
+            "vacuum", DOMAIN, button.robot_unique_id, suggested_object_id="robot",
+        )
+
+        async def refuse(_call):
+            raise ServiceValidationError(translation_domain=DOMAIN,
+                                         translation_key="skip_room_unknown")
+
+        hass.services.async_register("vacuum", "send_command", refuse)
+
+        with pytest.raises(ServiceValidationError) as exc_info:
+            await button.async_press()
+        assert exc_info.value.translation_key == "skip_room_unknown"
+
+
 class TestClassicButtonSetup:
 
     @pytest.mark.asyncio
@@ -727,6 +791,14 @@ class TestClassicButtonSetup:
         names = [type(e).__name__ for e in added]
         assert "RepeatLastMissionButton" in names and "SmartZoneButton" in names
         assert names.count("FavoriteButton") == 1
+        # No `cap.mc` in this state: the robot does not offer skipping.
+        assert "SkipRoomButton" not in names
+
+        state["cap"]["mc"] = 2
+        added.clear()
+        await btn.async_setup_entry(hass, entry, lambda ents, *a, **k: added.extend(ents))
+        await hass.async_block_till_done()
+        assert [type(e).__name__ for e in added].count("SkipRoomButton") == 1
 
 
 class TestPrimeFavouriteSync:

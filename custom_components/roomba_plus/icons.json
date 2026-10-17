@@ -471,6 +471,9 @@
       "repeat_mission": {
         "default": "mdi:repeat"
       },
+      "skip_room": {
+        "default": "mdi:skip-next"
+      },
       "clean_smart_zone": {
         "default": "mdi:map-marker-check-outline"
       },

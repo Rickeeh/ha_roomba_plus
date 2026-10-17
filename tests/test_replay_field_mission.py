@@ -142,8 +142,9 @@ def mission(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
         hass.loop.close()
 
     meldungen = [r.getMessage() for r in caplog.records]
+    stufen = {r.getMessage(): r.levelno for r in caplog.records}
     return {"raum_nach": raum_nach, "aufgezeichnet": aufgezeichnet,
-            "meldungen": meldungen}
+            "meldungen": meldungen, "stufen": stufen}
 
 
 class TestThonnoMissionOf18September:
@@ -175,6 +176,12 @@ class TestThonnoMissionOf18September:
             for m in re.findall(r"time_held=([0-9.]+)s", text)
         ]
         assert gehalten == [0.042, 1.251, 1.286]
+
+    def test_the_refusals_are_debug_lines_not_info(self, mission):
+        """The gate holding the end back for 2 s is the design, not a
+        problem; at INFO it read as one in @pk-1966's log (#207)."""
+        stufen = [lvl for text, lvl in mission["stufen"].items() if "burst rejected" in text]
+        assert stufen and set(stufen) == {logging.DEBUG}
 
     def test_the_mission_closes_exactly_once_after_the_gate_opens(self, mission):
         """Log, 19:00:51: recorded once, as completed. Not during the

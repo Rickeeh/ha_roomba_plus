@@ -65,7 +65,7 @@
         },
         "data_description": {
           "host": "Het lokale IP-adres van de Roomba.",
-          "password": "Het robotwachtwoord (houd de HOME-knop ingedrukt om het op te halen)."
+          "password": "Het lokale wachtwoord van de robot. Laat leeg om het uit je iRobot-account over te nemen (robots die met een account zijn ingesteld)."
         }
       },
       "reauth_confirm": {
@@ -147,7 +147,9 @@
       "cloud_server_error": "De iRobot-cloud heeft zelf een probleem. Dit ligt aan iRobot en is meestal tijdelijk; probeer het later opnieuw.",
       "cloud_response_malformed": "De iRobot-cloud stuurde een antwoord dat niet kon worden gelezen. Als dit blijft, meld het dan met een diagnostische download.",
       "cloud_unknown": "De iRobot-cloud meldde een fout zonder bekende oorzaak.",
-      "account_password_refused": "De robot accepteerde het wachtwoord uit je iRobot-account niet, dus moet het van de robot zelf worden opgehaald."
+      "account_password_refused": "De robot accepteerde het wachtwoord uit je iRobot-account niet, dus moet het van de robot zelf worden opgehaald.",
+      "robot_password_needed": "Deze vermelding heeft geen iRobot-account om het robotwachtwoord uit te halen. Voer het in, of houd de HOME-knop op de robot ingedrukt om het op te halen.",
+      "robot_password_not_in_account": "Je iRobot-account gaf geen wachtwoord voor deze robot terug. Voer het handmatig in."
     },
     "abort": {
       "already_configured": "Deze robot is al geconfigureerd.",
@@ -156,6 +158,9 @@
       "cannot_connect": "Kan de robot op het opgegeven adres niet bereiken.",
       "reconfigure_successful": "Verbindingsinstellingen bijgewerkt.",
       "no_new_robots_found": "Geen nieuwe robots gevonden op dit iRobot-account — alle robots zijn al ingesteld.",
+      "no_robots_on_account": "De iRobot-cloud gaf geen robots terug voor dit account. Controleer of dit het account is waaraan de robot in de iRobot-app is toegevoegd. Een tweedehands robot kan nog op het account van de vorige eigenaar staan.",
+      "robots_owned_by_other_account": "Het iRobot-account gaf geen robots terug: de iRobot-cloud meldt dat een robot op een ander iRobot-account staat. Dat gebeurt bij een tweedehands robot die nog op het account van de vorige eigenaar staat. Verwijder de robot daar in de iRobot-app (of vraag de eigenaar dat te doen), voeg hem toe aan jouw account en probeer het opnieuw.",
+      "robots_not_in_login": "De iRobot-cloud kent robots voor dit account, maar de login gaf er geen terug, dus er is niets om mee te verbinden. Dit is nog niet eerder gezien — open een issue op GitHub en voeg een debuglog van deze poging toe.",
       "prime_classic_password_missing": "Het wachtwoord van deze robot was niet opgenomen in het antwoord van het iRobot-account. Probeer deze in plaats daarvan handmatig toe te voegen.",
       "demand_cleaning_not_supported": "Deze robot rapporteert geen vuildetectiegegevens die nodig zijn voor reiniging op verzoek.",
       "integration_not_loaded": "De integratie is niet geladen. Herstart Home Assistant en probeer het opnieuw.",
@@ -1480,6 +1485,9 @@
       },
       "repeat_mission": {
         "name": "Laatste missie herhalen"
+      },
+      "skip_room": {
+        "name": "Huidige kamer overslaan"
       },
       "clean_smart_zone": {
         "name": "Zone schoonmaken (Smart Map)"

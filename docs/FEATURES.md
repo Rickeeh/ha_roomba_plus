@@ -185,6 +185,38 @@ Before v4.2.5 only `two_pass` could be set per room, although the code underneat
 
 `room_name` and `room_passes` are mutually exclusive — provide one or the other, not both.
 
+#### Skipping the current room *(command 4.3.7, button 4.4.4)*
+
+The iRobot app's *Skip*: the robot leaves the room it is cleaning and goes on to the next room of the mission.
+
+- **Button** `button.{name}_skip_current_room` (*Skip current room*), on Classic robots that offer skipping. It can be pressed only while the robot cleans.
+- **Command**, for automations and scripts:
+
+```yaml
+action: vacuum.send_command
+target:
+  entity_id: vacuum.roomba
+data:
+  command: skip
+  params:          # optional: which room, if room tracking does not know it
+    room: Bathroom # a name or an id of the mission's rooms
+```
+
+On Classic robots Roomba+ sends what the iRobot app sends: the mission's map and the one room to skip. It goes out only where the app offers skip, and is refused with the reason otherwise:
+
+| Condition | Refused with |
+|---|---|
+| The robot offers skipping (`cap.mc` 2 or 3) | "This robot does not offer skipping a room." |
+| The robot cleans or drives between rooms (phase `run`); not paused, charging or on its way home | "A room can only be skipped while the robot is cleaning" |
+| A room mission started with its map (`clean_room`, a room or zone selection, the app's room choice) | "Only a room mission started with its map can skip a room." |
+| The room is known: room tracking's current room in a mission sent in order, or the room named in `params` | "The room to skip is not known." |
+
+- **The last room of a mission sends the robot home** (pause, then dock, as *Return to base*), since nothing is left to clean. The Prime app does the same.
+- **Room tracking moves on.** The skipped room counts as done at once: the remaining time leaves it out and room history does not record it as cleaned. The current room moves when a position confirms the next room, or after 20 seconds, unless the latest position still lies in the skipped room.
+- **Confirmed on two Classic robots**, an i7+ among them.
+- **Prime robots** get the plain `skip` their app sends, through the command only; no Prime robot has been seen taking it yet, so there is no button for them.
+- **The diagnostics** keep each attempt under `field_evidence.skip_attempts`: what was sent, how the room was found, and the mission 20 seconds and a minute later.
+
 #### Cloud zone selector attributes (Smart Map robots)
 
 `select.{name}_cloud_zone_{map}` (one per floor/map, shown when cloud

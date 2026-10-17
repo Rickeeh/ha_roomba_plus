@@ -65,7 +65,7 @@
         },
         "data_description": {
           "host": "O endereço IP local do Roomba.",
-          "password": "A palavra-passe do robô (mantenha o botão HOME premido para a obter)."
+          "password": "A palavra-passe local do robô. Deixe vazio para a obter da sua conta iRobot (robôs configurados com uma conta)."
         }
       },
       "reauth_confirm": {
@@ -147,7 +147,9 @@
       "cloud_server_error": "A nuvem da iRobot tem um problema próprio. O problema é da iRobot e costuma ser temporário; tenta novamente mais tarde.",
       "cloud_response_malformed": "A nuvem da iRobot enviou uma resposta que não foi possível ler. Se persistir, comunica-o com uma transferência de diagnóstico.",
       "cloud_unknown": "A nuvem da iRobot comunicou um erro sem causa conhecida.",
-      "account_password_refused": "O robô não aceitou a palavra-passe da tua conta iRobot, por isso tem de ser obtida do próprio robô."
+      "account_password_refused": "O robô não aceitou a palavra-passe da tua conta iRobot, por isso tem de ser obtida do próprio robô.",
+      "robot_password_needed": "Esta entrada não tem uma conta iRobot de onde obter a palavra-passe do robô. Introduza-a ou mantenha premido o botão HOME do robô para a obter.",
+      "robot_password_not_in_account": "A sua conta iRobot não devolveu uma palavra-passe para este robô. Introduza-a manualmente."
     },
     "abort": {
       "already_configured": "Este robô já está configurado.",
@@ -156,6 +158,9 @@
       "cannot_connect": "Não é possível contactar o robô no endereço especificado.",
       "reconfigure_successful": "Definições de ligação atualizadas.",
       "no_new_robots_found": "Não foram encontrados robôs novos nesta conta iRobot — todos os robôs já estão configurados.",
+      "no_robots_on_account": "A nuvem iRobot não devolveu nenhum robô para esta conta. Verifique se é a conta à qual o robô foi adicionado na app iRobot. Um robô em segunda mão pode ainda estar registado na conta do proprietário anterior.",
+      "robots_owned_by_other_account": "A conta iRobot não devolveu nenhum robô: a nuvem iRobot indica que um robô está registado noutra conta iRobot. Acontece com um robô em segunda mão que ainda está na conta do proprietário anterior. Remova o robô dessa conta na app iRobot (ou peça ao proprietário que o faça), adicione-o à sua e tente novamente.",
+      "robots_not_in_login": "A nuvem iRobot tem robôs para esta conta, mas o início de sessão não devolveu nenhum, por isso não há nada a que ligar. Isto nunca foi observado — abra um issue no GitHub e anexe um registo de depuração desta tentativa.",
       "prime_classic_password_missing": "A palavra-passe deste robô não foi incluída na resposta da conta iRobot. Tenta adicioná-lo manualmente.",
       "demand_cleaning_not_supported": "Este robô não comunica os dados de deteção de sujidade necessários para a limpeza a pedido.",
       "integration_not_loaded": "A integração não está carregada. Reinicie o Home Assistant e tente novamente.",
@@ -1480,6 +1485,9 @@
       },
       "repeat_mission": {
         "name": "Repetir última missão"
+      },
+      "skip_room": {
+        "name": "Saltar a divisão atual"
       },
       "clean_smart_zone": {
         "name": "Limpar zona (Smart Map)"

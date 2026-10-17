@@ -2739,7 +2739,10 @@ def make_mission_callback(
                     )
                 else:
                     _reason = "unvisited rooms (time_held=%.3fs, OK)" % _time_held
-                _LOGGER.info(
+                # DEBUG SINCE 4.4.4 (#207): holding the end back for 2 s
+                # is the design; at INFO it read as a fault in a tester's
+                # log.
+                _LOGGER.debug(
                     "MissionStore: end-phase burst rejected (%s) — "
                     "mission still active",
                     _reason,

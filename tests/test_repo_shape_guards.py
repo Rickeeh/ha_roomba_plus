@@ -961,3 +961,65 @@ class TestPrivateDataCommandLine:
         monkeypatch.setattr(CPD, "_git", _fail)
         assert CPD.main(["--base", "nope"]) == 0
         assert "not available" in capsys.readouterr().out
+
+
+# ── Blueprints load in Home Assistant (4.5.0) ────────────────────────────────
+
+_BLUEPRINTS = [
+    pytest.param(path, id=path.name)
+    for path in sorted((Path(__file__).parent.parent / "blueprints" / "automation").glob("*.yaml"))
+]
+
+
+def _blueprint_inputs(inputs: dict) -> dict:
+    """A value for every input: its default, else one its selector takes."""
+    values = {}
+    for name, spec in inputs.items():
+        spec = spec or {}
+        if "default" in spec:
+            values[name] = spec["default"]
+            continue
+        selector = spec.get("selector") or {}
+        if "entity" in selector:
+            domain = (selector["entity"] or {}).get("domain") or "sensor"
+            domain = domain[0] if isinstance(domain, list) else domain
+            values[name] = f"{domain}.robot"
+        elif "device" in selector:
+            values[name] = "0123456789abcdef0123456789abcdef"
+        elif "time" in selector:
+            values[name] = "18:00:00"
+        elif "number" in selector:
+            values[name] = selector["number"].get("min", 1)
+        elif "action" in selector:
+            values[name] = [{"action": "persistent_notification.create",
+                             "data": {"message": "x"}}]
+        elif "service" in name:
+            values[name] = "notify.notify"
+        else:
+            values[name] = "x"
+    return values
+
+
+@pytest.mark.parametrize("path", _BLUEPRINTS)
+async def test_every_blueprint_makes_an_automation_home_assistant_accepts(hass, path):
+    """THE BUG: three blueprints used `!input` inside a template. Home
+    Assistant substitutes it only as a YAML tag; the template failed and
+    the automation did not load. The repository check replaced the marker
+    with `True` before parsing and passed them from v3.4.2 on. This loads
+    each blueprint the way Home Assistant does and validates the result."""
+    import shutil
+
+    from homeassistant.components.automation.config import async_validate_config_item
+    from homeassistant.util.yaml import load_yaml
+
+    target = Path(hass.config.path("blueprints", "automation", "roomba_plus", path.name))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(path, target)
+    inputs = load_yaml(path)["blueprint"]["input"]
+    config = {"use_blueprint": {
+        "path": f"roomba_plus/{path.name}", "input": _blueprint_inputs(inputs),
+    }}
+    result = await async_validate_config_item(hass, path.stem, config)
+    assert result is not None and result.validation_error is None, (
+        path.name, getattr(result, "validation_error", None),
+    )

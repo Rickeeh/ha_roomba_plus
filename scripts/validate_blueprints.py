@@ -12,12 +12,13 @@ Home Assistant instance after import:
      are only caught when HA actually renders it against real trigger
      data), but does catch syntax errors before a person ever imports it.
 
-`!input xxx` markers that appear *inside* a template string (not as a YAML
-tag on their own line) are a Home Assistant blueprint-specific substitution
-mechanism, not real Jinja syntax — they're replaced textually with `True`
-before parsing, purely so the Jinja parser has something syntactically
-valid to check. This mirrors exactly the manual verification done when
-roomba_plus_notifications.yaml was first built.
+`!input xxx` INSIDE A TEMPLATE STRING IS AN ERROR. Home Assistant
+substitutes `!input` only where it is a YAML tag; inside a template it
+stays literal text, and the template fails ("unexpected char '!'"), so the
+automation does not load. This check used to replace the marker with
+`True` before parsing -- and so passed three blueprints (notifications,
+Roomba then Braava, smart start) that Home Assistant rejected. An input a
+template needs goes into `variables:` first.
 """
 from __future__ import annotations
 
@@ -40,10 +41,6 @@ def _input_constructor(loader, node):
 
 
 _HALoader.add_constructor("!input", _input_constructor)
-
-
-def _strip_input_markers(s: str) -> str:
-    return re.sub(r"!input\s+\w+", "True", s)
 
 
 def _collect_template_strings(obj) -> list[str]:
@@ -79,11 +76,16 @@ def validate_blueprint(path: Path) -> list[str]:
 
     env = Environment()
     for tmpl in _collect_template_strings(data):
-        cleaned = _strip_input_markers(tmpl)
+        snippet = tmpl.strip().splitlines()[0][:80]
+        if re.search(r"!input\s+\w+", tmpl):
+            problems.append(
+                f"`!input` inside the template starting '{snippet}...': Home "
+                "Assistant does not substitute it there; assign it in `variables:`"
+            )
+            continue
         try:
-            env.parse(cleaned)
+            env.parse(tmpl)
         except Exception as exc:  # noqa: BLE001 — jinja2.TemplateSyntaxError et al.
-            snippet = tmpl.strip().splitlines()[0][:80]
             problems.append(f"Jinja syntax error in template starting '{snippet}...': {exc}")
 
     return problems

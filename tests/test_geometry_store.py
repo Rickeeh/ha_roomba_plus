@@ -857,6 +857,24 @@ class TestGeometryStoreUpdateFromRoomSegStore:
         assert gs.door_markers[0].cx == pytest.approx(500.0)
         assert gs.door_markers[0].cy == pytest.approx(300.0)
 
+    def test_a_door_no_path_went_through_gets_no_marker(self):
+        """4.5.0: once paths are checked, a door into a wall is not drawn."""
+        gs = GeometryStore()
+        rss = self._make_room_seg_store_with_door(500.0, 300.0)
+        rss.path_evidence = True
+        gs.update_from_room_seg_store(rss)
+        assert gs.door_markers == []
+        rss.doors[0].note_driven("m1")
+        gs.update_from_room_seg_store(rss)
+        assert len(gs.door_markers) == 1
+
+    def test_a_stand_in_without_driven_doors_gives_all(self):
+        gs = GeometryStore()
+        rss = MagicMock(spec=["doors"])
+        rss.doors = self._make_room_seg_store_with_door(500.0, 300.0).doors
+        gs.update_from_room_seg_store(rss)
+        assert len(gs.door_markers) == 1
+
     def test_marker_id_uses_rs_namespace_prefix(self):
         """Confirms the namespacing itself, rather than artificially
         mixing both paths in one call sequence -- in production only one

@@ -353,11 +353,17 @@ class TestLiveEntitiesListenForTheSignal:
 
         verbunden, _e = await self._added(hass, RoombaMaintenanceDue, monkeypatch)
 
-        from custom_components.roomba_plus.const import maintenance_changed_signal, mission_store_changed_signal
+        from custom_components.roomba_plus.const import (
+            maintenance_changed_signal,
+            maintenance_items_signal,
+            mission_store_changed_signal,
+        )
 
         # Not the availability signal -- only the two store signals, which
-        # every entity of the robot listens to.
+        # every entity of the robot listens to, and (4.5.0) the maintenance
+        # entries this sensor is read from.
         assert verbunden == [maintenance_changed_signal(BLID),
+                            maintenance_items_signal(BLID),
                             mission_store_changed_signal(BLID)]
 
     def test_the_signal_makes_the_entity_re_render(self):

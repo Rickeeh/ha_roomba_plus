@@ -38,6 +38,7 @@ class TestAsyncSetupEntry:
 
         hass = MagicMock()
         config_entry = MagicMock()
+        config_entry.options = {}
         config_entry.runtime_data.roomba = MagicMock()
         config_entry.runtime_data.blid = "TESTBLID"
         added: list = []
@@ -558,6 +559,7 @@ class TestAsyncSetupEntryRoutesByConnectionType:
         from custom_components.roomba_plus.models import ConnectionType
 
         config_entry = MagicMock()
+        config_entry.options = {}
         config_entry.runtime_data.connection_type = ConnectionType.CLOUD_ONLY
         config_entry.runtime_data.blid = "BLID123"
         added = []
@@ -1964,3 +1966,102 @@ class TestPrimeCalendarUpdateAndDelete:
         assert cal.PrimeScheduleCalendar._frequency_from_rrule(None) == "ONCE"
         with pytest.raises(ServiceValidationError, match="cannot express"):
             cal.PrimeScheduleCalendar._frequency_from_rrule("FREQ=HOURLY")
+
+
+class TestTheMaintenanceCalendar:
+    """4.5.0 (E13, K): read-only, all-day due dates, on its own option."""
+
+    async def _setup(self, options, kind=None, maintenance=True):
+        from custom_components.roomba_plus.calendar import async_setup_entry
+        from custom_components.roomba_plus.models import ConnectionType
+
+        config_entry = MagicMock()
+        config_entry.options = options
+        config_entry.runtime_data.connection_type = kind or ConnectionType.LOCAL_PUSH
+        config_entry.runtime_data.blid = "B"
+        config_entry.runtime_data.maintenance = MagicMock() if maintenance else None
+        added: list = []
+        await async_setup_entry(MagicMock(), config_entry, added.extend)
+        return [type(e).__name__ for e in added]
+
+    @pytest.mark.asyncio
+    async def test_only_with_its_option(self):
+        from custom_components.roomba_plus.models import ConnectionType
+
+        assert await self._setup({}) == ["RoombaScheduleCalendar"]
+        assert await self._setup({"maintenance_calendar": True, "enable_schedule_calendar": False}) == [
+            "RoombaMaintenanceCalendar",
+        ]
+        assert await self._setup(
+            {"maintenance_calendar": True}, ConnectionType.CLOUD_ONLY,
+        ) == ["PrimeScheduleCalendar", "RoombaMaintenanceCalendar"]
+        assert await self._setup({"maintenance_calendar": True}, maintenance=False) == [
+            "RoombaScheduleCalendar",
+        ]
+
+    def _calendar(self, items):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.calendar import RoombaMaintenanceCalendar
+
+        entry = MagicMock()
+        entry.runtime_data.maintenance = SimpleNamespace(items=items)
+        cal = RoombaMaintenanceCalendar(None, "B", entry)
+        cal.hass = MagicMock()
+        cal._wording = {}
+        return cal
+
+    def _items(self):
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        today = dt_util.now()
+        return [
+            MaintenanceItem("replace.filter", "replace", "filter",
+                            due=(today + datetime.timedelta(days=5)).isoformat(),
+                            guide_url="https://g"),
+            MaintenanceItem("clean.wheel", "clean", "wheel", interval=14, interval_unit="days",
+                            due=(today - datetime.timedelta(days=2)).isoformat()),
+            MaintenanceItem("replace.battery", "replace", "battery"),
+        ]
+
+    def test_events_are_all_day_and_read_only(self):
+        cal = self._calendar(self._items())
+        assert cal.unique_id == "roomba_plus_B_maintenance"
+        assert cal.suggested_object_id == "maintenance"
+        assert not cal.supported_features
+        assert cal.new_state_filter({"bbrun": {}}) is False
+        events = cal._events()
+        assert [e.uid for e in events] == ["clean.wheel", "replace.filter"]
+        filt = events[1]
+        assert (filt.end - filt.start).days == 1
+        assert filt.summary == "Replace the filter"
+        assert "[iRobot's guide](https://g)" in filt.description
+        assert "wear rate" in filt.description, "a part's date says it is an estimate"
+        assert "wear rate" not in events[0].description
+
+    @pytest.mark.asyncio
+    async def test_the_next_event_and_a_range(self):
+        from homeassistant.util import dt as dt_util
+
+        cal = self._calendar(self._items())
+        assert cal.event.uid == "replace.filter"
+        now = dt_util.now()
+        found = await cal.async_get_events(
+            MagicMock(), now - datetime.timedelta(days=3), now + datetime.timedelta(days=1),
+        )
+        assert [e.uid for e in found] == ["clean.wheel"]
+        assert self._calendar([]).event is None
+
+    @pytest.mark.asyncio
+    async def test_it_loads_its_wording(self):
+        from unittest.mock import AsyncMock, patch
+
+        from custom_components.roomba_plus import calendar as cal_mod
+
+        cal = self._calendar([])
+        with patch.object(cal_mod.IRobotEntity, "async_added_to_hass", AsyncMock()), \
+             patch.object(type(cal), "_async_load_wording", AsyncMock()) as load:
+            await cal.async_added_to_hass()
+        load.assert_awaited_once()

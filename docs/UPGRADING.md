@@ -9,6 +9,43 @@ note are listed — most releases need zero action beyond updating.
 
 ---
 
+## v4.5.0 — from v4.4.x
+
+Maintenance was rebuilt around one set of entries (see
+[Maintenance & health](FEATURES.md#maintenance--health)). What changes for
+an existing installation:
+
+- **The maintenance settings moved** from Configure → Settings to
+  Configure → Maintenance → Settings: the to-do list, cleaning reminders
+  and pets. Their values are kept.
+- **The collective repair issue "Maintenance is overdue" is gone**, and an
+  open one is removed at the first start. The status sensor
+  `sensor.{name}_maintenance`, the to-do list and `event.{name}_maintenance`
+  say what is due; a repair issue per overdue part can be switched on
+  under Configure → Maintenance.
+- **Your entities stay as they are.** A new installation creates "last
+  replaced", "wear rate", "days until due" and the battery, wheel,
+  contact and bin buttons disabled; on an existing one, *Hide the
+  maintenance diagnostic entities* does the same for the first three on
+  request. Check dashboards and automations first: hidden entities stop
+  updating.
+- **The remaining hours can change.** They now follow the series profile
+  the due check already used, and iRobot's counters on every cloud poll
+  instead of only at start-up.
+- **"Pad replaced" leaves robots without a pad** (it was on every Classic
+  robot and moved the main-brush counter).
+- **The Prime to-do list can be ticked off** -- the reset goes to iRobot.
+- The to-do item ids are unchanged. The descriptions link our care
+  guide first; the link to iRobot's guide reads "iRobot's guide".
+- **Blueprints:** *Notifications*, *Vacuum then mop*, *Smart start on
+  away* and *Demand clean alert* made automations Home Assistant refused
+  to load. Re-import them (Blueprints → ⋮ → *Re-import blueprint*);
+  existing automations then load with their inputs. *Exception
+  notifications* was rewritten with new inputs: re-import it and set its
+  automations up again.
+
+---
+
 ## v4.4.4 — from v4.4.3
 
 **A new button, *Skip current room***, on Classic robots that offer

@@ -4706,3 +4706,59 @@ class TestTheSameRoomOnTwoMaps:
 
         assert params["pmap_id"] == "MAP-A"
         assert [(r["region_id"], r["type"]) for r in params["regions"]] == [("1", "rid")]
+
+
+class TestCommandRegionNames:
+    """4.5.0: a command's regions are named on the command's own map and
+    by their own type. One dict for everything named zone 21 after room
+    21, and a second map's mission after the first map's rooms."""
+
+    @staticmethod
+    def _cc():
+        cc = MagicMock()
+        cc.active_pmap_id = "MAP_A"
+        cc.region_names_by_type = {
+            "MAP_A": {"rid": {"21": "Kitchen", "1": "Primary Bathroom"},
+                      "zid": {"21": "Couch"}},
+            "MAP_B": {"rid": {"1": "Master Bedroom", "5": "Bedroom"}, "zid": {}},
+        }
+        cc.regions = [{"id": "21", "name": "Kitchen"}, {"id": "1", "name": "Primary Bathroom"}]
+        cc.zones = [{"id": "21", "name": "Couch"}]
+        cc.regions_by_pmap = {"MAP_A": {"21": "Kitchen", "1": "Primary Bathroom"},
+                              "MAP_B": {"1": "Master Bedroom", "5": "Bedroom"}}
+        return cc
+
+    def test_a_zone_is_named_as_a_zone(self):
+        from custom_components.roomba_plus.room_cleaning import region_names_for_command
+
+        names = region_names_for_command(self._cc(), [
+            {"region_id": "21", "type": "zid"}, {"region_id": "21", "type": "rid"},
+        ])
+        assert names == ["Couch", "Kitchen"]
+
+    def test_the_commands_map_names_its_rooms(self):
+        from custom_components.roomba_plus.room_cleaning import region_names_for_command
+
+        regions = [{"region_id": "1", "type": "rid"}, {"region_id": "5", "type": "rid"}]
+        assert region_names_for_command(self._cc(), regions, "MAP_B") == [
+            "Master Bedroom", "Bedroom",
+        ]
+        assert region_names_for_command(self._cc(), regions) == ["Primary Bathroom", "Bedroom"]
+
+    def test_a_region_without_a_type_is_a_room_first(self):
+        from custom_components.roomba_plus.room_cleaning import CommandRegionNames
+
+        lookup = CommandRegionNames(self._cc())
+        assert lookup.name({"region_id": "21"}) == "Kitchen"
+        assert lookup.name({"rid": "21"}) == "Kitchen"
+        assert lookup.name("21") == "Kitchen"
+        assert lookup.name({"region_id": "99"}) is None
+        assert lookup.name({}) is None
+
+    def test_a_coordinator_without_typed_names_answers_as_before(self):
+        from custom_components.roomba_plus.room_cleaning import region_names_for_command
+
+        cc = self._cc()
+        cc.region_names_by_type = MagicMock()   # not a dict: an older stand-in
+        assert region_names_for_command(cc, [{"region_id": "1"}], "MAP_B") == ["Master Bedroom"]
+        assert region_names_for_command(None, [{"region_id": "1"}]) == []

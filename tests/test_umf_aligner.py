@@ -1051,3 +1051,22 @@ class TestUmfAlignerEdges:
         a._transform = MagicMock()
         a._door_candidates = [(0.0, 0.0)]
         assert a._validate_transform([]) == _RESIDUAL_SCALE / 2
+
+
+class TestTheDoorWidthSetBoundsTheDoorGaps:
+    """4.5.0: door candidates are gaps from 20 cm narrower to 40 cm wider
+    than the door width set; without one, the window as before."""
+
+    @staticmethod
+    def _candidates(gap_m, door_mm=None):
+        pts = [{"id": "a", "coordinates": [0, 0]}, {"id": "b", "coordinates": [gap_m, 0]}]
+        a = UmfAligner(pts, [], _make_gs([]), door_mm=door_mm)
+        a._build_coord_lookup()
+        a._detect_door_gaps()
+        return len(a._door_candidates)
+
+    def test_the_window_follows_the_setting(self):
+        assert self._candidates(1.3) == 0
+        assert self._candidates(1.3, door_mm=1000.0) == 1
+        assert self._candidates(0.7, door_mm=1000.0) == 0
+        assert self._candidates(0.7) == 1

@@ -117,11 +117,6 @@ NON_CYCLE_REASONS: dict[str, str] = {
         "a real cycle: select_prime imports room_cleaning back, so this one "
         "cannot move to module level"
     ),
-    "todo -> todo_prime": (
-        "Prime-only path inside a module shared by both generations -- the "
-        "Classic list is built from lifetime hours, the Prime one from parts "
-        "the robot counts itself"
-    ),
     "calendar -> calendar_rooms": (
         "Prime-only path inside a module shared by both generations -- a "
         "Classic robot's calendar never edits schedules, because nothing "

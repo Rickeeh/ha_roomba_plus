@@ -68,6 +68,12 @@ blueprint:
 mode: queued
 max: 5
 
+# Inputs reach a template only through a variable: Home Assistant does
+# not substitute `!input` inside a template string.
+variables:
+  roomba_device: !input roomba_device
+  only_on_result: !input only_on_result
+
 triggers:
   - trigger: event
     event_type: roomba_plus_mission_completed
@@ -75,10 +81,10 @@ triggers:
 conditions:
   - condition: template
     value_template: >
-      {{ trigger.event.data.entry_id in (device_attr((!input roomba_device), "config_entries") or []) }}
+      {{ trigger.event.data.entry_id in (device_attr(roomba_device, "config_entries") or []) }}
   - condition: template
     value_template: >
-      {{ trigger.event.data.result in (!input only_on_result) }}
+      {{ trigger.event.data.result in only_on_result }}
 
 actions:
   - delay:

@@ -1175,6 +1175,9 @@ def _make_maintenance_due(
     roomba.master_state = {"state": {"reported": state}}
     config_entry = entry_mock()
     config_entry.runtime_data.maintenance_store = store
+    # The store's own check: these tests predate the maintenance entries
+    # and keep covering the path a robot still starting takes.
+    config_entry.runtime_data.maintenance = None
     config_entry.options = options or {}
     entity = RoombaMaintenanceDue(roomba, "test_blid", config_entry)
     entity.hass = hass_mock()
@@ -2357,3 +2360,53 @@ class TestMinutesToClock:
     @pytest.mark.parametrize("value,clock", [(0, "00:00"), (22 * 60 + 5, "22:05"), ("x", None), (None, None)])
     def test_minutes_since_midnight(self, value, clock):
         assert bs._minutes_to_clock(value) == clock
+
+
+class TestTheDueSensorReadsTheMaintenanceEntries:
+    """4.5.0: the sensor kept its own hour check beside the entries every
+    other surface shows -- a 980 on its series profile, or a cloud
+    counter run out, read differently here than on the status sensor."""
+
+    def _sensor(self, items):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.binary_sensor import RoombaMaintenanceDue
+        from custom_components.roomba_plus.maintenance_store import MaintenanceStore
+
+        roomba = robot_mock()
+        roomba.master_state = {"state": {"reported": {"bbrun": {"hr": 1}}}}
+        config_entry = entry_mock()
+        config_entry.runtime_data.maintenance_store = MaintenanceStore()
+        config_entry.runtime_data.maintenance = SimpleNamespace(items=items)
+        config_entry.options = {}
+        entity = RoombaMaintenanceDue(roomba, "test_blid", config_entry)
+        entity.hass = hass_mock()
+        return entity
+
+    def test_due_and_overdue_parts_with_their_old_keys(self):
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem as I
+
+        sensor = self._sensor([
+            I("replace.filter", "replace", "filter", level="overdue", used=1.25,
+              unit="hours", interval=40.0),
+            I("replace.main_brush", "replace", "main_brush", level="due", used=1.0,
+              unit="hours", interval=200.0),
+            I("replace.side_brush", "replace", "side_brush", level="soon"),
+            I("clean.filter", "clean", "filter", level="due"),
+            I("replace.battery", "replace", "battery", level="due"),
+        ])
+        assert sensor.is_on is True
+        attrs = sensor.extra_state_attributes
+        assert attrs["due"] == ["filter", "brush"]
+        assert attrs["overdue_by_hours"] == {"filter": 10, "brush": 0}
+        assert attrs["required_actions"] == {
+            "filter": "replace_filter", "brush": "replace_main_brushes",
+        }
+
+    def test_off_while_nothing_is_due_even_if_the_hours_say_so(self):
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem as I
+
+        sensor = self._sensor([I("replace.filter", "replace", "filter", level="soon")])
+        sensor.vacuum_state = {"bbrun": {"hr": 5000}}
+        assert sensor.is_on is False
+        assert sensor._shows_maintenance is True

@@ -102,6 +102,10 @@ class TestServicesRegistration:
             (DOMAIN, "create_schedule"),
             (DOMAIN, "update_schedule"),
             (DOMAIN, "delete_schedule"),
+            # 4.5.0 -- the maintenance entries, both generations
+            (DOMAIN, "maintenance_done"),
+            (DOMAIN, "maintenance_snooze"),
+            (DOMAIN, "maintenance_forget_learned"),
         }
         assert expected == set(registered.keys())
 
@@ -116,7 +120,7 @@ class TestServicesRegistration:
         async_register_services(hass)
         # Handler not replaced on second call
         assert registered[(DOMAIN, "clean_room")] is first_handler
-        assert len(registered) == 23
+        assert len(registered) == 26
 
     # THE REMOVAL TESTS ARE GONE WITH THE REMOVAL (4.2.11, quality scale:
     # action-setup). Services used to disappear when the last entry
@@ -134,7 +138,7 @@ class TestServicesRegistration:
         hass, registered = self._make_hass()
         assert asyncio.run(async_setup(hass, {})) is True
         assert (DOMAIN, "clean_room") in registered
-        assert len(registered) == 23
+        assert len(registered) == 26
 
 
 class TestConfCleanDelayMin:
@@ -3536,3 +3540,67 @@ class TestCleanZoneOnClassic:
         with pytest.raises(ServiceValidationError, match="Esstisch"):
             await self._run(hass, backend, ["Balkon"])
         backend.clean_rooms.assert_not_awaited()
+
+
+class TestMaintenanceActions:
+    """4.5.0: maintenance_done and maintenance_snooze reach the robot's
+    maintenance entries, and refuse an entity that is not a robot's."""
+
+    def _call(self, hass, service, **data):
+        return SimpleNamespace(
+            hass=hass, service=service, data={"entity_id": ["vacuum.robo"], **data},
+        )
+
+    def _entry(self, tracker, domain=DOMAIN):
+        return SimpleNamespace(domain=domain, runtime_data=SimpleNamespace(maintenance=tracker))
+
+    @pytest.mark.asyncio
+    async def test_done_and_snooze_reach_the_tracker_once_per_robot(self):
+        tracker = MagicMock()
+        tracker.async_done = AsyncMock()
+        tracker.async_snooze = AsyncMock()
+        hass = MagicMock()
+        with patch.object(svc, "_resolve_config_entry_from_entity",
+                          return_value=self._entry(tracker)):
+            call = self._call(hass, "maintenance_done", item="replace.filter", action="clean")
+            call.data["entity_id"] = ["vacuum.robo", "sensor.robo_maintenance"]
+            await svc.async_handle_maintenance_done(call)
+            await svc.async_handle_maintenance_snooze(
+                self._call(hass, "maintenance_snooze", item="replace.filter", days=2)
+            )
+        tracker.async_done.assert_awaited_once_with("replace.filter", "clean", via="action")
+        tracker.async_snooze.assert_awaited_once_with("replace.filter", 2.0)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("entry", [
+        SimpleNamespace(domain="other", runtime_data=SimpleNamespace(maintenance=object())),
+        SimpleNamespace(domain=DOMAIN, runtime_data=SimpleNamespace(maintenance=None)),
+    ])
+    async def test_an_entity_without_maintenance_is_refused(self, entry):
+        with patch.object(svc, "_resolve_config_entry_from_entity", return_value=entry):
+            with pytest.raises(ServiceValidationError_m) as err:
+                await svc.async_handle_maintenance_done(
+                    self._call(MagicMock(), "maintenance_done", item="replace.filter")
+                )
+        assert err.value.translation_key == "maintenance_store_unavailable"
+
+
+class TestForgetLearnedAction:
+
+    @pytest.mark.asyncio
+    async def test_it_reaches_the_tracker(self):
+        tracker = MagicMock()
+        tracker.async_forget_learned = AsyncMock(return_value=[])
+        entry = SimpleNamespace(domain=DOMAIN, runtime_data=SimpleNamespace(maintenance=tracker))
+        with patch.object(svc, "_resolve_config_entry_from_entity", return_value=entry):
+            await svc.async_handle_maintenance_forget_learned(SimpleNamespace(
+                hass=MagicMock(), service="maintenance_forget_learned",
+                data={"entity_id": ["vacuum.r"], "item": ["replace.filter"]},
+            ))
+            await svc.async_handle_maintenance_forget_learned(SimpleNamespace(
+                hass=MagicMock(), service="maintenance_forget_learned",
+                data={"entity_id": ["vacuum.r"], "item": []},
+            ))
+        assert [c.args for c in tracker.async_forget_learned.await_args_list] == [
+            (["replace.filter"],), ((),),
+        ]

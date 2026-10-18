@@ -21,7 +21,6 @@ from custom_components.roomba_plus.mission_store import MissionStore
 from custom_components.roomba_plus.repairs import async_check_furniture_change
 from custom_components.roomba_plus.repairs import async_check_battery_contact_issue
 from custom_components.roomba_plus.repairs import async_check_mixed_schedule
-from custom_components.roomba_plus.repairs import async_check_accident_detection
 from custom_components.roomba_plus.repairs import async_enrich_drift_issue
 from custom_components.roomba_plus.repairs import async_check_favorite_multi_command
 import sys
@@ -550,48 +549,6 @@ class TestMixedSchedule:
         hass = _make_hass()
         await async_check_mixed_schedule(hass, entry)
         hass.bus.async_fire.assert_not_called()
-
-
-class TestAccidentDetection:
-    def _cloud_records(self, n=20, dirt=10, sqft=200, dur_m=45):
-        return [
-            {"dirt": dirt, "sqft": sqft, "durationM": dur_m,
-             "startTime": 1700000000 - i * 86400}
-            for i in range(n)
-        ]
-
-    @pytest.mark.asyncio
-    async def test_no_alert_on_normal_mission(self):
-        records = self._cloud_records()
-        entry = _make_entry()
-        with patch("custom_components.roomba_plus.repairs.ir") as mock_ir:
-            await async_check_accident_detection(_make_hass(), entry, records)
-            mock_ir.async_create_issue.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_alert_fires_on_spike_plus_short_mission(self):
-        # Build baseline from 20 normal records, then prepend a spike record.
-        # The spike must NOT be in the baseline pool — insert at index 0 after
-        # building the list, so p95 is computed from the 20 normal records.
-        normal_records = self._cloud_records(20, dirt=10, sqft=200, dur_m=45)
-        spike = {"dirt": 800, "sqft": 200, "durationM": 8,
-                 "startTime": 1700090000}  # 80× baseline density, 8 min
-        records = [spike] + normal_records  # spike is most-recent (index 0)
-        entry = _make_entry()
-        with patch("custom_components.roomba_plus.repairs.ir") as mock_ir:
-            await async_check_accident_detection(_make_hass(), entry, records)
-            mock_ir.async_create_issue.assert_called_once()
-            assert mock_ir.async_create_issue.call_args[1]["translation_key"] == "accident_detected"
-
-    @pytest.mark.asyncio
-    async def test_no_alert_when_high_dirt_long_mission(self):
-        records = self._cloud_records(20, dirt=10, sqft=200, dur_m=45)
-        records[0] = {"dirt": 400, "sqft": 200, "durationM": 50,  # long — not accident
-                      "startTime": 1700000000}
-        entry = _make_entry()
-        with patch("custom_components.roomba_plus.repairs.ir") as mock_ir:
-            await async_check_accident_detection(_make_hass(), entry, records)
-            mock_ir.async_create_issue.assert_not_called()
 
 
 class TestDriftEnrichment:
@@ -2091,104 +2048,29 @@ class TestMapRetrainWorkflow:
         hass.bus.async_fire.assert_not_called()
 
 
-class TestMaintenanceDueRepairIssue:
-    """v2.9.0 — async_check_maintenance_due() sustained-grace-period
-    backstop for users without automations on the maintenance_due trigger.
-    """
+class TestTheCollectiveOverdueIssueIsGone:
+    """4.5.0 (E3): "Maintenance is overdue" could not be fixed from the
+    issue; the list and the status say it where it can be acted on. An
+    issue left from an earlier version is removed at setup."""
 
-    def setup_method(self):
-        from custom_components.roomba_plus import repairs as repairs_mod
-        repairs_mod._maintenance_due_since.clear()
+    def test_it_is_removed(self):
+        from custom_components.roomba_plus.repairs import async_remove_maintenance_due_issue
 
-    def _make_entry(self, entry_id="test_maint_entry"):
         entry = MagicMock()
-        entry.entry_id = entry_id
-        return entry
-
-    def test_nothing_due_clears_issue_and_state(self):
-        from custom_components.roomba_plus.repairs import async_check_maintenance_due
-        from custom_components.roomba_plus import repairs as repairs_mod
-
-        entry = self._make_entry()
+        entry.entry_id = "e1"
         hass = MagicMock()
-        repairs_mod._maintenance_due_since[entry.entry_id] = 12345.0
+        with patch("custom_components.roomba_plus.repairs.ir.async_delete_issue") as delete:
+            async_remove_maintenance_due_issue(hass, entry)
+        delete.assert_called_once_with(hass, "roomba_plus", "maintenance_due_e1")
 
-        with patch("custom_components.roomba_plus.repairs.ir.async_delete_issue") as mock_delete:
-            async_check_maintenance_due(hass, entry, [])
+    def test_nothing_creates_it_any_more(self):
+        import json
+        import pathlib
 
-        mock_delete.assert_called_once_with(
-            hass, "roomba_plus", f"maintenance_due_{entry.entry_id}"
-        )
-        assert entry.entry_id not in repairs_mod._maintenance_due_since
-
-    def test_within_grace_period_no_issue_yet(self):
-        from custom_components.roomba_plus.repairs import async_check_maintenance_due
-
-        entry = self._make_entry()
-        hass = MagicMock()
-
-        with patch("custom_components.roomba_plus.repairs.ir.async_create_issue") as mock_create:
-            async_check_maintenance_due(hass, entry, ["filter"])
-
-        mock_create.assert_not_called()
-
-    def test_fires_after_grace_period(self):
-        from custom_components.roomba_plus.repairs import async_check_maintenance_due
-        from custom_components.roomba_plus import repairs as repairs_mod
-        from custom_components.roomba_plus.const import MAINTENANCE_DUE_GRACE_DAYS
-        from homeassistant.util import dt as dt_util
-        from homeassistant.helpers import issue_registry as ir
-
-        entry = self._make_entry()
-        hass = MagicMock()
-        now = dt_util.utcnow().timestamp()
-        repairs_mod._maintenance_due_since[entry.entry_id] = (
-            now - (MAINTENANCE_DUE_GRACE_DAYS + 1) * 86400
-        )
-
-        with patch("custom_components.roomba_plus.repairs.ir.async_create_issue") as mock_create:
-            async_check_maintenance_due(hass, entry, ["filter", "brush"])
-
-        mock_create.assert_called_once()
-        _, kwargs = mock_create.call_args
-        assert mock_create.call_args[0][2] == f"maintenance_due_{entry.entry_id}"
-        assert kwargs["severity"] == ir.IssueSeverity.WARNING
-        assert kwargs["translation_key"] == "maintenance_due"
-        assert kwargs["translation_placeholders"] == {"items": "filter, brush"}
-
-    def test_does_not_restart_timer_when_due_set_changes(self):
-        """Resetting ONE overdue consumable while another remains due must
-        not restart the grace-period timer (documented coarse tradeoff)."""
-        from custom_components.roomba_plus.repairs import async_check_maintenance_due
-        from custom_components.roomba_plus import repairs as repairs_mod
-        from homeassistant.util import dt as dt_util
-
-        entry = self._make_entry()
-        hass = MagicMock()
-        original_since = dt_util.utcnow().timestamp() - 1000
-        repairs_mod._maintenance_due_since[entry.entry_id] = original_since
-
-        async_check_maintenance_due(hass, entry, ["brush"])  # filter was reset, brush remains
-
-        assert repairs_mod._maintenance_due_since[entry.entry_id] == original_since
-
-    def test_does_not_fire_any_bus_event(self):
-        """Triggers and Repairs must not be redundant."""
-        from custom_components.roomba_plus.repairs import async_check_maintenance_due
-        from custom_components.roomba_plus import repairs as repairs_mod
-        from custom_components.roomba_plus.const import MAINTENANCE_DUE_GRACE_DAYS
-        from homeassistant.util import dt as dt_util
-
-        entry = self._make_entry()
-        hass = MagicMock()
-        now = dt_util.utcnow().timestamp()
-        repairs_mod._maintenance_due_since[entry.entry_id] = (
-            now - (MAINTENANCE_DUE_GRACE_DAYS + 1) * 86400
-        )
-
-        async_check_maintenance_due(hass, entry, ["filter"])
-
-        hass.bus.async_fire.assert_not_called()
+        base = pathlib.Path("custom_components/roomba_plus")
+        source = "".join(p.read_text() for p in base.glob("*.py"))
+        assert "async_check_maintenance_due" not in source
+        assert "maintenance_due" not in json.loads((base / "strings.json").read_text())["issues"]
 
 
 class TestMakeMapUpdatingCallback:
@@ -2877,7 +2759,7 @@ class TestCleanupRemovedRepairs:
         hass = _make_hass()
         reg = self._fake_registry({
             (DOMAIN, "maintenance_due_e1"): "maintenance_due",
-            (DOMAIN, "accident_detected_e1"): "accident_detected",
+            (DOMAIN, "battery_contact_suspect_e1"): "battery_contact_suspect",
         })
         with patch("custom_components.roomba_plus.repairs.ir") as mock_ir:
             mock_ir.async_get.return_value = reg
@@ -2885,6 +2767,26 @@ class TestCleanupRemovedRepairs:
 
         assert removed_count == 0
         mock_ir.async_delete_issue.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_never_raised_accident_issue_goes_at_start(self):
+        """4.5.0: `accident_detected` was never raised (nothing called the
+        check). An issue left from an older version is removed."""
+        from custom_components.roomba_plus.const import DOMAIN
+        from custom_components.roomba_plus.repairs import (
+            async_cleanup_removed_repairs,
+        )
+        hass = _make_hass()
+        reg = self._fake_registry({
+            (DOMAIN, "accident_detected"): "accident_detected",
+            (DOMAIN, "maintenance_due_e1"): "maintenance_due",
+        })
+        with patch("custom_components.roomba_plus.repairs.ir") as mock_ir:
+            mock_ir.async_get.return_value = reg
+            removed_count = await async_cleanup_removed_repairs(hass)
+
+        assert removed_count == 1
+        mock_ir.async_delete_issue.assert_called_once_with(hass, DOMAIN, "accident_detected")
 
     @pytest.mark.asyncio
     async def test_noop_on_empty_registry(self):
@@ -2908,7 +2810,7 @@ class TestCleanupRemovedRepairs:
             _REMOVED_REPAIR_TRANSLATION_KEYS,
         )
         surviving = {
-            "accident_detected", "battery_contact_suspect", "dock_contact_health",
+            "battery_contact_suspect", "dock_contact_health",
             "maintenance_baselines_reset", "maintenance_due", "layout_change_detected",
             "observed_zones_detected", "map_retrain_stuck", "favorite_multi_commanddefs",
         }
@@ -2916,11 +2818,12 @@ class TestCleanupRemovedRepairs:
 
     def test_removed_keys_count_matches_release_notes(self):
         """20 translation_keys removed/converted in v3.5.0 (9 + 8 + 1 + 1 + 1
-        across the six stages) — a guard against silently dropping one."""
+        across the six stages), plus accident_detected in 4.5.0 — a guard
+        against silently dropping one."""
         from custom_components.roomba_plus.repairs import (
             _REMOVED_REPAIR_TRANSLATION_KEYS,
         )
-        assert len(_REMOVED_REPAIR_TRANSLATION_KEYS) == 20
+        assert len(_REMOVED_REPAIR_TRANSLATION_KEYS) == 21
 
 
 class TestDecodeNotReady:
@@ -3530,3 +3433,246 @@ class TestObservedZones:
         args = {"centroids": [{"x": 1}], "stuck": 0, **kw}
         await rp.async_check_observed_zones(hass, self._entry(**args))
         assert _issue(hass, "observed_zones_detected") is None
+
+
+class TestMaintenanceRepairFlow:
+    """4.5.0, D1 and D2: one choice, then the tracker does it."""
+
+    def _setup(self, hass, issue_id_part, data, *, can_clean=True, clean_item=True):
+        from unittest.mock import AsyncMock
+
+        entry = MockConfigEntry(domain=DOMAIN, title="Robo")
+        entry.add_to_hass(hass)
+        tracker = MagicMock()
+        tracker.item.side_effect = lambda item_id: (
+            None if item_id.startswith("clean.") and not clean_item else SimpleNamespace(id=item_id)
+        )
+        tracker.can_mark_cleaned.return_value = can_clean
+        for name in ("async_done", "async_snooze", "async_never_repair", "async_close_error_issue"):
+            setattr(tracker, name, AsyncMock())
+        entry.runtime_data = SimpleNamespace(maintenance=tracker)
+        issue_id = f"{issue_id_part}{entry.entry_id}_x"
+        ir.async_create_issue(
+            hass, DOMAIN, issue_id, is_fixable=True, severity=ir.IssueSeverity.WARNING,
+            translation_key="maintenance_part_overdue",
+            translation_placeholders={"name": "Robo", "part": "Replace the filter", "guide": "g"},
+        )
+        return entry, tracker, issue_id
+
+    async def _flow(self, hass, issue_id, data):
+        flow = await rp.async_create_fix_flow(hass, issue_id, data)
+        flow.hass = hass
+        return flow
+
+    async def test_an_overdue_part_offers_four_answers(self, hass):
+        entry, tracker, issue_id = self._setup(hass, "maintenance_overdue_", {})
+        data = {"entry_id": entry.entry_id, "item_id": "replace.filter"}
+        flow = await self._flow(hass, issue_id, data)
+        assert isinstance(flow, rp.MaintenanceRepairFlow)
+        form = await flow.async_step_init()
+        assert form["step_id"] == "init"
+        assert form["description_placeholders"]["part"] == "Replace the filter"
+        options = form["data_schema"].schema["choice"].config["options"]
+        assert options == ["replaced", "cleaned", "snooze", "never"]
+
+        tracker.can_mark_cleaned.return_value = False
+        form = await flow.async_step_init()
+        assert form["data_schema"].schema["choice"].config["options"] == [
+            "replaced", "snooze", "never",
+        ]
+
+    @pytest.mark.parametrize("choice,calls", [
+        ("replaced", [("async_done", ("replace.filter", "replace"))]),
+        ("cleaned", [("async_done", ("replace.filter", "clean")),
+                     ("async_snooze", ("replace.filter", 7))]),
+        ("snooze", [("async_snooze", ("replace.filter", 7))]),
+        ("never", [("async_never_repair", ("replace.filter",))]),
+    ])
+    async def test_each_answer(self, hass, choice, calls):
+        entry, tracker, issue_id = self._setup(hass, "maintenance_overdue_", {})
+        flow = await self._flow(hass, issue_id, {"entry_id": entry.entry_id, "item_id": "replace.filter"})
+        result = await flow.async_step_init({"choice": choice})
+        assert result["type"] == "create_entry"
+        for name, args in calls:
+            assert getattr(tracker, name).await_args.args == args
+
+    async def test_a_failed_reset_is_shown_not_swallowed(self, hass):
+        from homeassistant.exceptions import HomeAssistantError
+
+        entry, tracker, issue_id = self._setup(hass, "maintenance_overdue_", {})
+        tracker.async_done.side_effect = HomeAssistantError("iRobot said no")
+        flow = await self._flow(hass, issue_id, {"entry_id": entry.entry_id, "item_id": "replace.filter"})
+        result = await flow.async_step_init({"choice": "replaced"})
+        assert result["type"] == "form"
+        assert result["errors"] == {"base": "maintenance_done_failed"}
+        assert result["description_placeholders"]["error"] == "iRobot said no"
+
+    @pytest.mark.parametrize("clean_item,done", [(True, True), (False, False)])
+    async def test_an_error_issue_cleaned_or_closed(self, hass, clean_item, done):
+        entry, tracker, issue_id = self._setup(
+            hass, "maintenance_error_care_", {}, clean_item=clean_item,
+        )
+        flow = await self._flow(hass, issue_id, {"entry_id": entry.entry_id, "task": "filter"})
+        form = await flow.async_step_init()
+        assert form["data_schema"].schema["choice"].config["options"] == ["cleaned", "close"]
+        await flow.async_step_init({"choice": "cleaned"})
+        assert tracker.async_done.await_count == (1 if done else 0)
+        assert tracker.async_close_error_issue.await_count == (0 if done else 1)
+        await flow.async_step_init({"choice": "close"})
+        tracker.async_close_error_issue.assert_awaited_with("filter")
+
+    async def test_the_form_shows_the_whole_guide_and_the_interval(self, hass):
+        """Concept D: the form carries the guide -- drawing, why, how, what
+        not to do -- and an overdue part's interval with its source."""
+        from custom_components.roomba_plus import care_guides as cg
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        texts, schemata = cg._read_files()
+        hass.data[cg._DATA_KEY] = cg.CareGuides(b"k" * 32, texts, schemata)
+        entry, tracker, issue_id = self._setup(hass, "maintenance_overdue_", {})
+        tracker.item.side_effect = lambda item_id: MaintenanceItem(
+            "replace.filter", "replace", "filter", interval=52.0, interval_unit="hours",
+            interval_source="profile", guide_id="replace_filter",
+        )
+        flow = await self._flow(hass, issue_id, {"entry_id": entry.entry_id, "item_id": "replace.filter"})
+        placeholders = (await flow.async_step_init())["description_placeholders"]
+        assert placeholders["interval"] == "Interval 52 hours, from the series profile"
+        guide = placeholders["guide"]
+        assert guide.startswith("![Replace the filter](/api/roomba_plus/care/")
+        assert "schema.svg?" in guide and "**How to**" in guide and "**Note**" in guide
+
+    @pytest.mark.parametrize("code,reason,cause", [
+        ("14", "", "The robot reports error 14."), ("", "bin_full", "The bin is full."),
+    ])
+    async def test_the_error_form_names_the_cause(self, hass, code, reason, cause):
+        entry, tracker, issue_id = self._setup(hass, "maintenance_error_care_", {})
+        ir.async_create_issue(
+            hass, DOMAIN, issue_id, is_fixable=True, severity=ir.IssueSeverity.WARNING,
+            translation_key="maintenance_error_care",
+            translation_placeholders={"name": "Robo", "task": "t", "guide": "g",
+                                      "code": code, "reason": reason},
+        )
+        flow = await self._flow(hass, issue_id, {"entry_id": entry.entry_id, "task": "bin"})
+        assert (await flow.async_step_init())["description_placeholders"]["cause"] == cause
+
+    async def test_a_robot_that_is_gone_just_closes(self, hass):
+        flow = await self._flow(hass, "maintenance_overdue_gone_x", {"entry_id": "gone"})
+        assert (await flow.async_step_init())["type"] == "create_entry"
+
+    async def test_the_issue_links_the_guide_and_leaves_other_robots_alone(self, hass):
+        from custom_components.roomba_plus.care_guides import _DATA_KEY, CareGuides
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        hass.data[_DATA_KEY] = CareGuides(
+            b"k" * 32, {"en": {"replace_filter": {"title": "Replace the filter"}}}, {},
+        )
+        mine = MockConfigEntry(domain=DOMAIN, title="Robo")
+        mine.add_to_hass(hass)
+        other = f"maintenance_overdue_{'O' * 26}_replace.filter"
+        ir.async_create_issue(hass, DOMAIN, other, is_fixable=True,
+                              severity=ir.IssueSeverity.WARNING, translation_key="x")
+        item = MaintenanceItem("replace.filter", "replace", "filter", guide_id="replace_filter")
+        rp.async_sync_maintenance_issues(hass, mine, [item], ("bin", 14))
+        issue = _issue(hass, f"maintenance_overdue_{mine.entry_id}_replace.filter")
+        assert issue.translation_placeholders["guide"].startswith(
+            f"[Replace the filter](/api/roomba_plus/care/{mine.entry_id}/replace_filter?"
+        )
+        error = _issue(hass, f"maintenance_error_care_{mine.entry_id}_bin")
+        assert error.translation_placeholders["code"] == "14"
+        assert error.translation_placeholders["task"] == "clean_bin", "no text: the key"
+        rp.async_sync_maintenance_issues(hass, mine, [], None)
+        assert _issue(hass, f"maintenance_overdue_{mine.entry_id}_replace.filter") is None
+        assert _issue(hass, other) is not None
+
+
+class TestTheExceptionsBlueprint:
+    """blueprints/automation/roomba_plus_exceptions.yaml, rewritten in
+    4.5.0: the v2.1 version listened for a `repairs` event, issues and an
+    attribute that no longer exist, and did not load with the skips
+    sensor left empty. Run here in Home Assistant on the events the
+    detectors in this module fire."""
+
+    async def _automation(self, hass, **extra_input):
+        import shutil
+        from pathlib import Path
+
+        from homeassistant.helpers import entity_registry as er
+        from homeassistant.setup import async_setup_component
+        from pytest_homeassistant_custom_component.common import async_mock_service
+
+        entry = MockConfigEntry(domain=DOMAIN, title="Robo")
+        entry.add_to_hass(hass)
+        er.async_get(hass).async_get_or_create(
+            "vacuum", DOMAIN, "robo", config_entry=entry, suggested_object_id="robo",
+        )
+        hass.states.async_set("vacuum.robo", "docked", {"friendly_name": "Robo"})
+        source = Path(__file__).parent.parent / "blueprints" / "automation" / "roomba_plus_exceptions.yaml"
+        target = Path(hass.config.path("blueprints", "automation", "roomba_plus", source.name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, target)
+        sent = async_mock_service(hass, "notify", "phone")
+        assert await async_setup_component(hass, "automation", {"automation": {
+            "use_blueprint": {"path": f"roomba_plus/{source.name}", "input": {
+                "vacuum_entity": "vacuum.robo",
+                "notify_action": [{"action": "notify.phone", "data": {
+                    "title": "{{ notification_title }}",
+                    "message": "{{ notification_message }}",
+                }}],
+                **extra_input,
+            }},
+        }})
+        await hass.async_block_till_done()
+        return entry, sent
+
+    async def test_a_mission_ending_badly_and_only_that(self, hass):
+        entry, sent = await self._automation(hass)
+        for result in ("completed", "stuck", "cancelled", "error"):
+            hass.bus.async_fire("roomba_plus_mission_completed", {
+                "entry_id": entry.entry_id, "result": result, "anomaly_reason": None,
+            })
+        hass.bus.async_fire("roomba_plus_mission_completed",
+                            {"entry_id": "other", "result": "error"})
+        await hass.async_block_till_done()
+        assert [(c.data["title"], c.data["message"]) for c in sent] == [
+            ("Robo", "The mission got stuck."),
+            ("Robo", "The mission ended in an error."),
+        ]
+
+    async def test_the_detectors_events(self, hass):
+        entry, sent = await self._automation(hass)
+        bus = hass.bus
+        bus.async_fire("roomba_plus_error_recurrence", {
+            "entry_id": entry.entry_id, "error_code": 2, "label": "Brushes",
+            "count": 4, "room": "Kitchen", "action": "Clean the brushes.",
+        })
+        bus.async_fire("roomba_plus_stuck_pattern", {
+            "entry_id": entry.entry_id, "room": "Hall", "time": "Mondays around 10:00",
+        })
+        bus.async_fire("roomba_plus_mission_anomaly", {"entry_id": entry.entry_id, "count": 2})
+        bus.async_fire("roomba_plus_mission_reassessed", {
+            "entry_id": entry.entry_id, "anomaly_reason": "dirt_spike",
+            "recommended_action": "Check for a spill.",
+        })
+        bus.async_fire("roomba_plus_cancellation_recurrence", {
+            "entry_id": entry.entry_id, "count": 5, "by_user_count": 4,
+        })
+        await hass.async_block_till_done()
+        assert [c.data["message"] for c in sent] == [
+            "Error 2 (Brushes) 4 times, in Kitchen. Clean the brushes.",
+            "Stuck again and again in Hall, Mondays around 10:00.",
+            "2 anomalous missions in a row. The mission history says why.",
+            "The last mission was unusual by iRobot's numbers. Check for a spill.",
+        ], "cancellations are off by default"
+
+    async def test_skips_in_a_row_from_the_sensor(self, hass):
+        _entry, sent = await self._automation(
+            hass, skips_sensor="sensor.robo_skips", skips_threshold=3,
+        )
+        hass.states.async_set("sensor.robo_skips", "2")
+        await hass.async_block_till_done()
+        hass.states.async_set("sensor.robo_skips", "3")
+        await hass.async_block_till_done()
+        assert [c.data["message"] for c in sent] == [
+            "3 scheduled cleans skipped in a row. Check the blocking sensors "
+            "and the presence planning.",
+        ]

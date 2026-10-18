@@ -215,8 +215,11 @@ class TestPrimeSetupRegistersTheViews:
         registered = {
             type(c.args[0]).__name__ for c in hass.http.register_view.call_args_list
         }
-        assert hass.http.register_view.call_count == len(registered) == 9
-        assert {"MissionHistoryView", "HouseholdSummaryView", "DailyDigestView"} <= registered
+        assert hass.http.register_view.call_count == len(registered) == 10
+        assert {
+            "MissionHistoryView", "HouseholdSummaryView", "DailyDigestView",
+            "MaintenanceView",
+        } <= registered
 
 
 class TestHouseholdMaintenanceOnPrime:
@@ -271,11 +274,13 @@ class TestHouseholdMaintenanceOnPrime:
 
 
 class TestPrimePartsDue:
-    def test_the_list_and_the_api_share_one_rule(self):
-        from custom_components.roomba_plus import prime_parts, todo_prime
+    def test_the_maintenance_entries_and_the_api_share_one_rule(self):
+        """The list reads the maintenance entries (4.5.0), which take
+        their rule from prime_parts as the API does."""
+        from custom_components.roomba_plus import maintenance_model, prime_parts
 
-        assert todo_prime._needs_attention is prime_parts.needs_attention
+        assert maintenance_model.needs_attention is prime_parts.needs_attention
         assert (
-            todo_prime._parts_the_robot_cannot_have
+            maintenance_model.parts_the_robot_cannot_have
             is prime_parts.parts_the_robot_cannot_have
         )

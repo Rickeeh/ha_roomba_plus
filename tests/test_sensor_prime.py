@@ -270,7 +270,8 @@ class TestAsyncSetupEntryCloudOnlyBranch:
         # attribute-carrying form Classic has always shipped, which
         # Prime had no equivalent of. The per-region entities are NOT
         # counted here -- they are opt-in on both tiers.
-        assert len(created) == 37, (
+        # 38 since the maintenance status (4.5.0), on both generations.
+        assert len(created) == 38, (
             "rooms-overdue was added for Prime: it reads the mission "
             "store and cloud regions, both of which Prime has, and it "
             "was missing only because of the order things were built in"

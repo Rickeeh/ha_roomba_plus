@@ -197,6 +197,14 @@ DELIBERATE: dict[str, dict[str, str]] = {
         "SelectorEntitySelectorConfig": (
             "configures the correlation-entity picker, a Classic-only feature"
         ),
+        "getattr": (
+            "reads the map capability: a Classic robot is offered wall "
+            "thickness and door width (4.5.0) only with a map to draw them on"
+        ),
+        "items": (
+            "walks the Classic form to put those two fields right after the "
+            "map turn, a field the Prime form does not have"
+        ),
     },
     "blocking_manager.py::_do_start": {
         "send_command": (

@@ -2277,6 +2277,7 @@ class TestHouseholdSummaryView:
         )
         data.roomba = MagicMock()
         data.roomba.master_state = {"state": {"reported": vac_state or {}}}
+        data.maintenance = None
 
         entry.runtime_data = data
         return entry
@@ -2508,6 +2509,34 @@ class TestHouseholdSummaryView:
         body = json.loads(resp.body)
 
         assert body["total"]["area_sqft"] is None
+
+    @pytest.mark.asyncio
+    async def test_the_maintenance_entries_decide_where_they_exist(self):
+        """4.5.0: the household read its own rule -- local hours, or the
+        Prime parts -- beside the entries every other surface shows. A
+        part snoozed, or due by the series profile, read differently."""
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.api_views import HouseholdSummaryView
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        entry = self._make_entry("e1", "Robo", vac_state={"bbrun": {"hr": 200}})
+        entry.runtime_data.maintenance = SimpleNamespace(
+            items=[MaintenanceItem("clean.filter", "clean", "filter", level="due")],
+            level="due",
+        )
+        hass = MagicMock()
+        hass.config_entries.async_entries.return_value = [entry]
+        body = json.loads((await HouseholdSummaryView().get(self._make_request(hass))).body)
+        robot = body["robots"][0]
+        assert robot["maintenance_due"] is False, "a cleaning is not a part to replace"
+        assert robot["maintenance_level"] == "due"
+
+        entry.runtime_data.maintenance.items.append(
+            MaintenanceItem("replace.bag", "replace", "bag", level="overdue"),
+        )
+        body = json.loads((await HouseholdSummaryView().get(self._make_request(hass))).body)
+        assert body["robots"][0]["maintenance_due"] is True
 
     @pytest.mark.asyncio
     async def test_no_maintenance_store_defaults_to_not_due(self):
@@ -2926,3 +2955,44 @@ class TestHazardsShareOneFrame:
             assert by_source[source]["bearing_deg"] is None
             assert by_source[source]["distance_mm"] is None
         assert by_source["keepout"]["x_mm"] == 5.0
+
+
+class TestMaintenanceView:
+    """4.5.0: GET /api/roomba_plus/{entry_id}/maintenance."""
+
+    def _hass(self, entry):
+        hass = MagicMock()
+        hass.config_entries.async_get_entry.return_value = entry
+        req = MagicMock()
+        req.app = {"hass": hass}
+        return req
+
+    @pytest.mark.asyncio
+    async def test_the_entries_as_the_status_sensor_has_them(self):
+        import json as _json
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.api_views import MaintenanceView
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        item = MaintenanceItem("replace.filter", "replace", "filter", level="soon", used=0.84)
+        tracker = SimpleNamespace(level="soon", items=[item])
+        entry = SimpleNamespace(domain="roomba_plus", runtime_data=SimpleNamespace(maintenance=tracker))
+        body = _json.loads((await MaintenanceView().get(self._hass(entry), "e1")).body)
+        assert body["level"] == "soon"
+        assert body["items"] == [item.as_dict()]
+        assert "generated_at" in body
+        assert MaintenanceView.url == "/api/roomba_plus/{entry_id}/maintenance"
+
+    @pytest.mark.asyncio
+    async def test_unknown_entry_and_no_entries_yet(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.api_views import MaintenanceView
+
+        view = MaintenanceView()
+        assert (await view.get(self._hass(None), "x")).status == 404
+        other = SimpleNamespace(domain="other", runtime_data=None)
+        assert (await view.get(self._hass(other), "x")).status == 404
+        starting = SimpleNamespace(domain="roomba_plus", runtime_data=None)
+        assert (await view.get(self._hass(starting), "x")).status == 503

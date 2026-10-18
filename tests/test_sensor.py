@@ -2650,3 +2650,45 @@ class TestSmartMapSensorsAreCreated:
 
     def test_reset_diagnostics_only_when_the_robot_reports_them(self):
         assert "RoombaResetDiagnosticsSensor" not in self._setup(bbrst=False)
+
+
+class TestMaintenanceStatusSensor:
+    """4.5.0: one entity for every maintenance entry, both generations."""
+
+    def _sensor(self, tracker):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus.sensor import RoombaMaintenanceStatusSensor
+
+        entry = MagicMock()
+        entry.runtime_data = SimpleNamespace(maintenance=tracker)
+        return RoombaMaintenanceStatusSensor(None, "BLID1", entry)
+
+    def test_the_worst_level_and_every_entry(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        items = [
+            MaintenanceItem("replace.filter", "replace", "filter", level="due"),
+            MaintenanceItem("replace.side_brush", "replace", "side_brush", level="soon"),
+            MaintenanceItem("replace.battery", "replace", "battery"),
+        ]
+        sensor = self._sensor(SimpleNamespace(level="due", items=items))
+        assert sensor.unique_id == "roomba_plus_BLID1_maintenance"
+        assert sensor.options == ["ok", "soon", "due", "overdue"]
+        assert sensor.native_value == "due"
+        attrs = sensor.extra_state_attributes
+        assert [i["id"] for i in attrs["items"]] == [i.id for i in items]
+        assert attrs["due"] == ["replace.filter"]
+        assert attrs["soon"] == ["replace.side_brush"]
+        assert attrs["overdue"] == []
+        assert "items" in sensor._unrecorded_attributes
+        assert sensor.new_state_filter({"batPct": 1}) is False
+        assert sensor._shows_maintenance is True
+
+    def test_nothing_without_entries(self):
+        sensor = self._sensor(None)
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes == {}

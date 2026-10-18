@@ -352,6 +352,7 @@ this is not `Cleaning` — but a pad wash runs for minutes and is audible,
 so a tracker sitting on `Docked` through it would look stuck. Before
 this, that phase fell through to the active branch and the tracker read
 `Cleaning` about a robot parked in its dock.
+- Walls and doors on the rooms map *(4.5.0)*: where two rooms' polygons touch is an opening (a door, or an open passage when clearly wider than the set door width), every other edge a wall as thick as set. Prime maps with iRobot's own floor plan keep its walls and get the doors marked.
 - One select entity per floor; multiple Smart Maps supported
 - Each saved iRobot app routine appears as a button entity
 - `clean_room` uses cloud names directly; map version changes trigger an immediate refresh
@@ -365,7 +366,16 @@ What the areas learn from *(4.3.1)*:
 - **A name survives a recompute.** When the areas are divided differently and a named area is absorbed by another, the name moves to the area that took most of it, unless that one has a name of its own.
 - **Doors in diagnostics** carry `opening_mm` (the opening at its widest) and `constriction` (how much it narrows the floor) beside the older `saddle_mm`. Measurement only; how areas are merged has not changed.
 
-**Rooms are not derived until three missions have completed** *(v4.0.0a43)*. This technique is measurably unstable on incomplete coverage: a threshold the robot has not yet crossed is indistinguishable from a wall, so it splits a room that is not split, and the split disappears once a later mission drives through. On one real archive that showed as 7 rooms after one mission, 6 after four, and 5 once coverage settled — two of the seven were never rooms. Only *completed* missions count, because a run that ended early has no perimeter pass and its mask edges sit further from the real walls.
+What changed in 4.5.0, all from one 980 checked room by room against how the flat is really divided:
+- **Not a robot carried back.** A robot that got stuck and was carried to its dock, without the robot counting a pickup, docks metres from where it measured itself. That gap was spread over the path as drift and bent everything after the stuck. A dock correction over 1.5 m is now taken as carried: that stretch is still drawn and kept in the trajectory, and left out of the grid, the areas and the doors. It is not counted as drift either.
+- **Two named rooms stay two.** When a recompute puts most of two differently named rooms into one area, the area is divided between them again, and neither name is lost.
+- **A door is where the robot went through.** Rooms either side of a wall touch on the grid, so areas that only share a wall were joined by a door. A door is now shown once a mission's path went from deep in one area to deep in the other through it (`driven_by_missions` in diagnostics). Until a mission has been checked, every door shows, as before. A door no longer at the boundary of its two areas is removed.
+- **Three missions since the grid was empty.** The wait before the first areas counted the robot's completed missions over its whole life, so after the grid was emptied the areas came from the first mission. It now counts the missions the grid learned from.
+- **The rooms it went into.** A whole-floor mission was recorded with every named room. It is now recorded with the named rooms its position actually went into, where positions arrive.
+
+**Straight walls, doors and furniture on the map** *(4.5.0)*. Where the robot's lanes run along two axes, the map draws each room as a rectangle at the outermost floor driven, one wall between two neighbouring rooms, doors as gaps where the robot went through (an opening much wider than a door as an open passage), and undriven floor inside a room as furniture. *Wall thickness* and *Door width* in the settings tune which sides are one wall and how wide a door is drawn. Diagnostics `rooms.layout` says whether it is drawn and why not.
+
+**Rooms are not derived until the grid has learned from three missions** *(v4.0.0a43; counted since the grid was empty from 4.5.0)*. This technique is measurably unstable on incomplete coverage: a threshold the robot has not yet crossed is indistinguishable from a wall, so it splits a room that is not split, and the split disappears once a later mission drives through. On one real archive that showed as 7 rooms after one mission, 6 after four, and 5 once coverage settled — two of the seven were never rooms. Until 4.5.0 only *completed* missions counted, because a run that ended early has no perimeter pass; but that count ran over the robot's whole life and never started again, so after the grid was emptied it no longer made anything wait.
 
 **What this can and cannot give you.** A room here is the set of cells the robot drove over, so its shape follows coverage rather than walls: furniture leaves holes, edges sit about one robot radius short of the wall, and boundaries fall at narrow points in the coverage rather than at doorways. More missions fix the *count*; they do not fix the shape, because the sofa is in the same place every time. Wall-accurate outlines would need obstacle data the 900-series does not export.
 
@@ -583,6 +593,14 @@ above divided by `size_px`, each clockwise quarter turn takes `(p, q)` to
 
 ---
 
+### Room names in Japanese, Chinese or Korean
+
+The labels are drawn with DejaVu Sans. For names in a script it lacks, a
+label uses the first font that has all its characters: the fonts in
+`roomba_plus/fonts` in the configuration folder, then the system's.
+Roomba+ ships none for these scripts; see
+[TROUBLESHOOTING](TROUBLESHOOTING.md#room-names-show-as-boxes-on-the-map).
+
 ### Room cleaning setup — HA areas (`vacuum.clean_area`, HA 2026.3+)
 
 `vacuum.clean_area` is a native HA action that lets you trigger room cleaning using HA areas (the same areas used for lights, climate, and other devices). It is the recommended approach on HA 2026.3 or newer. On older HA, use `roomba_plus.clean_room` instead — it works identically without any setup.
@@ -618,6 +636,110 @@ data:
 
 ## Maintenance & health
 
+#### Maintenance status and entries *(4.5.0)*
+
+Every part and care task is one **maintenance entry**, worked out once and
+shown the same everywhere. `sensor.{name}_maintenance` gives the worst
+level of the entries that are not snoozed -- `ok`, `soon`, `due`,
+`overdue` -- on both generations, and lists them in `items`:
+
+| Field | Meaning |
+|---|---|
+| `id` | `replace.filter`, `replace.main_brush`, `clean.wheel`, `replace.part_202` ... |
+| `action`, `part` | `replace` or `clean`; the part or task |
+| `level` | replacing: soon from 80 % of the interval, due at 100 %, overdue a week later; cleaning: due on its date, overdue after half an interval more |
+| `used`, `remaining`, `unit` | share of the interval used; what is left, in hours, days, missions, evacuations, pad washes ... |
+| `due` | when it is due (or became due); from the wear rate for parts |
+| `interval`, `interval_unit`, `interval_source` | `cloud` (the robot's counter), `learned`, `configured`, `profile`, `irobot_budget`, `calendar` |
+| `last_done`, `wear_rate` | last replacement or cleaning; use per day |
+| `guide_url`, `buy_url` | iRobot's guide and shop link, where its parts catalogue has them |
+| `guide_id` | our care guide for the entry (`clean_filter`, `replace_bag` ...), see [Care guides](#care-guides-450) |
+| `done` | what marking it done writes: `local`, `cloud`, `both` |
+| `snoozed_until` | set by `maintenance_snooze` |
+
+`event.{name}_maintenance` fires `due`, `overdue`, `done` and `snoozed` with
+the entry as data, once per change -- a restart does not repeat it, and a
+reset in the iRobot app counts as done. Its `guide` is the signed link to
+the entry's care guide and `guide_title` the guide's title in Home
+Assistant's language ("Filter reinigen"), for a notification -- the
+[maintenance blueprint](AUTOMATIONS.md#maintenance-450) uses both.
+
+**Marking done:** `roomba_plus.maintenance_done` with `item` (and optionally
+`action: clean` to report a part as only cleaned -- its counter stays) and
+`roomba_plus.maintenance_snooze` with `item` and `days`. On a Prime robot
+the reset is sent to iRobot the way the app sends it; if iRobot applies it
+to no part, the action fails with a message. The reset buttons and
+`reset_*` actions keep working.
+
+A Prime part gets its name from the part name, as in the iRobot app: the
+first of mop washing system, dock washing system, main brush, side brush,
+detergent, filter, pad, bag, roller, sensor found in it. Care tasks on
+Prime use the 2025 lines' intervals: side brush, cliff sensors and charging
+contacts every two weeks.
+
+#### Configure → Maintenance *(4.5.0)*
+
+One page for maintenance, on both generations:
+
+- **The overview**: every entry with its level, what is left and where the interval comes from.
+- **Settings**:
+
+| Setting | Values | Default |
+|---|---|---|
+| Show maintenance as a to-do list | on / off | on for a robot added from 4.5.0, otherwise as before |
+| Cleaning reminders, Pets in the household | on / off | off |
+| Report a part as "soon" from | 80 % / 60 % / never | 80 % (iRobot's Prime app warns there) |
+| Guide when an error points to a care task | maintenance list / repairs / off | maintenance list; the list choice needs the list on |
+| Repair issue for a part a week overdue | on / off | off |
+| Maintenance calendar | on / off | off |
+| Hide the maintenance diagnostic entities | on / off | off |
+| Filter, main brushes, side brush, Clean Base bag interval | hours, empty = automatic | empty; Classic only — a Prime robot's counters are its intervals |
+
+- **Report a part replaced or a task done**: pick the entry, optionally "only cleaned" — the same as ticking it off or `maintenance_done`.
+- **Care guides**: the robot's guides, the most urgent first; the chosen one with its drawing, and "mark as done now" where it has an entry. See [Care guides](#care-guides-450).
+- **Forget learned intervals** (Classic): the interval learned from your own replacements, for one part or all — after a reset pressed by mistake or a part swapped early. The current part's count stays; learning starts again with the next two replacements. Also `roomba_plus.maintenance_forget_learned`.
+
+**A new installation is lean** (4.5.0): "last replaced", "wear rate" and "days until due" per part, and the battery, wheel, contact and bin buttons, are created disabled — their figures are attributes of the part sensors and entries of the status sensor, and the parts are reported done from the list, the page or the action. A 980 starts with nine maintenance entities: the status, three remaining-hours sensors, the due sensor, the list, the event, and the filter and brush buttons. An existing installation keeps what it has; *Hide the maintenance diagnostic entities* takes it to the same set and back. Dashboards and automations using those entities stop updating while they are hidden.
+
+#### Care guides *(4.5.0)*
+
+A guide for every care task and part — filter, main brushes, side brush, wheels, cliff sensors, charging contacts, bin, camera window, Clean Base bag, battery, mop pad, roller mop, detergent and the wash dock — written and drawn for Roomba+, in all eight languages. Each says what the part does, how to clean or replace it in three or four steps and what not to do, with a drawing of the robot's underside, bin, Home Base, Clean Base or wash dock and the part highlighted (amber, with a halo and a numbered marker; light and dark mode). iRobot's own guide for the model is linked below where the parts catalogue has one.
+
+**The guide follows the robot.** Where the series differ, the text does too: the filter of a 600, of an 800/900 (yellow tab under a filter door), of the e, i and j series (out to the left of the bin) and of the s series (by its loop behind a door); how each series releases its brushes; the s series' corner brush and rear caster; the charging contacts on a Home Base, a Clean Base or a wash dock, drawn beside the robot. The drawings follow the series (600–900, e/i/j, s, Braava) and the dock. A Prime robot reads the general text on the e/i/j drawings: iRobot describes its parts per model only for the earlier lines. Mop pads, washable or disposable, share one text.
+
+**Cleaning materials as iRobot gives them:** a slightly damp melamine sponge or cloth for the charging contacts and the cliff sensors; optical windows, the Home Base's docking sensor and a wash dock's markers dry; never a spray.
+
+Where they appear:
+
+- the maintenance list and calendar ("How to do it", beside iRobot's guide);
+- the list and calendar descriptions start with what the part does, in one sentence;
+- `event.{name}_maintenance` (`guide`, `guide_title`) and the vacuum's `care_task` / `care_guide` while the robot reports something that points to a care task — an error, a refusal to start (it sees a drop, a brush is stuck, the bin is missing, the camera does not answer) or, without a Clean Base, a full bin. For a notification:
+
+```yaml
+action: notify.mobile_app_phone
+data:
+  message: "{{ trigger.to_state.attributes.care_task }} needs attention"
+  data:
+    url: "{{ trigger.to_state.attributes.care_guide }}"          # iOS
+    clickAction: "{{ trigger.to_state.attributes.care_guide }}"  # Android
+```
+
+- Configure → Maintenance → *Care guides*, with *When*: the interval and where it comes from, what is left and when it was last done;
+- the repair issues below, with the whole guide and its drawings.
+
+**The link opens without signing in**, in the browser and in the companion app: it is a path signed with this installation's own secret, valid for 31 to 37 days, and the page holds nothing private. An expired link says where to get a new one. The link is relative (`/api/roomba_plus/care/...`); outside Home Assistant's own apps put your Home Assistant address in front.
+
+#### Maintenance repair issues *(4.5.0, opt-in)*
+
+Both under Configure → Maintenance → Settings, off by default — the list says the same:
+
+- **Repair issue for a part a week overdue**: one issue per part, with its guide and its interval (and where it comes from). *Replaced* resets the counter (on Prime at iRobot); *Only cleaned* and *Not yet* ask again in a week; *Never for this part* stops it until the option is switched off and on.
+- **Guide when an error points to a care task** set to *Repairs*: one issue while the robot reports the error, refusal or full bin, saying which, instead of the list item. *Cleaned* records the cleaning where the task has an entry; *Close* keeps it away until the next error. It goes by itself when the error does.
+
+#### Maintenance calendar *(4.5.0, opt-in)*
+
+`calendar.{name}_maintenance` — read-only, separate from the schedule calendar: every due date as an all-day event, titled like the list item, with the guide link. A part's date is an estimate from its wear rate and moves with every run, and its description says so; a care task's date stands. Off by default, because a calendar entity puts the calendar in the sidebar.
+
 #### Remaining life sensors
 
 | Sensor | Notes |
@@ -627,6 +749,13 @@ data:
 | Cleaning pad remaining hours | Braava only |
 | Battery capacity retention (%) | Degradation relative to design capacity (profile-corrected, v2.5+) |
 | Estimated battery end of life (days) | Projected days until battery replacement — self-calibrated against this robot's own measurement noise floor (v3.1.0), so a near-new battery with normal estCap jitter no longer produces a meaningless multi-decade projection |
+
+All remaining-hours sensors read the maintenance entries' calculation
+(4.5.0): the robot's counter, your own replacements, the hour option, the
+series profile, then the fallback -- in that order, and the same figure the
+due check uses. Attributes since 4.5.0: `level`, `used`, `due`,
+`last_replaced`, `wear_rate`, `buy_url`. "Pad replaced" exists on a Braava
+only.
 
 **Where the replacement interval comes from (4.3.2)**, best first: iRobot's own counter for this robot (`cloud`), the interval learned from your own replacements (`learned`), an hour option (`configured`), the robot's series (`profile`), and a last fallback (`irobot_budget`). The part sensor's `interval_source` says which. Series values, in hours of use:
 
@@ -746,7 +875,7 @@ Two states are worth knowing about:
 
 #### Care reminders *(4.3.2, opt-in)*
 
-**Off by default.** Configure → Settings → *Cleaning reminders* switches them on; off, there is no reminder sensor, no "cleaned" buttons above and no cleaning items in the to-do list. Replacement reminders do not depend on it.
+**Off by default.** Configure → Maintenance → Settings → *Cleaning reminders* (Configure → Settings before 4.5.0) switches them on; off, there is no reminder sensor, no "cleaned" buttons above and no cleaning items in the to-do list. Replacement reminders do not depend on it.
 
 `sensor.{name}_maintenance_next_cleaning_due` — when the next cleaning is due, by iRobot's care calendar: filter and main brushes once a week (twice a week with *Pets in the household* on, Configure → Settings), side brush once a month, wheels every two weeks, cliff sensors and charging contacts once a month. A Braava has the last two only. The state is the earliest date; attributes: `task` (which one), `overdue` (the tasks past due), `pets`, and `schedule` (each task with `last_done`, `due`, `interval_days`, `overdue`).
 
@@ -756,18 +885,20 @@ Every reset above (button or service) writes a searchable Logbook entry and fire
 
 #### Maintenance due binary sensor
 
-`binary_sensor.{name}_maintenance_due` — ON when any consumable reaches zero remaining hours. Attributes: `due` (list of consumables), `overdue_by_hours` (hours past threshold per consumable). Home Assistant's default dashboard tile for a `problem`-class binary sensor shows only on/off, not attributes — click into the entity's more-info dialog and check "Attributes" (or view it in Developer Tools → States) to see which consumable is actually due. Also available as the `maintenance_due` device trigger. If left unaddressed for 3+ days, also raises a Repair Issue — a backstop for anyone without an automation wired to the trigger.
+`binary_sensor.{name}_maintenance_due` — ON when a part to replace is due or overdue in the maintenance entries (since 4.5.0 the same rule as the status sensor and the list; before, its own hour count). Attributes: `due` (list of consumables), `overdue_by_hours` (hours past threshold per consumable). Home Assistant's default dashboard tile for a `problem`-class binary sensor shows only on/off, not attributes — click into the entity's more-info dialog and check "Attributes" (or view it in Developer Tools → States) to see which consumable is actually due. Also available as the `maintenance_due` device trigger. Until 4.5.0 it also raised a Repair Issue after 3 days; that collective issue is gone — the status sensor, the list and the event say it where it can be acted on.
 
-#### Maintenance to-do list (v3.4.0)
+#### Maintenance to-do list (v3.4.0, rebuilt in 4.5.0)
 
-`todo.{name}_maintenance` — maintenance as Home Assistant to-do items, in Home Assistant's language. **Opt-in** on both generations (since 4.0): Configure → Connection settings → *Show maintenance as a to-do list*. Classic robots got that switch only in 4.2.17 / 4.3.0b5.
+`todo.{name}_maintenance` — the maintenance entries as Home Assistant to-do items, in Home Assistant's language, **on both generations**. Configure → Maintenance → Settings → *Show maintenance as a to-do list*: **on for a robot added from 4.5.0 on**, off by default for one set up before (it keeps its setting).
 
-On a Classic robot (rebuilt in 4.3.2):
+- **One item per entry**: every part the robot has (filter, main brushes, side brush, Clean Base bag or dust bag, the mop pad on a Braava; on Prime every part the robot reports), and with care reminders on every care task.
+- **Open from "due"**, not from "soon": while nothing is due the list has nothing open. An item not due is listed as done, with its due date; a snoozed one stays done until its snooze ends.
+- **The description** says what is left (or how often a care task comes round), the error that brought the item, and links: our care guide, and iRobot's guide and the part where the parts catalogue has them. The list shows it as formatted text with clickable links, in the browser and the companion app.
+- **Ticking an item off** is `roomba_plus.maintenance_done`: counter, Logbook entry, `roomba_plus_maintenance_reset`, iRobot's counter where the account has one. **On Prime the reset goes to iRobot** (until 4.5.0 the Prime list was read-only); if iRobot applies it to no part, the list shows the error.
+- **A robot error that points to a care task** brings a "check" item while the robot reports it — "Check the main brushes" for a brush error, "Check the bin" for a bin error — and it goes when the error does. Where the task has an item of its own, that item carries the error instead: never two items for one task. With care reminders on, a dirt error (filter, main brushes, side brush, cliff sensors) makes the cleaning due until it is ticked off; a wheel or contact error only points to the task. Prime: errors 2, 6, 201, 1000 and 1001, the ones the app's error pictures tie to a part.
+- Item ids are the ones the list used before (`filter_maintenance`, `care_wheel`, `part_147`, …); new kinds use the entry id (`check.bin`).
 
-- **Replace** — one item per part the robot has: filter, main brushes, side brush, Clean Base bag (with a Clean Base); the mop pad on a Braava. Open when `maintenance_due` says the part is due; the due date is the wear-rate estimate of the `*_days_until_due` sensors (absent until a wear rate is established). Ticking it off does what the reset button does: counter, Logbook entry, `roomba_plus_maintenance_reset`, and iRobot's counter where the account has one.
-- **Clean** — with care reminders on, one item per care task above, due by the calendar. Ticking it off records the cleaning and moves no replacement counter.
-
-An item not due is listed as done, with its due date, and comes back on that date. Before 4.3.2 the brush item read "Clean brush roll" but reset the main-brush replacement counter.
+Before 4.3.2 the brush item read "Clean brush roll" but reset the main-brush replacement counter.
 
 SMART-tier robots (i/s/j-series, Braava) also get a **Reconfigure rooms** item whenever a room still needs a name — with the iRobot account added, only a room on the map without a name anywhere counts (since 4.2.19; before, rooms named in the account kept it open). This item isn't manually completable: it disappears on its own once every room has a name via Configure → *Rooms & zones*; marking it done by hand has no effect and it simply reappears on the next update if unnamed rooms remain.
 
@@ -956,7 +1087,7 @@ Monitors each mission against the last 30 days of your robot's personal history.
 
 The `roomba_plus.explain_mission` service (and its [REST equivalent](API.md#get-missionmission_idexplain)) turns a flagged anomaly into a plain-language reason: `obstacle_or_blockage`, `excessive_recharge`, `dirt_spike`, or `incomplete_coverage`, plus a matching recommended action. `robot_lifted` (the robot was picked up during the mission) and `error_code` are reported alongside, independently — a mission can have either regardless of which anomaly reason applies, if any.
 
-The same explanation is also included directly in every `roomba_plus_mission_completed` event payload (see [Event bus](#event-bus-v286)) — a notification automation gets `anomaly_reason` and `recommended_action` for free, without calling the service.
+On a Classic robot the dirt count comes with iRobot's mission history, minutes after the mission ended, so the mission-end event cannot report `dirt_spike` there; `roomba_plus_mission_reassessed` does once the numbers arrive (4.5.0; needs the iRobot login, a local-only robot never gets them). The same explanation is also included directly in every `roomba_plus_mission_completed` event payload (see [Event bus](#event-bus-v286)) — a notification automation gets `anomaly_reason` and `recommended_action` for free, without calling the service.
 
 #### Stuck pattern time-correlation (v2.7+)
 
@@ -1414,9 +1545,11 @@ box and reloading showed nothing.
 | Option | Default | Notes |
 |---|---|---|
 | Show cleaning schedules as a calendar | **on** | |
-| Show maintenance as a to-do list | **off** | |
-| Cleaning reminders | **off** | Reminds you of iRobot's cleaning calendar: a sensor, four "cleaned" buttons and cleaning items in the to-do list (4.3.2) |
-| Pets in the household | off | With cleaning reminders on: filter and main brushes twice a week instead of once (4.3.2) |
+| Show maintenance as a to-do list | **on for a robot added from 4.5.0**, off before | Configure → Maintenance since 4.5.0 |
+| Cleaning reminders | **off** | Reminds you of iRobot's cleaning calendar: a sensor, four "cleaned" buttons and cleaning items in the to-do list (4.3.2). Configure → Maintenance since 4.5.0 |
+| Pets in the household | off | With cleaning reminders on: filter and main brushes twice a week instead of once (4.3.2). Configure → Maintenance |
+| Maintenance calendar | off | Read-only due dates as all-day events (4.5.0). Configure → Maintenance |
+| Hide the maintenance diagnostic entities | off | "Last replaced", "wear rate", "days until due" per part (4.5.0); a new installation creates them disabled |
 | Create a button for each saved favorite | off | Prime robots. One button per favourite, which is a lot of buttons on a busy account |
 
 The calendar and the to-do list are the same kind of thing and default differently, which is
@@ -1497,6 +1630,7 @@ for Prime users, with no error to explain it.
 | Event | Fires when | Payload |
 |---|---|---|
 | `roomba_plus_mission_completed` | A mission ends (any result) | `entry_id`, `name`, `rooms_cleaned`, `area_sqft`, `stuck_count`, `result` — plus (v3.2.0) `is_anomalous`, `anomaly_reason`, `recommended_action`, `robot_lifted`, always present (`null`/`false` for ordinary missions), so a notification automation gets the anomaly reason without calling any service — plus (4.2.19) `mission_id` and `missions_added`. **The same fields on Prime robots since 4.2.19** (before, Prime sent `entry_id` only); there `stuck_count` is `null`, and a sync that imports several missions at once — the first one after setup imports the history — fires once, describing the newest, with `missions_added` saying how many |
+| `roomba_plus_mission_reassessed` (4.5.0) | Classic with the iRobot login: the cloud's numbers for a mission of the last 24 h arrive (minutes after it ended) and make it unusual for another reason than at its end -- typically `dirt_spike`, which a Classic robot's own report cannot show. Once per mission | `entry_id`, `name`, `mission_id`, `ended_at`, `is_anomalous` (`true`), `anomaly_reason`, `recommended_action`, `anomaly_reason_before` (the verdict without the cloud's numbers, `null` if ordinary) |
 | `roomba_plus_room_completed` | A room finished — Classic: room tracking moved on; Prime: the timeline moved to the next region | `entry_id`, `name`, `room_name`, `duration_sec` (4.2.21; Classic: what room tracking measured, Prime: from the room event's start in the timeline to the next event's, `null` when the timeline gave no start for the room); Classic `room_idx`, Prime `room_id`, `mission_id` |
 | `roomba_plus_health_change` | `sensor.*_integration_health` crosses a band (healthy/degraded/critical) | `entry_id`, `name`, `score`, `previous_score`, `band`, `previous_band` |
 | `roomba_plus_map_retrain_started` / `_completed` | Cloud detects a Smart Map change and syncs | `entry_id`, `name`, `pmap_id` |

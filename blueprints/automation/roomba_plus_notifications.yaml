@@ -125,6 +125,18 @@ blueprint:
 mode: queued
 max: 10
 
+# Inputs reach a template only through a variable: Home Assistant does
+# not substitute `!input` inside a template string.
+variables:
+  robot_device: !input robot_device
+  battery_eol_entity: !input battery_eol_entity
+  enabled:
+    mission_complete: !input enable_mission_complete
+    maintenance_due: !input enable_maintenance_due
+    stuck: !input enable_stuck
+    map_retrain: !input enable_map_retrain
+    battery_critical: !input enable_battery_critical
+
 triggers:
   - trigger: event
     event_type: roomba_plus_mission_completed
@@ -148,13 +160,6 @@ conditions:
   # Respect the per-notification enable/disable toggles.
   - condition: template
     value_template: >
-      {% set enabled = {
-        "mission_complete": !input enable_mission_complete,
-        "maintenance_due": !input enable_maintenance_due,
-        "stuck": !input enable_stuck,
-        "map_retrain": !input enable_map_retrain,
-        "battery_critical": !input enable_battery_critical,
-      } %}
       {{ enabled.get(trigger.id, false) }}
   # For the three event-based triggers (no entity_id of their own), confirm
   # the event actually belongs to the selected robot's config entry — NOT
@@ -165,7 +170,7 @@ conditions:
   - condition: template
     value_template: >
       {% if trigger.id in ("mission_complete", "stuck", "map_retrain") %}
-        {{ trigger.event.data.entry_id in (device_attr((!input robot_device), "config_entries") or []) }}
+        {{ trigger.event.data.entry_id in (device_attr(robot_device, "config_entries") or []) }}
       {% else %}
         true
       {% endif %}
@@ -173,7 +178,7 @@ conditions:
 actions:
   - variables:
       notification_title: >
-        {% set robot = device_attr((!input robot_device), "name") %}
+        {% set robot = device_attr(robot_device, "name") %}
         {% if trigger.id == "mission_complete" %}
           {{ robot }}: mission {{ trigger.event.data.result }}
         {% elif trigger.id == "maintenance_due" %}
@@ -196,6 +201,6 @@ actions:
         {% elif trigger.id == "map_retrain" %}
           Room names may be temporarily inconsistent until this finishes.
         {% elif trigger.id == "battery_critical" %}
-          Estimated {{ states(!input battery_eol_entity) }} day(s) remaining until this robot's own learned end-of-life threshold.
+          Estimated {{ states(battery_eol_entity) }} day(s) remaining until this robot's own learned end-of-life threshold.
         {% endif %}
-  - !input notify_action
+  - sequence: !input notify_action

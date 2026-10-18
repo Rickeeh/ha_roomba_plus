@@ -3871,3 +3871,29 @@ class TestAPrimeStartAgainstAPadFault:
         v = self._v(monkeypatch, error=286, mode=4)
         await v.async_return_to_base()
         v._prime_robot.send_simple_command.assert_awaited_once_with("dock")
+
+
+class TestTheErrorsCareTask:
+    """4.5.0, H: an error that points to a care task names it, with the
+    link to its guide, on both generations."""
+
+    def _vacuum(self, task):
+        from custom_components.roomba_plus.care_guides import _DATA_KEY, CareGuides
+
+        data = _make_smart_data()
+        data.maintenance = SimpleNamespace(care_cause_task=lambda: task)
+        v = _make_vacuum_entity(state={"sku": "R980020"}, runtime_data=data)
+        v._config_entry.entry_id = "E1"
+        v.hass = MagicMock()
+        v.hass.config.language = "de"
+        v.hass.data = {_DATA_KEY: CareGuides(b"k" * 32, {}, {})}
+        return v
+
+    def test_the_task_and_its_guide_while_the_error_lasts(self):
+        attrs = self._vacuum("filter").extra_state_attributes
+        assert attrs["care_task"] == "filter"
+        assert attrs["care_guide"].startswith("/api/roomba_plus/care/E1/clean_filter?lang=de&exp=")
+
+    def test_nothing_without_such_an_error(self):
+        attrs = self._vacuum(None).extra_state_attributes
+        assert "care_task" not in attrs and "care_guide" not in attrs

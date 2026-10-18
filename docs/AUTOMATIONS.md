@@ -398,10 +398,50 @@ https://raw.githubusercontent.com/johnnyh1975/ha_roomba_plus/main/blueprints/aut
 2. **Robot** — pick your Roomba+ device. This is used to correctly match this robot's own events in a multi-robot household — matched on the robot's config entry internally, not its name, so a later rename won't break it.
 3. **Notification action** — whatever you already use: a mobile app notify action, `persistent_notification.create`, a TTS announcement, or several of these chained together. Two variables are available inside it: `{{ notification_title }}` and `{{ notification_message }}`.
 4. Toggle which of the five notifications you want (all five are on by default).
-5. For **Maintenance due**, pick this robot's `binary_sensor.*_maintenance_due` entity.
+5. For **Maintenance due**, pick this robot's `binary_sensor.*_maintenance_due` entity. For one notification per part, with the care guide and a Done button, use the [maintenance blueprint](#maintenance-450) instead.
 6. For **Battery capacity critical**, pick this robot's `sensor.*_estimated_battery_eol` entity and, optionally, adjust the warning buffer (default: 14 days before the estimate hits zero). This sensor is self-calibrated per robot — it learns your robot's own degradation rate rather than using a fixed capacity percentage, so the same day-count buffer means something similar regardless of your robot's age or usage pattern. It also needs some cleaning history before it reports a value at all; that's expected, not a bug.
 
 One blueprint import covers all your robots — repeat step 1 to create one automation instance per robot, each pointing at that robot's own entities.
+
+## Maintenance (4.5.0)
+
+A notification when a part or care task is due or overdue, with the care
+guide one tap away and buttons on the phone: **Replaced** for a part,
+**Cleaned** for a care task, **Only cleaned** where a part can also be
+cleaned (its counter stays), **Remind me later** (a day by default) and
+**How to do it**. Android shows three buttons, the guide button last;
+tapping the notification opens the guide anyway. A button marks it done
+in Roomba+, on a Prime robot at iRobot. Notifications wait for your
+hours (08:00 to 21:00 by default; equal times mean any time) -- a restart
+in between drops the waiting one, and the maintenance list still has it. An error that points to a care task arrives the same
+way while the robot reports it (Configure → Maintenance → *Guide when an
+error points to a care task*: maintenance list, the default).
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fjohnnyh1975%2Fha_roomba_plus%2Fmain%2Fblueprints%2Fautomation%2Froomba_plus_maintenance.yaml)
+
+```text
+https://raw.githubusercontent.com/johnnyh1975/ha_roomba_plus/main/blueprints/automation/roomba_plus_maintenance.yaml
+```
+
+Pick the robot's `event.*_maintenance` and its vacuum entity. Without a
+notification action you get a persistent notification in Home Assistant
+with the guide link. For the phone, with the buttons:
+
+```yaml
+action: notify.mobile_app_your_phone
+data:
+  title: "{{ notification_title }}"
+  message: "{{ notification_message }}"
+  data:
+    url: "{{ notification_url }}"          # iOS: tap opens the guide
+    clickAction: "{{ notification_url }}"  # Android
+    actions: "{{ notification_actions }}"
+```
+
+The buttons work after a restart too: they carry the robot and the entry.
+The words ("is due", "Done", ...) are inputs, so the message can be in
+your language; the part's name comes in Home Assistant's language already
+("Filter reinigen"). One automation per robot.
 
 ## Robot went silent (v4.0.0b4)
 
@@ -431,19 +471,37 @@ The extra wait (default 15 minutes, on top of the integration's hour)
 covers a robot carried to another room or a router restart — gaps that
 resolve themselves. Set it to zero to be told immediately.
 
-## Exception notifications (v4.0.0b4)
+## Exception notifications (rewritten in 4.5.0)
 
 The opposite of the curated set: **nothing after a normal mission**, and
-a notification only when something is actually wrong.
+a notification only when something is actually wrong:
 
-Covers stuck-and-abandoned missions, consecutive clean skips,
-performance degradation, and possible floor-accident detection. At most
-one notification per event type per day, so a robot having a bad week
-does not become a notification stream.
+- a mission that ended in an error or stuck (cancelled, or never started
+  because of blocking sensors, if you choose them);
+- the same error again and again (code, room and what to do);
+- the robot getting stuck in the same place at the same time;
+- anomalous missions in a row;
+- missions cancelled again and again (off by default);
+- scheduled cleans skipped in a row -- with the robot's *Consecutive
+  clean skips* sensor (disabled by default; enable it first).
+
+Roomba+ raises each of these once per occurrence, not once per mission.
+Events of other robots are ignored (matched on the config entry, not the
+name).
 
 ```text
 https://raw.githubusercontent.com/johnnyh1975/ha_roomba_plus/main/blueprints/automation/roomba_plus_exceptions.yaml
 ```
+
+Pick the robot's vacuum entity and a notification action (the default
+is a persistent notification); `{{ notification_title }}` and
+`{{ notification_message }}` are available in it.
+
+**Before 4.5.0 this blueprint did not work**: it listened for a
+`repairs` event, issues and an attribute Roomba+ no longer had, and with
+the skips sensor left empty Home Assistant did not load it. An
+automation made from the old version has to be made again: re-import the
+blueprint, then open the automation and pick the robot and the action.
 
 ## Three more blueprints (v3.4.3)
 

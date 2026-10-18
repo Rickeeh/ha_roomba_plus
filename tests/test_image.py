@@ -1574,6 +1574,7 @@ class TestMissionCheckpointV282:
             "pending_segment_points": [],
             "pending_segment_thetas": [],
             "last_dock_anchor_index": 0,
+            "unverified_ranges": [],
         })
 
     @pytest.mark.asyncio
@@ -1721,21 +1722,22 @@ class TestRoomPalette:
 
         # 9 small, non-overlapping rooms spaced along the x-axis — the 9th
         # (index 8) must reuse palette[0] via modulo wraparound.
+        # Wide enough that the centre is clear of the walls (4.5.0).
         room_polygons = {
             f"r{i}": [
-                (i * 400, 0), (i * 400 + 100, 0),
-                (i * 400 + 100, 100), (i * 400, 100),
+                (i * 400, 0), (i * 400 + 300, 0),
+                (i * 400 + 300, 300), (i * 400, 300),
             ]
             for i in range(9)
         }
         entity = self._entity_with_rooms(room_polygons)
-        entity._last_x_min, entity._last_x_max = 0.0, 9 * 400 + 100
-        entity._last_y_min, entity._last_y_max = 0.0, 100.0
+        entity._last_x_min, entity._last_x_max = 0.0, 9 * 400 + 300
+        entity._last_y_min, entity._last_y_max = 0.0, 300.0
         png = entity._render_rooms_png()
         img = PILImage.open(io.BytesIO(png)).convert("RGB")
 
-        px_first = entity._to_px_last(50, 50)
-        px_ninth = entity._to_px_last(8 * 400 + 50, 50)
+        px_first = entity._to_px_last(150, 150)
+        px_ninth = entity._to_px_last(8 * 400 + 150, 150)
         assert img.getpixel(px_first) == ROOM_FILL_PALETTE[0]
         assert img.getpixel(px_ninth) == ROOM_FILL_PALETTE[8 % len(ROOM_FILL_PALETTE)]
 
@@ -1908,7 +1910,7 @@ class TestZoneLayerCache:
     def test_cache_key_set_after_first_render(self):
         entity, aligner = self._entity_with_rooms(self.ROOMS, pmap_version_id="v1")
         entity._render_rooms_png()
-        assert entity._room_render_cache_key == ("v1", True, (), 0)
+        assert entity._room_render_cache_key == ("v1", True, (), 0, 150.0, 800.0)
         assert entity._room_render_cache is not None
 
     def test_pmap_version_change_invalidates_cache(self):
@@ -1925,17 +1927,17 @@ class TestZoneLayerCache:
         }
         entity._render_rooms_png()
 
-        assert entity._room_render_cache_key == ("v2", True, (), 0)
+        assert entity._room_render_cache_key == ("v2", True, (), 0, 150.0, 800.0)
         assert entity._last_x_max != x_max_v1
 
     def test_alignment_state_change_invalidates_cache(self):
         entity, aligner = self._entity_with_rooms(self.ROOMS, pmap_version_id="v1")
         entity._render_rooms_png()
-        assert entity._room_render_cache_key == ("v1", True, (), 0)
+        assert entity._room_render_cache_key == ("v1", True, (), 0, 150.0, 800.0)
 
         aligner._aligned = False  # falls back to UMF-space rendering mode
         entity._render_rooms_png()
-        assert entity._room_render_cache_key == ("v1", False, (), 0)
+        assert entity._room_render_cache_key == ("v1", False, (), 0, 150.0, 800.0)
 
     def test_cached_transform_parameters_restored_on_cache_hit(self):
         entity, _ = self._entity_with_rooms(self.ROOMS)
@@ -5795,7 +5797,7 @@ class TestTheRoomsMapTurnsWithTheOtherPictures:
     def test_the_turn_is_part_of_the_cache_key(self):
         entity = self._entity("270")
         entity._render_rooms_png()
-        assert entity._room_render_cache_key[-1] == 3
+        assert entity._room_render_cache_key[3] == 3
 
 
 class TestTurnPx:
@@ -6108,3 +6110,247 @@ class TestThePathOnTheFloorPlan:
         m.hass.async_add_executor_job = AsyncMock(side_effect=lambda f, *a: f(*a))
         await m.async_image()
         m._renderer.set_floor_plan.assert_called_with([(None, self.SQUARE)])
+        # and the 900-series layout beside it, None for this robot (4.5.0)
+        m._renderer.set_room_layout.assert_called_with(None)
+
+
+class TestARobotCarriedBackIsNotDrift:
+    """The maintainer's 980, 9 October: stuck, carried back to its dock,
+    no pickup counted. The dock contact measured 6.2 m from where the
+    robot thought it was -- the distance it was carried -- and that was
+    spread over the path after the stuck as drift. Its two other
+    corrections were 0.2 and 0.5 m."""
+
+    def _buffered(self, final_x):
+        entity = _make_map_entity()
+        entity._mission_points = [(0.0, 0.0), (100.0, 0.0)]
+        entity._mission_thetas = [0.0, 0.0]
+        entity._dock_anchor_buffering = True
+        entity._pending_segment_points = [(200.0, 0.0), (final_x, 0.0)]
+        entity._pending_segment_thetas = [0.0, 0.0]
+        entity._renderer.point_count = 4
+        entity._unverified_ranges = []
+        geometry = MagicMock()
+        entity._config_entry.runtime_data.geometry_store = geometry
+        entity._config_entry.runtime_data.robot_profile_store = None
+        return entity, geometry
+
+    def test_a_large_correction_is_kept_as_measured_and_marked(self):
+        entity, geometry = self._buffered(6200.0)
+        entity._handle_dock_contact_confirmed()
+        assert entity._mission_points == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0), (6200.0, 0.0)]
+        assert entity._unverified_ranges == [[2, 4]]
+        geometry.record_drift.assert_not_called()
+        entity._renderer.replace_range.assert_not_called()
+        assert entity._dock_anchor_buffering is False
+
+    def test_drift_is_corrected_as_before(self):
+        entity, geometry = self._buffered(500.0)
+        entity._handle_dock_contact_confirmed()
+        assert entity._mission_points[-1] == pytest.approx((0.0, 0.0))
+        assert entity._unverified_ranges == []
+        geometry.record_drift.assert_called_once()
+
+    def test_a_counted_pickup_keeps_its_own_handling(self):
+        entity, geometry = self._buffered(6200.0)
+        entity._picked_up_this_mission = True
+        entity._handle_dock_contact_confirmed()
+        assert entity._mission_points[-1] == pytest.approx((0.0, 0.0))
+        assert entity._unverified_ranges == []
+
+    def test_without_a_stuck_the_stretch_since_the_last_anchor_is_marked(self):
+        entity = _make_map_entity()
+        entity._mission_points = [(0.0, 0.0), (3000.0, 0.0), (6000.0, 0.0)]
+        entity._mission_thetas = [0.0, 0.0, 0.0]
+        entity._last_dock_anchor_index = 1
+        entity._dock_anchor_buffering = False
+        entity._config_entry.runtime_data.robot_profile_store = None
+        entity._handle_dock_contact_confirmed()
+        assert entity._mission_points[-1] == (6000.0, 0.0)
+        assert entity._unverified_ranges == [[1, 3]]
+
+    def test_the_marks_survive_a_restart(self):
+        from custom_components.roomba_plus.image import _checkpoint_ranges
+
+        assert _checkpoint_ranges({"unverified_ranges": [[2, 4], [5, "x"], [1]]}) == [[2, 4]]
+        assert _checkpoint_ranges({}) == []
+
+    def test_learned_runs_leave_the_marked_stretch_out(self):
+        from custom_components.roomba_plus.image import _run_points, _without_ranges
+
+        points = [(float(i), 0.0) for i in range(10)]
+        runs = _without_ranges([(0, 6, 0.0, 0.0), (6, 10, 5.0, 0.0)], [[3, 8]])
+        assert runs == [(0, 3, 0.0, 0.0), (8, 10, 5.0, 0.0)]
+        joined, starts = _run_points(points, runs)
+        assert joined == [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (13.0, 0.0), (14.0, 0.0)]
+        assert starts == {3}
+
+    def _ended(self, unverified):
+        from custom_components.roomba_plus.image import RoombaMapImage
+        from custom_components.roomba_plus.grid_store import GridStore
+        from custom_components.roomba_plus.mission_trajectory_store import MissionTrajectoryStore
+
+        entry = entry_mock()
+        entry.entry_id = "test_entry"
+        entry.runtime_data = MagicMock()
+        entry.runtime_data.grid_store = GridStore()
+        entry.runtime_data.trajectory_store = MissionTrajectoryStore()
+        entry.runtime_data.room_seg_store = MagicMock()
+        entry.runtime_data.room_seg_store.unconfirmed_rooms = []
+        entry.runtime_data.room_seg_store.driven_doors = []
+        entry.runtime_data.room_seg_store.maybe_recompute.return_value = False
+        entry.runtime_data.outline_store = None
+        entry.runtime_data.geometry_store = None
+        entry.runtime_data.freeze_snapshot_store = None
+        entry.runtime_data.umf_aligner = None
+        route = RoombaMapImage.__new__(RoombaMapImage)
+        route.hass = hass_mock()
+        route._config_entry = entry
+        route._renderer = MagicMock()
+        route._renderer._breaks = set()
+        route._renderer._cfg.robot_diameter_mm = 300
+        route._zone_store = None
+        route._map_capability = MapCapability.EPHEMERAL
+        route._mission_points = [(float(x), 0.0) for x in range(0, 3000, 150)]
+        route._mission_thetas = [0.0] * len(route._mission_points)
+        route._unverified_ranges = unverified
+        route._stuck_mission_points = []
+        route._mission_start_ts = "2026-10-09T07:00:00+00:00"
+        route._mission_checkpoint_mssn_strt_tm = 1
+        route._last_terminal_mission_key = None
+        route._mission_started_on_dock = True
+        route.vacuum_state = {"cleanMissionStatus": {"mssnStrtTm": 1}, "bbmssn": {"nMssn": 459}}
+        route._cache = b"old"
+        scheduled = []
+        with patch.object(
+            entry, "async_create_task",
+            side_effect=lambda _h, coro, *_a: scheduled.append(coro) or MagicMock(),
+        ):
+            route._handle_mission_end()
+        for coro in scheduled:
+            coro.close()
+        return entry
+
+    def test_the_grid_learns_only_the_verified_stretch(self):
+        whole = self._ended([]).runtime_data.grid_store.cells
+        cut = self._ended([[10, 20]]).runtime_data.grid_store.cells
+        assert max(c[0] for c in whole) >= 19
+        assert max(c[0] for c in cut) <= 11
+
+    def test_nothing_verified_is_no_mission_for_the_grid(self):
+        entry = self._ended([[0, 20]])
+        assert entry.runtime_data.grid_store.cells == {}
+        assert entry.runtime_data.grid_store.missions_learned == 0
+
+    def test_the_areas_wait_on_missions_this_grid_learned(self):
+        entry = self._ended([])
+        kwargs = entry.runtime_data.room_seg_store.maybe_recompute.call_args.kwargs
+        assert kwargs["missions_seen"] == 1
+        key, runs = kwargs["paths"][-1]
+        assert key == "2026-10-09T07:00:00+00:00"
+        assert len(runs[0]) == 20
+
+    def test_the_trajectory_keeps_what_was_learned(self):
+        store = self._ended([[10, 20]]).runtime_data.trajectory_store
+        assert store.missions[0]["learned_runs"] == [[0, 10, 0.0, 0.0]]
+        assert len(store.missions[0]["points"]) == 20
+
+    def test_a_door_driven_without_a_recompute_is_saved(self):
+        from custom_components.roomba_plus.image import _driven_door_ids, _missions_learned
+
+        assert _driven_door_ids(MagicMock(driven_doors=[MagicMock(id="door_1")])) == {"door_1"}
+        assert _driven_door_ids(object()) == set()
+        assert _missions_learned(MagicMock(missions_learned=True)) is None
+        entry = self._ended([])
+        entry.runtime_data.room_seg_store.note_paths.assert_called_once()
+
+
+class TestTheMapEntityBuildsThe900SeriesLayout:
+    """4.5.0: the map entity hands the renderer the straight-wall layout,
+    built again only when the areas, the doors or the settings change."""
+
+    def _entity(self, capability=MapCapability.EPHEMERAL, options=None):
+        from custom_components.roomba_plus.image import RoombaMapImage
+        from custom_components.roomba_plus.room_seg_store import RoomSegStore, SegRoom
+
+        seg = RoomSegStore()
+        seg.rooms["room_1"] = SegRoom(id="room_1", cells={(x, y) for x in range(10) for y in range(10)})
+        lanes = MagicMock(missions=[{"mission_key": "m1", "points": [[float(x), 0.0] for x in range(0, 30_000, 100)]}])
+        entity = RoombaMapImage.__new__(RoombaMapImage)
+        entity._map_capability = capability
+        entity._renderer = MagicMock()
+        entity._renderer._cfg.robot_diameter_mm = 353
+        entity._config_entry = MagicMock()
+        entity._config_entry.runtime_data.room_seg_store = seg
+        entity._config_entry.runtime_data.trajectory_store = lanes
+        entity._config_entry.options = options or {}
+        return entity, seg
+
+    def test_a_900_series_gets_its_layout(self):
+        entity, _seg = self._entity()
+        layout = entity._room_layout()
+        assert list(layout.rooms) == ["room_1"]
+        assert layout.wall_mm == 150.0 and layout.door_mm == 800.0
+
+    def test_the_settings_reach_it(self):
+        entity, _seg = self._entity(options={"wall_thickness_cm": 24, "door_width_cm": 90})
+        layout = entity._room_layout()
+        assert (layout.wall_mm, layout.door_mm) == (240.0, 900.0)
+
+    def test_built_again_only_on_a_change(self):
+        entity, seg = self._entity()
+        with patch(
+            "custom_components.roomba_plus.image.layout_from_stores",
+            side_effect=lambda *a, **k: object(),
+        ) as build:
+            first = entity._room_layout()
+            assert entity._room_layout() is first
+            seg.rename_room("room_1", "Hall")
+            assert entity._room_layout() is not first
+        assert build.call_count == 2
+
+    def test_not_for_other_robots_or_without_areas(self):
+        entity, _seg = self._entity(capability=MapCapability.SMART)
+        assert entity._room_layout() is None
+        entity, _seg = self._entity()
+        entity._config_entry.runtime_data.room_seg_store = None
+        assert entity._room_layout() is None
+
+
+class TestTheRoomsMapDrawsWallsAndDoors:
+    """4.5.0: on a Smart Map robot's rooms map, the edges two rooms share
+    are the openings iRobot's dividers mark; every other edge is a wall,
+    as thick as set, and two wall edges a wall apart are one wall."""
+
+    #: A room above a hall; they touch along a 90 cm doorway.
+    ROOM = [(0, 0), (3000, 0), (3000, 3000), (0, 3000)]
+    HALL = [(0, -1500), (6000, -1500), (6000, -150), (2000, -150),
+            (2000, 0), (1100, 0), (1100, -150), (0, -150)]
+
+    def _png(self, options=None):
+        import io
+        from PIL import Image as PILImage
+
+        entity = TestRoomPalette()._entity_with_rooms({"1": self.ROOM, "2": self.HALL})
+        entity._config_entry.options = options or {}
+        img = PILImage.open(io.BytesIO(entity._render_rooms_png())).convert("RGB")
+        return entity, img
+
+    def test_the_door_and_the_walls(self):
+        from custom_components.roomba_plus.image import ROOMS_MAP_DOOR, ROOMS_MAP_WALL
+
+        entity, img = self._png()
+        assert img.getpixel(entity._to_px_last(1500, 0)) == ROOMS_MAP_DOOR
+        # the wall between room and hall: halfway between their edges
+        assert img.getpixel(entity._to_px_last(2500, -75)) == ROOMS_MAP_WALL
+        assert img.getpixel(entity._to_px_last(1500, 1500)) != ROOMS_MAP_WALL
+
+    def test_a_narrow_door_setting_makes_it_an_open_passage(self):
+        from custom_components.roomba_plus.image import ROOMS_MAP_DOOR
+
+        entity, img = self._png({"door_width_cm": 50})
+        assert img.getpixel(entity._to_px_last(1500, 0)) != ROOMS_MAP_DOOR
+
+    def test_the_settings_are_part_of_the_cache_key(self):
+        entity, _img = self._png({"wall_thickness_cm": 24, "door_width_cm": 90})
+        assert entity._room_render_cache_key[-2:] == (240.0, 900.0)

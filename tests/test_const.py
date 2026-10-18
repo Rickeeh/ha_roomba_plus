@@ -1369,7 +1369,7 @@ class TestBackwardEveryCloudOnlyModuleIsListed:
     a real CLOUD_ONLY entry at all."""
 
     def test_every_module_referencing_cloud_only_is_in_prime_platforms(self) -> None:
-        """CARVED-OUT EXCEPTIONS: calendar.py and todo_prime.py are
+        """CARVED-OUT EXCEPTIONS: calendar.py and todo.py are
         deliberately NOT in the static PRIME_PLATFORMS list anymore --
         Platform.CALENDAR is now conditional on
         CONF_ENABLE_SCHEDULE_CALENDAR (default True), added at runtime

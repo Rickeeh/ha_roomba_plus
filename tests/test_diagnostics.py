@@ -2766,3 +2766,109 @@ class TestTheTrajectoryOnlyWithDebugLogging:
     async def test_included_with_debug_logging(self) -> None:
         trajectory = (await self._map(logging.DEBUG))["last_mission_trajectory_mm"]
         assert trajectory == [[100.0, 200.0], [300.0, 400.0]]
+
+
+class TestTheLayoutInTheDiagnostics:
+    """4.5.0: whether the straight walls are drawn and why not, as counts."""
+
+    @pytest.mark.asyncio
+    async def test_drawn_or_why_not(self):
+        from custom_components.roomba_plus.diagnostics import (
+            async_get_config_entry_diagnostics,
+        )
+        from custom_components.roomba_plus.room_seg_store import RoomSegStore, SegRoom
+
+        entry = _make_entry({"softwareVer": "v2.4.17"})
+        seg = RoomSegStore()
+        seg.rooms["room_1"] = SegRoom(id="room_1", cells={(x, y) for x in range(10) for y in range(10)})
+        entry.runtime_data.room_seg_store = seg
+        entry.runtime_data.grid_store = None
+        entry.runtime_data.trajectory_store = MagicMock(
+            missions=[{"points": [[float(x), 0.0] for x in range(0, 30_000, 100)]}]
+        )
+        entry.options = {"wall_thickness_cm": 20}
+        hass = MagicMock()
+        hass.config_entries.async_entries.return_value = []
+        with patch(
+            "custom_components.roomba_plus.roomba_reported_state",
+            side_effect=lambda r: r.master_state["state"]["reported"],
+        ):
+            diag = await async_get_config_entry_diagnostics(hass, entry)
+        layout = diag["rooms"]["layout"]
+        assert layout["drawn"] is True
+        assert layout["wall_thickness_mm"] == 200.0
+        assert layout["rooms"] == 1
+
+
+class TestTheMapsDoorsInTheDiagnostics:
+    """4.5.0: whether iRobot's map has doors, and what the rooms map draws."""
+
+    def test_counts_only(self):
+        from custom_components.roomba_plus.diagnostics import (
+            _position_chain, _rooms_map_walls, _umf_door_layers,
+        )
+
+        cc = MagicMock(umf_data={"doors": [{"id": "d"}], "thresholds": []})
+        assert _umf_door_layers(cc) == {"map_doors": 1, "map_thresholds": 0}
+        assert _umf_door_layers(MagicMock(umf_data=None)) == {"map_doors": None, "map_thresholds": None}
+        room = [(0, 0), (3000, 0), (3000, 3000), (0, 3000)]
+        hall = [(0, -1500), (6000, -1500), (6000, -150), (2000, -150),
+                (2000, 0), (1100, 0), (1100, -150), (0, -150)]
+        aligner = MagicMock(room_polygons_umf={"1": room, "2": hall})
+        walls = _rooms_map_walls(aligner, {"door_width_cm": 100})
+        assert walls["doors"] == 1 and walls["door_width_mm"] == 1000.0
+        assert _rooms_map_walls(MagicMock(room_polygons_umf={}), None) is None
+        data = MagicMock(umf_aligner=aligner, cloud_coordinator=cc)
+        chain = _position_chain(data, {})
+        assert chain["map_doors"] == 1 and chain["rooms_map_walls"]["walls"] > 0
+
+
+class TestMaintenanceReport:
+    """4.5.0: every part as the robot reports it, its catalogue name and
+    the role the name gives it -- so 202, 212 and 68 can be settled from
+    a tester's download -- and the entries."""
+
+    def test_prime_parts_with_name_and_role(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.diagnostics import _maintenance_report
+
+        part = SimpleNamespace(
+            count_type="pad_washes_used", counter_category="maintenance", reset_by="user",
+            counter=0, count_used=90, count_remaining=0, minutes_remaining=-1,
+            last_updated_ts=1700000000,
+        )
+        data = SimpleNamespace(
+            parts_catalogue={"202": {"part_name": "Mop Washing System",
+                                     "guide_url": "https://g"}},
+            maintenance=SimpleNamespace(diagnostics=lambda: {"level": "ok", "items": []}),
+            prime_parts_coordinator=SimpleNamespace(data={"202": part}),
+            maintenance_store=None,
+        )
+        report = _maintenance_report(data)
+        assert report["level"] == "ok"
+        assert report["parts"]["202"]["part_name"] == "Mop Washing System"
+        assert report["parts"]["202"]["role"] == "mop_washing_system"
+        assert report["parts"]["202"]["reset_by"] == "user"
+        assert report["catalogue"]["202"] == {
+            "part_name": "Mop Washing System", "part_category": None,
+            "guide_url": True, "buy_url": False,
+        }
+
+    def test_classic_cloud_parts(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.diagnostics import _maintenance_report
+        from custom_components.roomba_plus.maintenance_store import MaintenanceStore
+
+        store = MaintenanceStore()
+        store.hydrate_from_cloud_parts([{
+            "part_id": "35", "count_type": "minutes", "count_used": 60, "count_remaining": 60,
+        }], 10)
+        report = _maintenance_report(SimpleNamespace(
+            parts_catalogue={}, maintenance=None, prime_parts_coordinator=None,
+            maintenance_store=store,
+        ))
+        assert report["items"] is None
+        assert report["parts"]["35"]["role"] == "filter"
+        assert report["cloud_parts_hydrated_hr"] == 10

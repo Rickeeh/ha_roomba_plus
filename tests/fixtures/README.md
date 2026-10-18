@@ -8,6 +8,13 @@ code they were testing.
 Most are referenced by exactly one test. That is not duplication waiting
 to be tidied — it is one capture answering one question.
 
+## fonts/roomba_plus_test_cjk.ttf — the one generated file
+
+Not a capture: a 760-byte TrueType font made for the map-font tests,
+with two CJK code points (玄 as a filled square, 関 as a triangle) and a
+hollow box for anything else. Drawn here with fontTools, so it carries
+no glyph from any other font. A real CJK font is 5 to 20 MB.
+
 ## vendor_mission_history.json — kept deliberately, currently unused
 
 Twenty mission records from a **mop**: `detectedPad` cycles through
@@ -42,6 +49,21 @@ proposed before (hole filling, see the project notes), so every such
 change runs against both.
 Tests: `TestTheSecond980sHome` in `test_room_seg_store.py`,
 `TestTheSecond980sWholeStore` in `test_mission_store.py`.
+
+## maintainer_980_rooms/ — the maintainer's flat, room by room
+
+`rooms.json`: the coverage grid of six clean missions of the
+maintainer's Roomba 980 (October 2026), rebuilt through GridStore, with
+every cell labelled with the room it lies in as he described his flat.
+Room names replaced (`Hall`, `Bedroom 1`, ...). Beside it the seven
+openings, each with one real crossing as a list of cells, and the three
+room pairs that only share a wall. No trajectories, no timestamps, no
+BLID, no address.
+
+It is the answer key the stored areas never had: whether an area is a
+room, and whether a door is one or a wall, can be checked rather than
+guessed. Rooms here are divided by walls; tester_980's by furniture.
+Tests: `TestTheMaintainers980Rooms` in `test_room_seg_store.py`.
 
 ## roomba_plus_missions_02_01KRRVYR4T1MPSYM7ACKA5XCBX.dms — the maintainer's 980, 9 October 2026
 

@@ -50,4 +50,4 @@ actions:
       notification_message: >
         Your robot noticed something dirty and started cleaning on its own
         — not your schedule, not a manual start.
-  - !input notify_action
+  - sequence: !input notify_action

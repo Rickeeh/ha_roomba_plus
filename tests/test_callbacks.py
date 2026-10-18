@@ -2336,6 +2336,32 @@ class TestCaptureZoneNamesSurvivesPartialStartMessage:
         }
         assert _capture_zone_names(entry, reported) == ["Kitchen"]
 
+    def test_a_zone_and_a_second_maps_room_keep_their_names(self):
+        """4.5.0: the mission is named by the command's map and each
+        region's type -- zone 21 is not room 21, and room 1 of the map
+        the command named is not room 1 of the active one."""
+        from custom_components.roomba_plus.callbacks import _capture_zone_names
+        from custom_components.roomba_plus.models import MapCapability
+
+        entry = entry_mock()
+        entry.runtime_data.room_seg_store = None
+        entry.runtime_data.map_capability = MapCapability.SMART
+        entry.runtime_data.mission_command = None
+        cc = entry.runtime_data.cloud_coordinator
+        cc.active_pmap_id = "MAP_A"
+        cc.region_names_by_type = {
+            "MAP_A": {"rid": {"21": "Kitchen", "1": "Primary Bathroom"}, "zid": {"21": "Couch"}},
+            "MAP_B": {"rid": {"1": "Master Bedroom"}, "zid": {}},
+        }
+        reported = {"cleanMissionStatus": {"phase": "run"}, "lastCommand": {
+            "command": "start", "pmap_id": "MAP_A",
+            "regions": [{"region_id": "21", "type": "zid"}]}}
+        assert _capture_zone_names(entry, reported) == ["Couch"]
+
+        reported["lastCommand"] = {"command": "start", "pmap_id": "MAP_B",
+                                   "regions": [{"region_id": "1", "type": "rid"}]}
+        assert _capture_zone_names(entry, reported) == ["Master Bedroom"]
+
     def test_ephemeral_returns_confirmed_room_seg_store_names(self):
         """ROOM-SEG Stage 6 — EPHEMERAL branch now reads RoomSegStore,
         not the deleted ZoneStore."""
@@ -5791,6 +5817,53 @@ class TestAReachedRoomIsNotACleanedRoom:
         callback_(self._msg("run", operating_mode=0))
         assert callback_.state.ran_in_room is True
 
+    # ── 4.5.0, @Thonno's suggestion (a): sent home is left, like a skip ──
+
+    def test_sending_it_home_leaves_the_current_room(self):
+        from unittest.mock import patch
+
+        from custom_components.roomba_plus import callbacks as cb_mod
+        from custom_components.roomba_plus.mission_timer_store import MissionTimerStore
+
+        mts = MissionTimerStore()
+        mts.mission_id = "B_7"
+        mts.planned_rooms = ["Kitchen", "Office", "Hall"]
+        mts.current_room_idx = 1
+        entry = SimpleNamespace(entry_id="e", runtime_data=SimpleNamespace(mission_timer_store=mts))
+        with patch.object(MissionTimerStore, "_schedule_save"):
+            cb_mod._leave_room_sent_home(MagicMock(), entry)
+            cb_mod._leave_room_sent_home(MagicMock(), entry)   # the last room's pause + dock
+        assert mts.skipped_rooms == ["Office"]
+        assert mts.skipped_rids == []
+
+    def test_no_planned_room_no_mission_nothing_to_leave(self):
+        from custom_components.roomba_plus import callbacks as cb_mod
+        from custom_components.roomba_plus.mission_timer_store import MissionTimerStore
+
+        whole_home = MissionTimerStore()
+        whole_home.mission_id = "B_7"
+        no_mission = MissionTimerStore()
+        no_mission.planned_rooms = ["Kitchen"]
+        for mts in (whole_home, no_mission):
+            entry = SimpleNamespace(entry_id="e", runtime_data=SimpleNamespace(mission_timer_store=mts))
+            cb_mod._leave_room_sent_home(MagicMock(), entry)
+            assert mts.skipped_rooms == []
+        cb_mod._leave_room_sent_home(
+            MagicMock(), SimpleNamespace(entry_id="e", runtime_data=SimpleNamespace())
+        )
+
+    def test_the_phase_sends_it_once_and_only_mid_mission(self):
+        from unittest.mock import patch
+
+        callback_ = self._cb()
+        with patch.object(cb, "_leave_room_sent_home") as leave:
+            callback_(self._msg("hmUsrDock"))      # a dock with no mission seen
+            assert leave.call_count == 0
+            callback_(self._msg("run"))
+            callback_(self._msg("hmUsrDock"))
+            callback_(self._msg("hmUsrDock"))
+        assert leave.call_count == 1
+
     def test_heading_home_does_not_mark_it(self):
         callback_ = self._cb()
         callback_.state.had_cleaning_phase = True
@@ -6090,6 +6163,44 @@ class TestGuessedRoomsWaitForTheCloud:
         assert rec["last_cleaned_rooms"] == []
         assert rec["tracked_rooms"] == ["A", "B"]
         assert rec["rooms_source"] == "awaiting_cloud"
+
+
+class TestRequestedRoomsSayWhatTheyAre:
+    """4.5.0: without room tracking `last_cleaned_rooms` holds the rooms
+    the mission was sent to. They stay, marked `requested`, so nothing
+    shows a room the robot never reached as cleaned."""
+
+    @staticmethod
+    def _record(zones, observed):
+        from custom_components.roomba_plus.callbacks import async_record_mission
+
+        store = _make_store()
+        loop = asyncio.new_event_loop()
+        entry = _make_entry(store)
+        hass = _make_hass(loop)
+        try:
+            loop.run_until_complete(async_record_mission(
+                hass, entry, {"phase": "charge", "error": 0, "sqft": 100}, {}, zones,
+                int(loop.time()) - 3600, 0, observed_rooms=observed,
+            ))
+        finally:
+            loop.close()
+        return store.latest()
+
+    def test_rooms_nothing_observed_are_requested(self):
+        rec = self._record(["Kitchen", "Hall"], None)
+        assert rec["last_cleaned_rooms"] == ["Kitchen", "Hall"]
+        assert rec["rooms_source"] == "requested"
+
+    def test_observed_rooms_carry_no_mark(self):
+        rec = self._record(["Kitchen", "Hall"], ["Kitchen"])
+        assert rec["last_cleaned_rooms"] == ["Kitchen"]
+        assert "rooms_source" not in rec
+
+    def test_a_whole_home_run_requests_nothing(self):
+        rec = self._record([], None)
+        assert rec["last_cleaned_rooms"] == []
+        assert "rooms_source" not in rec
 
 
 class TestLiveRoomTimesOnlyWithoutACloudAccount:
@@ -6425,7 +6536,9 @@ class TestWhichCommandAStartingMissionFound:
         assert entry_["command_age_sec"] == 300
         assert entry_["in_this_message"] is False
         assert entry_["scope"] == "whole_home"
-        assert "21" not in str(entry_), "counts, not region ids"
+        # Not the clock: "at" holds the time of day, and 17:21 has a 21.
+        without_clock = {k: v for k, v in entry_.items() if k != "at"}
+        assert "21" not in str(without_clock), "counts, not region ids"
 
     def test_the_next_command_is_kept_once(self):
         from custom_components.roomba_plus.callbacks import (
@@ -6532,3 +6645,207 @@ class TestRoomFromThePosition:
         tracker = entry.runtime_data.position_room
         cb.make_mission_callback(MagicMock(), entry)
         assert len(tracker._listeners) == 1
+
+
+class TestA900SeriesRunRecordsTheRoomsItWentInto:
+    """4.5.0. A 900-series run over the whole floor has no room plan, so it
+    was recorded with every named room -- the rooms it was sent to. The
+    maintainer's 980 was credited with the hall and a bedroom on a run
+    that spent 86% of another room's floor and 1% of that bedroom's. Its
+    position says which rooms it went into."""
+
+    @staticmethod
+    def _tracker():
+        from custom_components.roomba_plus.position_room import PositionRoomTracker
+
+        clock = {"t": 0.0}
+        tracker = PositionRoomTracker(clock=lambda: clock["t"])
+
+        def stay(room, seconds=20):
+            for _ in range(4):
+                tracker.observe(room)
+                clock["t"] += seconds / 3
+
+        return tracker, stay
+
+    def test_the_tracker_keeps_each_room_it_confirmed_once(self):
+        tracker, stay = self._tracker()
+        for room in ("Hall", "Bedroom", "Hall", "Area 8"):
+            stay(room)
+        tracker.observe("Kitchen")  # passing through: never confirmed
+        assert tracker.visited == ["Hall", "Bedroom", "Area 8"]
+        tracker.reset()
+        assert tracker.visited == []
+
+    def test_named_rooms_it_went_into_not_the_ones_it_was_sent_to(self):
+        tracker, stay = self._tracker()
+        stay("Hall")
+        stay("Area 8")
+        entry = MagicMock()
+        entry.runtime_data.position_room = tracker
+        assert cb._rooms_seen_by_position(entry, ["Hall", "Bedroom"]) == ["Hall"]
+
+    def test_none_without_a_position_in_a_room_or_without_areas(self):
+        tracker, _stay = self._tracker()
+        tracker.observe(None)
+        entry = MagicMock()
+        entry.runtime_data.position_room = tracker
+        assert cb._rooms_seen_by_position(entry, ["Hall"]) is None
+        entry.runtime_data.room_seg_store = None
+        assert cb._rooms_seen_by_position(entry, ["Hall"]) is None
+
+    def test_a_run_starts_from_no_room_on_a_900_series_only(self):
+        tracker, stay = self._tracker()
+        stay("Hall")
+        entry = MagicMock()
+        entry.runtime_data.position_room = tracker
+        entry.runtime_data.room_seg_store = None
+        cb._start_position_rooms(entry)
+        assert tracker.visited == ["Hall"]
+        entry.runtime_data.room_seg_store = MagicMock()
+        cb._start_position_rooms(entry)
+        assert tracker.visited == []
+
+    def test_the_mission_end_records_them(self):
+        from custom_components.roomba_plus.room_seg_store import RoomSegStore, SegRoom
+
+        hass, entry, _recorded, _store = _make_callback_env()
+        seg = RoomSegStore()
+        seg.rooms = {
+            "room_1": SegRoom(id="room_1", cells={(0, 0)}, name="Hall", confirmed=True),
+            "room_2": SegRoom(id="room_2", cells={(9, 9)}, name="Bedroom", confirmed=True),
+        }
+        entry.runtime_data.room_seg_store = seg
+        tracker, stay = self._tracker()
+        entry.runtime_data.position_room = tracker
+        callback = make_mission_callback(hass, entry)
+        captured: list[dict] = []
+
+        async def _capture(*args, **kwargs):
+            captured.append({"zones": args[4], **kwargs})
+
+        with patch("custom_components.roomba_plus.callbacks.async_record_mission",
+                   new_callable=AsyncMock) as mock_record, _patch_callbacks_time():
+            mock_record.side_effect = _capture
+            stay("Bedroom")  # the run before: reset at the start
+            callback(_msg("run"))
+            stay("Hall")
+            for phase in ("charge", "charge"):
+                callback(_msg(phase))
+            hass.loop.run_until_complete(asyncio.sleep(0))
+        assert captured[0]["zones"] == ["Hall", "Bedroom"]
+        assert captured[0]["observed_rooms"] == ["Hall"]
+
+
+class TestAClassicMissionIsReassessedWithTheCloudsNumbers:
+    """4.5.0. A Classic robot reports no dirt count; it comes with the
+    cloud's mission history minutes after `roomba_plus_mission_completed`,
+    which therefore never said `dirt_spike` there. When the numbers make
+    the mission unusual, `roomba_plus_mission_reassessed` says it -- once."""
+
+    NOW = datetime.datetime(2026, 10, 18, 9, 0, tzinfo=datetime.timezone.utc)
+
+    def _store(self, newest_ended_ago=datetime.timedelta(minutes=10)):
+        from custom_components.roomba_plus.mission_store import MissionStore
+
+        store = MissionStore()
+        for day in range(20, 0, -1):
+            end = self.NOW - datetime.timedelta(days=day)
+            store.append_validated({
+                "id": f"m_{int(end.timestamp()) - 2700}",
+                "started_at": (end - datetime.timedelta(minutes=45)).isoformat(),
+                "ended_at": end.isoformat(),
+                "duration_min": 45, "area_sqft": 300, "result": "completed",
+                "dirt": 10, "missionId": f"cloud-{day}",
+            })
+        end = self.NOW - newest_ended_ago
+        store.append_validated({
+            "id": f"m_{int(end.timestamp()) - 2700}",
+            "started_at": (end - datetime.timedelta(minutes=45)).isoformat(),
+            "ended_at": end.isoformat(),
+            "duration_min": 45, "area_sqft": 300, "result": "completed",
+        })
+        cloud = [{
+            "timestamp": int(end.timestamp()), "startTime": int(end.timestamp()) - 2700,
+            "dirt": 100, "sqft": 300, "missionId": "cloud-new",
+        }]
+        return store, cloud
+
+    def _refresh(self, store, cloud, times=1):
+        from custom_components.roomba_plus.callbacks import make_cloud_refresh_callback
+
+        hass = hass_mock()
+        config_entry = entry_mock()
+        config_entry.entry_id = "entry_1"
+        config_entry.title = "Robbie"
+        rd = config_entry.runtime_data
+        rd.mission_store = store
+        rd.dirt_threshold_manager = None
+        rd.grid_store = None
+        rd.robot_profile_store = None
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.raw_records = cloud
+        coordinator.umf_data = {}
+        coordinator.regions_by_pmap = {}
+        coordinator.pmaps = []
+        with patch("custom_components.roomba_plus.callbacks.dt_util.utcnow",
+                   return_value=self.NOW):
+            callback_fn = make_cloud_refresh_callback(hass, config_entry, coordinator)
+            for _ in range(times):
+                callback_fn()
+        fired = [
+            c.args[1] for c in hass.bus.async_fire.call_args_list
+            if c.args[0] == "roomba_plus_mission_reassessed"
+        ]
+        tasks = [c.kwargs.get("name") for c in config_entry.async_create_task.call_args_list]
+        return fired, tasks
+
+    def test_a_dirt_spike_is_said_once_the_numbers_are_there(self):
+        store, cloud = self._store()
+        fired, tasks = self._refresh(store, cloud, times=2)
+        assert len(fired) == 1, "once, not on every refresh"
+        assert fired[0]["anomaly_reason"] == "dirt_spike"
+        assert fired[0]["anomaly_reason_before"] is None
+        assert fired[0]["entry_id"] == "entry_1" and fired[0]["name"] == "Robbie"
+        assert fired[0]["mission_id"] == store.latest()["id"]
+        assert fired[0]["recommended_action"]
+        assert "roomba_plus_mission_anomaly_after_cloud" in tasks
+
+    def test_an_ordinary_mission_says_nothing(self):
+        store, cloud = self._store()
+        cloud[0]["dirt"] = 11
+        fired, tasks = self._refresh(store, cloud)
+        assert fired == []
+        assert "roomba_plus_mission_anomaly_after_cloud" not in tasks
+
+    def test_a_mission_older_than_a_day_is_not_brought_up_again(self):
+        store, cloud = self._store(newest_ended_ago=datetime.timedelta(hours=30))
+        fired, _ = self._refresh(store, cloud)
+        assert fired == []
+        assert store.latest()["dirt"] == 100, "merged all the same"
+
+    def test_a_mission_already_matched_is_not_waiting(self):
+        """The cloud's later refreshes bring the same mission again, now and
+        then with one more field: a matched mission is judged once."""
+        from custom_components.roomba_plus.callbacks import missions_waiting_for_cloud
+
+        store, _cloud = self._store()
+        newest = store.latest()
+        assert [r for r, _ in missions_waiting_for_cloud(store, self.NOW)] == [newest]
+        newest["missionId"] = "cloud-new"
+        assert missions_waiting_for_cloud(store, self.NOW) == []
+
+    def test_unusual_before_and_ordinary_now_says_nothing(self):
+        """The cloud's numbers can clear a mission, too; that is no news."""
+        from custom_components.roomba_plus.callbacks import announce_reassessed_missions
+
+        store = MagicMock()
+        store.explain_mission.return_value = {"anomaly_reason": None}
+        hass = hass_mock()
+        config_entry = entry_mock()
+        record = {"id": "m_1", "missionId": "cloud-1"}
+        assert announce_reassessed_missions(
+            hass, config_entry, store, [(record, "incomplete_coverage")],
+        ) == 0
+        hass.bus.async_fire.assert_not_called()

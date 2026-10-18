@@ -19,7 +19,7 @@ map endpoints answer 404.
 
 ## Authentication
 
-All endpoints require a Home Assistant long-lived access token passed as a Bearer header:
+All endpoints except the care guides (signed links, see [GET /care](#get-careentry_idguide)) require a Home Assistant long-lived access token passed as a Bearer header:
 
 ```bash
 curl -H "Authorization: Bearer <long-lived-token>" \
@@ -77,6 +77,8 @@ Prime maintenance in `maintenance_due`.
 | `GET` | `/api/roomba_plus/{entry_id}/mission_history` | Mission history (summary / records / hazards / export / zone_coverage_health) |
 | `POST` | `/api/roomba_plus/{entry_id}/mission_history/import` | Import a history export bundle |
 | `GET` | `/api/roomba_plus/{entry_id}/digest` | One-day summary for a single robot (v2.9.0) |
+| `GET` | `/api/roomba_plus/{entry_id}/maintenance` | Maintenance entries of a single robot (4.5.0) |
+| `GET` | `/api/roomba_plus/care/{entry_id}/{guide}` | A care guide page, signed link, no token (4.5.0) |
 | `GET` | `/api/roomba_plus/household` | Household aggregate across all robots |
 | `GET` | `/api/roomba_plus/{entry_id}/mission/{mission_id}/explain` | Anomaly explanation for a specific mission (v3.2.0) |
 | `GET` | `/api/roomba_plus/{entry_id}/mission/{n_mssn}/path` | Room-granular path reconstruction for a mission (v3.2.0) |
@@ -382,6 +384,58 @@ curl -H "Authorization: Bearer <token>" \
 
 ---
 
+## GET /maintenance
+
+The robot's maintenance entries, as `sensor.{name}_maintenance` lists them
+in `items` (4.5.0). Both generations. Read-only: an entry is marked done
+with the `roomba_plus.maintenance_done` action.
+
+```
+GET /api/roomba_plus/{entry_id}/maintenance
+```
+
+```json
+{
+  "level": "soon",
+  "generated_at": "2026-10-17T15:00:00+02:00",
+  "items": [
+    {"id": "replace.filter", "action": "replace", "part": "filter",
+     "level": "soon", "used": 0.84, "remaining": 8.0, "unit": "hours",
+     "due": "2026-10-24T15:00:00+02:00", "interval": 52.0,
+     "interval_unit": "hours", "interval_source": "profile",
+     "last_done": "2026-09-01T10:00:00+02:00", "wear_rate": 1.1,
+     "part_id": null, "guide_url": null, "buy_url": null,
+     "hint": "replace.filter", "done": "local", "snoozed_until": null,
+     "error": null, "reason": null, "guide_id": "replace_filter"}
+  ]
+}
+```
+
+`404` for an unknown entry, `503` while the robot is starting.
+
+---
+
+## GET /care/{entry_id}/{guide}
+
+A care guide as a web page (4.5.0): the drawing with the part highlighted,
+why, how and what not to do, in the language of the link. **No access
+token**: the link is signed with the installation's own secret, and only
+signed links are answered. Get one from the maintenance list, the
+calendar, `event.{name}_maintenance` (`guide`) or the vacuum's
+`care_guide`; it is not built by hand.
+
+```
+GET /api/roomba_plus/care/{entry_id}/{guide}?lang=de&exp=20778&sig=...
+GET /api/roomba_plus/care/{entry_id}/{guide}/schema.svg?lang=de&exp=20778&sig=...
+```
+
+`guide` is an entry's `guide_id`; the drawing takes `n=1` for a guide's
+second drawing (the dock beside the robot for the charging contacts).
+`200` with the page (or the drawing),
+`410` with a notice for an expired link, `404` for anything else.
+
+---
+
 ## GET /household
 
 Household-wide aggregate across all configured Roomba+ robots. Since v3.4.3, also includes a fleet-health rollup — see below.
@@ -419,6 +473,7 @@ GET /api/roomba_plus/household?days=28
       "health_trend": "stable",
       "battery_capacity_retention_pct": 91.2,
       "maintenance_due": false,
+      "maintenance_level": "soon",
       "needs_attention": false
     }
   ],
@@ -435,7 +490,7 @@ GET /api/roomba_plus/household?days=28
 
 `floors` is omitted when no robot has a floor label configured. `area_sqft` is null when no robot has cloud records with area data.
 
-**Fleet health (v3.4.3):** `fleet_health.robots_needing_attention` lists the `name` of every robot where `needs_attention` is `true` — useful for a multi-robot dashboard that only needs to surface robots that actually need a look. Per robot: `health_trend` (`"improving"`/`"stable"`/`"declining"`/`null` until enough history exists), `battery_capacity_retention_pct` (same value as `sensor.*_battery_capacity_retention`), `maintenance_due` (Classic: same check as `binary_sensor.*_maintenance_due`; Prime, since 4.2.19: a part the robot reports as used up, by the same rule as the Prime maintenance to-do list — before, a Prime robot was never due here), and `needs_attention` (`maintenance_due` OR a declining health trend). These reuse already-computed values rather than recalculating anything — the endpoint is only ever as fresh as those values already are elsewhere in the integration.
+**Fleet health (v3.4.3):** `fleet_health.robots_needing_attention` lists the `name` of every robot where `needs_attention` is `true` — useful for a multi-robot dashboard that only needs to surface robots that actually need a look. Per robot: `health_trend` (`"improving"`/`"stable"`/`"declining"`/`null` until enough history exists), `battery_capacity_retention_pct` (same value as `sensor.*_battery_capacity_retention`), `maintenance_due` (since 4.5.0: a part to replace that is due or overdue in the robot's maintenance entries, the ones `GET /maintenance` and the status sensor show; before, Classic used the check of `binary_sensor.*_maintenance_due` and Prime its own parts rule), `maintenance_level` (4.5.0: the status sensor's `ok`/`soon`/`due`/`overdue`, care tasks included; `null` while the robot is starting), and `needs_attention` (`maintenance_due` OR a declining health trend). These reuse already-computed values rather than recalculating anything — the endpoint is only ever as fresh as those values already are elsewhere in the integration.
 
 ```bash
 curl -H "Authorization: Bearer <token>" \

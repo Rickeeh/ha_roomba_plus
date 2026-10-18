@@ -968,8 +968,16 @@ class TestPerRefreshBackfillWiring:
         return src[idx:idx + 3000]
 
     def test_backfill_from_cloud_is_called_in_refresh_handler(self):
+        import inspect
+
+        from custom_components.roomba_plus.callbacks import backfill_and_reassess
+
         body = self._refresh_handler_body()
-        assert "ms.backfill_from_cloud(" in body, (
+        # Through the helper since 4.5.0, which gives the missions it
+        # filled in their second verdict (roomba_plus_mission_reassessed).
+        assert "backfill_and_reassess(hass, config_entry, ms," in body and (
+            "store.backfill_from_cloud(raw_records)" in inspect.getsource(backfill_and_reassess)
+        ), (
             "backfill_from_cloud() must be called on every cloud refresh — "
             "merge_latest_from_cloud()'s single-shot-no-retry design left "
             "records permanently missing their timeline/analytics fields "
@@ -3186,3 +3194,51 @@ class TestHowFarTheAppTurnedTheMap:
                     self._umf(float("nan"), 1.0), self._umf("3", 1.0)):
             assert umf_user_turn_rad(umf) == 0.0, umf
 
+
+
+class TestRegionNamesByType:
+    """4.5.0: rooms and zones of every map kept apart, so a zone and a
+    room with one number keep their own names."""
+
+    def test_rooms_and_zones_per_map(self):
+        from custom_components.roomba_plus.cloud_coordinator import IrobotCloudCoordinator
+
+        cc = object.__new__(IrobotCloudCoordinator)
+        cc.data = {"pmaps": [
+            {"active_pmapv_details": {
+                "active_pmapv": {"pmap_id": "MAP_A"},
+                "regions": [{"region_id": "21", "name": "Kitchen"}, {"id": "3", "name": "Hall"},
+                            {"region_id": "4", "name": ""}, "odd"],
+                "zones": [{"zone_id": "21", "name": "Couch"}, {"id": "7", "name": "Rug"}],
+            }},
+            {"active_pmapv_details": {"active_pmapv": {"pmap_id": "MAP_B"},
+                                      "regions": [{"region_id": "21", "name": "Office"}]}},
+            {"active_pmapv_details": {"active_pmapv": {}}},
+            {"active_pmapv_details": {"active_pmapv": {"pmap_id": "EMPTY"}}},
+        ]}
+        assert cc.region_names_by_type == {
+            "MAP_A": {"rid": {"21": "Kitchen", "3": "Hall"}, "zid": {"21": "Couch", "7": "Rug"}},
+            "MAP_B": {"rid": {"21": "Office"}, "zid": {}},
+        }
+
+    def test_no_data_no_names(self):
+        from custom_components.roomba_plus.cloud_coordinator import IrobotCloudCoordinator
+
+        cc = object.__new__(IrobotCloudCoordinator)
+        cc.data = None
+        assert cc.region_names_by_type == {}
+
+
+class TestTheMapsDoorLayersAreKept:
+    """4.5.0: the map format's door and threshold layers, for counting."""
+
+    @pytest.mark.asyncio
+    async def test_they_are_kept(self, hass):
+        umf = {"maps": [
+            {"doors": [{"id": "d1"}], "thresholds": [{"id": "t1"}, {"id": "t2"}]},
+            {"points2d": [{"id": "b"}]},
+        ]}
+        c = _coordinator(hass, umf=umf)
+        geo = await c._fetch_active_umf([_pmap()])
+        assert geo["doors"] == [{"id": "d1"}]
+        assert len(geo["thresholds"]) == 2

@@ -423,13 +423,33 @@ class TestMaintenanceStoreDueItems:
     def test_cloud_exhausted_counter_overrides_local_threshold_for_filter(self):
         """Local elapsed hours alone would say "not due yet" (10h since
         reset, 60h threshold) but the cloud's own counter says otherwise —
-        the cloud signal must win."""
+        the cloud signal must win. The local reset is older than the
+        cloud's own (2023-11), so the cloud knows of it."""
         store = MaintenanceStore()
         store.reset_filter(290)
+        store.filter_reset_at = "2023-01-01T00:00:00+00:00"
         store.hydrate_from_cloud_parts(
             [self._cloud_part("35", count_remaining=0)], 300,
         )
         assert "filter" in store.due_items({"bbrun": {"hr": 300}}, {})
+
+    def test_a_replacement_recorded_after_the_clouds_last_reset_stands(self):
+        """4.5.0. The button was pressed, the push to iRobot did not
+        arrive: the cloud still counts the old filter as used up. Until
+        4.5.0 that kept the robot due until a restart; now the newer
+        local reset decides, and the next cloud poll does not undo it."""
+        store = MaintenanceStore()
+        store.hydrate_from_cloud_parts(
+            [self._cloud_part("35", count_used=3120, count_remaining=0)], 300,
+        )
+        assert "filter" in store.due_items({"bbrun": {"hr": 300}}, {})
+        store.reset_filter(300)
+        assert "filter" not in store.due_items({"bbrun": {"hr": 301}}, {})
+        store.hydrate_from_cloud_parts(
+            [self._cloud_part("35", count_used=3120, count_remaining=0)], 302,
+        )
+        assert store.filter_reset_hr == 300
+        assert "filter" not in store.due_items({"bbrun": {"hr": 302}}, {})
 
     def test_cloud_healthy_counter_overrides_local_threshold_for_filter(self):
         """Local elapsed hours alone would say "due" (past the 60h
@@ -1357,64 +1377,6 @@ class TestInspectResetMethods:
         assert store.bin_cleaned_at is not None
 
 
-class TestMaintenanceDueOnMessageRepairCheck:
-    """v2.9.0 — RoombaMaintenanceDue.on_message() also forwards the live
-    due-items list to repairs.async_check_maintenance_due(), via
-    call_soon_threadsafe (same MQTT-thread bridge as
-    make_map_updating_callback in callbacks.py).
-    """
-
-    def _make_entity(self, current_hr=100, filter_reset_hr=0, brush_reset_hr=0):
-        from custom_components.roomba_plus.binary_sensor import RoombaMaintenanceDue
-        from unittest.mock import MagicMock
-
-        roomba = robot_mock()
-        roomba.master_state = {"state": {"reported": {"bbrun": {"hr": current_hr}}}}
-        entry = entry_mock()
-        store = MaintenanceStore()
-        store.filter_reset_hr = filter_reset_hr
-        store.brush_reset_hr = brush_reset_hr
-        entry.runtime_data.maintenance_store = store
-        entry.options = {}
-
-        entity = RoombaMaintenanceDue(roomba, "test_blid", entry)
-        entity.hass = hass_mock()
-        entity.schedule_update_ha_state = MagicMock()
-        entity._enabled = True  # IRobotEntity checks self.enabled
-        return entity
-
-    def _msg(self, hr: int) -> dict:
-        return {"state": {"reported": {"bbrun": {"hr": hr}}}}
-
-    def test_schedules_check_with_due_items(self):
-        entity = self._make_entity(current_hr=100, filter_reset_hr=0)  # filter overdue (>60h default)
-        entity.on_message(self._msg(100))
-
-        assert entity.hass.loop.call_soon_threadsafe.call_count == 1
-        args = entity.hass.loop.call_soon_threadsafe.call_args[0]
-        assert args[1] is entity.hass
-        assert args[2] is entity._entry
-        assert "filter" in args[3]
-
-    def test_no_check_when_bbrun_absent(self):
-        entity = self._make_entity()
-        entity.on_message({"state": {"reported": {}}})
-
-        entity.hass.loop.call_soon_threadsafe.assert_not_called()
-
-    def test_no_check_when_disabled(self):
-        entity = self._make_entity()
-        entity._attr_entity_registry_enabled_default = False
-        # Entity.enabled reads from registry state normally; simplest path
-        # here is to patch the property directly.
-        with patch.object(
-            type(entity), "enabled",
-            new_callable=lambda: property(lambda self: False),
-        ):
-            entity.on_message(self._msg(100))
-        entity.hass.loop.call_soon_threadsafe.assert_not_called()
-
-
 class TestMaintenanceColdStartBaseline:
     """v3.4.1 MAINTENANCE-COLD-START — field-confirmed (mdarocha, i3+, 412
     missions / 294h prior runtime, no reset ever recorded in this
@@ -2027,14 +1989,16 @@ class TestMaintenanceCloudValues:
         assert s.cloud_full_life_hours("r") == erwartet
 
     @pytest.mark.parametrize("record,erwartet", [
-        ({"count_type": "minutes", "minutes_remaining": 0}, True),
-        ({"count_type": "minutes"}, None),
-        ({"count_type": "minutes", "count_remaining": "x"}, None),
+        ({"count_type": "minutes", "count_used": 5, "minutes_remaining": 0}, (5, 0)),
+        ({"count_type": "minutes", "count_used": 5}, None),
+        ({"count_type": "minutes", "count_remaining": 3}, None),
+        ({"count_type": "minutes", "count_used": 5, "count_remaining": "x"}, None),
+        ({"count_type": "missions", "count_used": 5, "count_remaining": 3}, None),
     ])
-    def test_exhaustion_state(self, record, erwartet):
+    def test_cloud_minutes(self, record, erwartet):
         s = _store()
         s.cloud_parts = {"p": {"role": "r", **record}}
-        assert s._cloud_exhaustion_state("r") is erwartet
+        assert s._cloud_minutes("r") == erwartet
 
 
 class TestMaintenanceThresholds:
@@ -2369,3 +2333,951 @@ class TestSeriesProfileIsTheFallback:
         import inspect
 
         assert "profile_hours" not in inspect.getsource(MaintenanceStore.async_save)
+
+
+# ── 4.5.0 — the maintenance model ────────────────────────────────────────────
+#
+# maintenance_model.py's tests live here: tests/ is at its file limit,
+# and the model is built from this store.
+
+from custom_components.roomba_plus import maintenance_model as mm  # noqa: E402
+
+_NOW = datetime_v250_learning(2026, 10, 17, 12, 0, tzinfo=UTC)
+
+
+def _980():
+    return {"sku": "R980020", "bbrun": {"hr": 60}}
+
+
+def _prime_part(part_id, *, used=None, left=None, counter=None, count_type="minutes",
+                category="replacement", ts=None):
+    return SimpleNamespace(
+        part_id=part_id, count_used=used, count_remaining=left, counter=counter,
+        count_type=count_type, counter_category=category, last_updated_ts=ts,
+        reset_by="user", minutes_remaining=None,
+    )
+
+
+class TestMaintenanceLevels:
+
+    @pytest.mark.parametrize("used,level", [
+        (None, "ok"), (0.79, "ok"), (0.8, "soon"), (0.99, "soon"), (1.0, "due"), (1.4, "due"),
+    ])
+    def test_replace_levels_at_80_percent(self, used, level):
+        assert mm.replace_level(used, None, _NOW, 0.8) == level
+
+    def test_overdue_a_week_after_it_was_first_seen_due(self):
+        assert mm.replace_level(1.0, _NOW - timedelta(days=6), _NOW, 0.8) == "due"
+        assert mm.replace_level(1.0, _NOW - timedelta(days=7), _NOW, 0.8) == "overdue"
+
+    @pytest.mark.parametrize("option,share", [("80", 0.8), ("60", 0.6), ("due", None), ("x", 0.8)])
+    def test_the_soon_option(self, option, share):
+        assert mm.soon_share({"maintenance_soon_at": option}) == share
+        assert mm.replace_level(0.9, None, _NOW, share) == ("ok" if share is None else "soon")
+
+    def test_cleaning_is_due_on_its_date_and_overdue_half_an_interval_later(self):
+        due = _NOW
+        assert mm.clean_level(due, 7, _NOW - timedelta(hours=1)) == "ok"
+        assert mm.clean_level(due, 7, _NOW) == "due"
+        assert mm.clean_level(due, 7, _NOW + timedelta(days=3.4)) == "due"
+        assert mm.clean_level(due, 7, _NOW + timedelta(days=3.5)) == "overdue"
+
+    def test_the_status_is_the_worst_entry_not_snoozed(self):
+        items = [
+            mm.MaintenanceItem("a", "replace", "filter", level="soon"),
+            mm.MaintenanceItem("b", "replace", "bag", level="overdue",
+                               snoozed_until=(_NOW + timedelta(days=1)).isoformat()),
+            mm.MaintenanceItem("c", "replace", "battery",
+                               level="due", snoozed_until=(_NOW - timedelta(days=1)).isoformat()),
+        ]
+        assert mm.overall_level(items, _NOW) == "due"
+        assert mm.overall_level(items[:2], _NOW) == "soon"
+        assert mm.overall_level([], _NOW) == "ok"
+
+
+class TestClassicMaintenanceItems:
+
+    def _items(self, store, state=None, options=None, **kw):
+        return {i.id: i for i in mm.classic_items(
+            store, state or _980(), options or {}, now=_NOW, **kw)}
+
+    def test_a_980_counts_down_from_its_series_profile(self):
+        """THE BUG: the remaining-hours sensor took the hour option or the
+        global default (52 h) and ignored the series profile the due
+        check used. A 980 at 60 h on a 100 h profile read 0 hours left
+        and was not due."""
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 100}
+        item = self._items(store)["replace.filter"]
+        assert item.remaining == 40
+        assert item.interval == 100 and item.interval_source == "profile"
+        assert item.used == 0.6 and item.level == "ok"
+        assert store.role_remaining_hours("filter", 60, {}) == 40
+
+    def test_the_parts_a_980_has(self):
+        items = self._items(MaintenanceStore())
+        assert set(items) == {
+            "replace.filter", "replace.main_brush", "replace.side_brush", "replace.battery",
+        }
+        assert items["replace.battery"].level == "ok"
+        assert all(i.done == "local" for i in items.values())
+
+    def test_a_braava_has_a_pad_and_neither_filter_nor_side_brush(self):
+        items = self._items(MaintenanceStore(), state={"sku": "m611020", "bbrun": {"hr": 5}})
+        assert set(items) == {"replace.pad", "replace.battery"}
+
+    def test_a_clean_base_brings_the_bag(self):
+        state = {**_980(), "dock": {"fwVer": "1"}}
+        assert "replace.clean_base_bag" in self._items(MaintenanceStore(), state=state)
+
+    def test_care_tasks_only_with_reminders(self):
+        store = MaintenanceStore(care_since=(_NOW - timedelta(days=8)).isoformat())
+        assert not any(k.startswith("clean.") for k in self._items(store))
+        items = self._items(store, options={"care_reminders": True})
+        assert items["clean.filter"].level == "due"
+        assert items["clean.filter"].unit == "days"
+        assert items["clean.side_brush"].interval == 30
+        assert items["clean.side_brush"].level == "ok"
+
+    def test_a_due_date_from_the_wear_rate(self):
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 100}
+        item = self._items(store, wear_rate=lambda *_: 2.0)["replace.filter"]
+        assert item.due == (_NOW + timedelta(days=20)).isoformat()
+        assert item.wear_rate == 2.0
+
+    def test_the_catalogue_links_a_part_by_its_name(self):
+        catalogue = {"9": {"part_name": "Main Brushes", "guide_url": "https://g", "buy_url": "https://b"}}
+        item = self._items(MaintenanceStore(), catalogue=catalogue)["replace.main_brush"]
+        assert (item.guide_url, item.buy_url) == ("https://g", "https://b")
+        assert self._items(MaintenanceStore(), catalogue=catalogue)["replace.filter"].guide_url is None
+
+    def test_a_cloud_counter_stays_live_between_polls(self):
+        """THE BUG: the remaining hours stood at the figure of the last
+        cloud read -- which, until 4.5.0, was the one at setup."""
+        store = MaintenanceStore()
+        store.hydrate_from_cloud_parts([{
+            "part_id": "35", "count_type": "minutes", "count_used": 600,
+            "count_remaining": 2400, "last_updated_ts": 1700000000,
+        }], 100)
+        item = self._items(store, state={"bbrun": {"hr": 110}})["replace.filter"]
+        assert item.remaining == 30
+        assert item.interval == 50 and item.interval_source == "cloud"
+        assert item.used == 0.4
+        assert item.part_id == "35"
+
+    def test_with_a_cloud_counter_done_goes_to_both(self):
+        store = MaintenanceStore()
+        store.hydrate_from_cloud_parts([{
+            "part_id": "35", "count_type": "minutes", "count_used": 1, "count_remaining": 2,
+        }], 10)
+        items = self._items(store, has_cloud_parts=True)
+        assert items["replace.filter"].done == "both"
+        assert items["replace.main_brush"].done == "local"
+
+
+class TestPrimeMaintenanceItems:
+
+    def _items(self, parts, options=None, store=None, **kw):
+        return {i.id: i for i in mm.prime_items(
+            store or MaintenanceStore(), parts, options or {}, now=_NOW, **kw)}
+
+    def test_roles_by_number_by_speaking_id_and_by_catalogue_name(self):
+        items = self._items(
+            {
+                "67": _prime_part("67", used=10, left=90),
+                "main_brush": _prime_part("main_brush", used=1, left=9),
+                "202": _prime_part("202", used=0, left=0, count_type="pad_washes_used",
+                                   category="maintenance"),
+                "999": _prime_part("999", used=1, left=1, count_type="missions"),
+            },
+            catalogue={"202": {"part_name": "Mop Washing System Pad"}},
+        )
+        assert set(items) == {
+            "replace.side_brush", "replace.main_brush", "clean.mop_washing_system",
+            "replace.part_999",
+        }
+        assert items["clean.mop_washing_system"].part == "mop_washing_system"
+
+    def test_the_apps_keyword_order(self):
+        from custom_components.roomba_plus.prime_parts import prime_part_role
+
+        assert prime_part_role("x", "Dock washing system filter") == "dock_washing_system"
+        assert prime_part_role("x", "Pad wash bag") == "pad"
+        assert prime_part_role("x", "Edge-Sweeping Brush") is None
+        assert prime_part_role("212", None) is None
+
+    def test_two_parts_sharing_a_role_keep_their_numbers(self):
+        items = self._items({
+            "72": _prime_part("72", used=1, left=9),
+            "68": _prime_part("68", used=1, left=9),
+        })
+        assert set(items) == {"replace.part_72", "replace.part_68"}
+
+    def test_counter_percent_decides_and_minutes_read_as_hours(self):
+        item = self._items({"71": _prime_part("71", used=600, left=6000, counter=85)})["replace.main_brush"]
+        assert item.used == 0.85 and item.level == "soon"
+        assert (item.remaining, item.unit, item.interval) == (100, "hours", 110)
+        assert item.done == "cloud" and item.interval_source == "cloud"
+
+    def test_a_used_up_part_is_due_and_a_maintenance_part_never(self):
+        items = self._items({
+            "147": _prime_part("147", used=60, left=0, count_type="evacs"),
+            "213": _prime_part("213", used=19, left=0, count_type="missions", category="maintenance"),
+        })
+        assert items["replace.bag"].level == "due"
+        assert items["replace.bag"].unit == "evacuations"
+        assert items["clean.sensor"].level == "ok"
+
+    def test_parts_the_dock_cannot_have_are_left_out(self):
+        assert self._items({"147": _prime_part("147", used=1, left=1)}, absent={"147"}) == {}
+
+    def test_a_rate_from_the_last_reset(self):
+        ts = int((_NOW - timedelta(days=10)).timestamp())
+        item = self._items({"67": _prime_part("67", used=1200, left=600, ts=ts)})["replace.side_brush"]
+        assert item.wear_rate == 2.0
+        assert item.due == (_NOW + timedelta(days=5)).isoformat()
+        assert item.last_done is not None
+
+    def test_care_on_prime_every_two_weeks_without_what_the_robot_counts(self):
+        store = MaintenanceStore(care_since=(_NOW - timedelta(days=1)).isoformat())
+        items = self._items({}, options={"care_reminders": True}, store=store)
+        assert items["clean.cliff_sensors"].interval == 14
+        assert items["clean.side_brush"].interval == 14
+        assert items["clean.contact"].interval == 14
+        assert items["clean.filter"].interval == 7
+        counted = self._items(
+            {"213": _prime_part("213", used=1, left=1, category="maintenance")},
+            options={"care_reminders": True}, store=store,
+        )
+        assert "clean.cliff_sensors" not in counted
+
+    def test_a_battery_part(self):
+        items = self._items({"b1": _prime_part("b1", used=100, left=400, count_type="battery")})
+        assert items["replace.battery"].unit == "charge_cycles"
+
+
+def _tracker(hass, *, store=None, state=None, options=None, prime=False, parts=None,
+             robot=None, cloud=None):
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.roomba_plus.const import DOMAIN
+    from custom_components.roomba_plus.models import ConnectionType
+
+    entry = MockConfigEntry(domain=DOMAIN, title="Robo", options=options or {})
+    entry.add_to_hass(hass)
+    coordinator = None
+    if prime:
+        coordinator = MagicMock()
+        coordinator.data = parts or {}
+        coordinator.async_refresh = AsyncMock()
+    entry.runtime_data = SimpleNamespace(
+        blid="BLID1",
+        maintenance_store=store or MaintenanceStore(),
+        connection_type=ConnectionType.CLOUD_ONLY if prime else ConnectionType.LOCAL_PUSH,
+        roomba_reported_state=lambda: state if state is not None else _980(),
+        mission_store=None,
+        cloud_coordinator=cloud,
+        parts_catalogue={},
+        prime_parts_coordinator=coordinator,
+        prime_status_coordinator=None,
+        prime_robot=robot,
+    )
+    return mm.MaintenanceTracker(hass, entry)
+
+
+def _listen(hass, kind):
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+    from custom_components.roomba_plus.const import maintenance_event_signal
+
+    got = []
+    async_dispatcher_connect(
+        hass, maintenance_event_signal("BLID1"),
+        lambda event_type, payload: got.append((event_type, payload["id"])),
+    )
+    return got
+
+
+class TestMaintenanceTracker:
+
+    async def test_due_is_announced_once_and_overdue_a_week_later(self, hass):
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 50}
+        tracker = _tracker(hass, store=store)
+        got = _listen(hass, "due")
+        await tracker.async_refresh(_NOW)
+        await hass.async_block_till_done()
+        assert got == [("due", "replace.filter")]
+        assert tracker.level == "due"
+        await tracker.async_refresh(_NOW + timedelta(days=1))
+        await hass.async_block_till_done()
+        assert got == [("due", "replace.filter")], "not again on the next recompute"
+        await tracker.async_refresh(_NOW + timedelta(days=7))
+        await hass.async_block_till_done()
+        assert got[-1] == ("overdue", "replace.filter")
+
+    async def test_a_restart_does_not_announce_it_again(self, hass):
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 50}
+        await _tracker(hass, store=store).async_refresh(_NOW)
+        got = _listen(hass, "due")
+        await _tracker(hass, store=store).async_refresh(_NOW + timedelta(hours=1))
+        await hass.async_block_till_done()
+        assert got == []
+
+    async def test_done_resets_announces_once_and_logs(self, hass):
+        """A new filter is a clean filter: the cleaning is recorded too,
+        and only the replacement is announced."""
+        store = MaintenanceStore(care_since=(_NOW - timedelta(days=30)).isoformat())
+        store.profile_hours = {"filter": 50}
+        tracker = _tracker(hass, store=store, options={"care_reminders": True})
+        await tracker.async_refresh()
+        got = _listen(hass, "done")
+        bus = []
+        hass.bus.async_listen("roomba_plus_maintenance_reset", lambda e: bus.append(e.data))
+        with patch(
+            "custom_components.roomba_plus.maintenance_model._async_push_part_reset_to_cloud",
+            AsyncMock(),
+        ) as push:
+            await tracker.async_done("replace.filter", via="action")
+        await hass.async_block_till_done()
+        assert store.filter_reset_hr == 60 and store.filter_cleaned_at is not None
+        assert tracker.item("replace.filter").level == "ok"
+        assert ("done", "replace.filter") in got
+        assert ("done", "clean.filter") not in got
+        assert store.maintenance_log[-1]["id"] == "replace.filter"
+        assert store.maintenance_log[-1]["via"] == "action"
+        assert bus[-1]["component"] == "filter"
+        push.assert_awaited_once()
+
+    async def test_only_cleaned_leaves_the_replacement_counter(self, hass):
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        store.filter_reset_hr = 7
+        tracker = _tracker(hass, store=store, options={"care_reminders": True})
+        await tracker.async_refresh()
+        await tracker.async_done("replace.filter", "clean")
+        assert store.filter_reset_hr == 7
+        assert store.filter_cleaned_at is not None
+
+    async def test_a_care_task_reported_as_its_part_replaced(self, hass):
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        tracker = _tracker(hass, store=store, options={"care_reminders": True})
+        await tracker.async_refresh()
+        with patch(
+            "custom_components.roomba_plus.maintenance_model._async_push_part_reset_to_cloud",
+            AsyncMock(),
+        ):
+            await tracker.async_done("clean.brushes", "replace")
+        assert store.brush_reset_hr == 60
+
+    async def test_what_cannot_be_done_is_refused(self, hass):
+        from homeassistant.exceptions import ServiceValidationError
+
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        tracker = _tracker(hass, store=store, options={"care_reminders": True})
+        await tracker.async_refresh()
+        with pytest.raises(ServiceValidationError) as unknown:
+            await tracker.async_done("replace.nothing")
+        assert unknown.value.translation_key == "maintenance_item_unknown"
+        for item_id, action in (("clean.wheel", "replace"), ("replace.battery", "clean")):
+            with pytest.raises(ServiceValidationError) as refused:
+                await tracker.async_done(item_id, action)
+            assert refused.value.translation_key == "maintenance_action_unsupported"
+
+    async def test_snooze_quiets_it_and_it_comes_back(self, hass):
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 50}
+        tracker = _tracker(hass, store=store)
+        await tracker.async_refresh(_NOW)
+        got = _listen(hass, "snoozed")
+        await tracker.async_snooze("replace.filter", 2)
+        await hass.async_block_till_done()
+        assert got == [("snoozed", "replace.filter")]
+        assert tracker.level == "ok"
+        later = dt_util.now() + timedelta(days=3)
+        await tracker.async_refresh(later)
+        await hass.async_block_till_done()
+        assert got[-1] == ("due", "replace.filter")
+
+    async def test_a_prime_part_is_reset_in_the_cloud(self, hass):
+        robot = MagicMock()
+        robot.reset_robot_parts = AsyncMock(return_value={"num_parts": 1})
+        tracker = _tracker(hass, prime=True, robot=robot,
+                           parts={"67": _prime_part("67", used=10, left=0)})
+        await tracker.async_refresh()
+        await tracker.async_done("replace.side_brush")
+        robot.reset_robot_parts.assert_awaited_once_with(["67"])
+        tracker.config_entry.runtime_data.prime_parts_coordinator.async_refresh.assert_awaited()
+
+    @pytest.mark.parametrize("answer,key", [
+        ({"num_parts": 0}, "maintenance_reset_not_applied"),
+        ({}, "maintenance_reset_not_applied"),
+        (RuntimeError("HTTP 500"), "maintenance_reset_failed"),
+    ])
+    async def test_a_prime_reset_the_cloud_did_not_apply_is_an_error(self, hass, answer, key):
+        from homeassistant.exceptions import HomeAssistantError
+
+        robot = MagicMock()
+        if isinstance(answer, Exception):
+            robot.reset_robot_parts = AsyncMock(side_effect=answer)
+        else:
+            robot.reset_robot_parts = AsyncMock(return_value=answer)
+        tracker = _tracker(hass, prime=True, robot=robot,
+                           parts={"67": _prime_part("67", used=10, left=0)})
+        await tracker.async_refresh()
+        with pytest.raises(HomeAssistantError) as err:
+            await tracker.async_done("replace.side_brush")
+        assert err.value.translation_key == key
+
+    async def test_a_reset_in_the_iRobot_app_is_seen_as_done(self, hass):
+        parts = {"67": _prime_part("67", used=10, left=0, ts=1700000000)}
+        tracker = _tracker(hass, prime=True, parts=parts)
+        await tracker.async_refresh()
+        got = _listen(hass, "done")
+        parts["67"] = _prime_part("67", used=0, left=100, ts=1700000000 + 86400)
+        await tracker.async_refresh()
+        await hass.async_block_till_done()
+        assert got == [("done", "replace.side_brush")]
+        assert tracker.config_entry.runtime_data.maintenance_store.maintenance_log[-1]["via"] == "other"
+
+    async def test_it_follows_the_classic_cloud_poll(self, hass):
+        cloud = MagicMock()
+        cloud.parts = [{"part_id": "35", "count_type": "minutes",
+                        "count_used": 3120, "count_remaining": 0}]
+        cloud.async_add_listener = MagicMock(return_value=lambda: None)
+        store = MaintenanceStore()
+        tracker = _tracker(hass, store=store, cloud=cloud)
+        tracker.async_start()
+        listener = cloud.async_add_listener.call_args.args[0]
+        listener()
+        await hass.async_block_till_done()
+        assert store.cloud_parts_hydrated_hr == 60
+        assert tracker.item("replace.filter").level == "due"
+        tracker.async_stop()
+        assert tracker._unsubs == []
+
+    async def test_diagnostics(self, hass):
+        tracker = _tracker(hass)
+        tracker.prime_items_now()
+        diag = tracker.diagnostics()
+        assert diag["level"] == "due", "a 980 at 60 h on the 52 h fallback"
+        assert {i["id"] for i in diag["items"]} >= {"replace.filter"}
+        assert diag["log"] == []
+
+
+class TestMaintenanceStateIsKept:
+
+    async def test_due_since_snooze_and_log_survive_a_restart(self, hass):
+        store = MaintenanceStore()
+        store.maintenance_state = {"replace.filter": {"due_since": _NOW.isoformat()}}
+        store.maintenance_log = [{"id": "replace.filter"}] * 40
+        store.cloud_parts_hydrated_hr = 12
+        await store.async_save(hass, "E1")
+        loaded = MaintenanceStore()
+        await loaded.async_load(hass, "E1")
+        assert loaded.maintenance_state == store.maintenance_state
+        assert len(loaded.maintenance_log) == 30
+        assert loaded.cloud_parts_hydrated_hr == 12
+
+    def test_without_a_reading_at_hydration_the_local_baseline_decides(self):
+        store = MaintenanceStore(filter_reset_hr=40)
+        store.cloud_parts = {"35": {"role": "filter", "count_type": "minutes",
+                                    "count_used": 6000, "count_remaining": 0}}
+        assert store.used_hours("filter", 50) == 10
+        assert store.role_usage("filter", 50, {})[0] == 10 / 100
+
+
+class TestEntryFiguresOnThePartSensors:
+
+    def _entity(self, tracker, sku="R980020"):
+        entity = MagicMock()
+        entity._config_entry.runtime_data.maintenance = tracker
+        entity.vacuum_state = {"sku": sku}
+        return entity
+
+    def test_classic(self):
+        from custom_components.roomba_plus.sensor_core import _maintenance_item_attributes
+
+        item = mm.MaintenanceItem("replace.pad", "replace", "pad", level="soon", used=0.9,
+                                  guide_url="https://g", buy_url="https://b")
+        tracker = SimpleNamespace(item_for_part=lambda part: item if part == "pad" else None)
+        attrs = _maintenance_item_attributes(self._entity(tracker, "m611020"), "main_brush")
+        assert attrs["level"] == "soon" and attrs["buy_url"] == "https://b"
+        assert _maintenance_item_attributes(self._entity(tracker), "main_brush") == {}
+        assert _maintenance_item_attributes(self._entity(None), "filter") == {}
+
+    def test_the_tracker_finds_an_entry_by_role_or_part_id(self, hass):
+        tracker = _tracker(hass, prime=True, parts={
+            "213": _prime_part("213", used=1, left=1, category="maintenance"),
+            "67": _prime_part("67", used=1, left=1),
+        })
+        tracker.prime_items_now()
+        assert tracker.item_for_part("side_brush").id == "replace.side_brush"
+        assert tracker.item_for_part("213").id == "clean.sensor"
+        assert tracker.item_for_part("nothing") is None
+
+
+class TestErrorsPointToCareTasks:
+    """4.5.0, E10 and E12: an error that points to a care task brings
+    its guide into the list while it lasts; a dirt error makes the task
+    due until it is done, with care reminders on."""
+
+    def _state(self, error, cycle="clean", phase="stuck"):
+        return {**_980(), "cleanMissionStatus": {"cycle": cycle, "phase": phase, "error": error}}
+
+    def test_the_active_error(self):
+        assert mm.active_error({"cycle": "clean", "phase": "stuck", "error": 2}) == 2
+        assert mm.active_error({"cycle": "none", "phase": "charge", "error": 2}) is None
+        assert mm.active_error({"cycle": "clean", "phase": "run", "error": 0}) is None
+        assert mm.active_error({"cycle": "clean", "phase": "run", "error": "x"}) is None
+        assert mm.active_error(None) is None
+
+    def test_without_a_care_task_a_check_entry_while_it_lasts(self):
+        store = MaintenanceStore()
+        items = {i.id: i for i in mm.classic_items(store, self._state(14), {}, now=_NOW)}
+        assert items["check.bin"].level == "due"
+        assert items["check.bin"].error == 14
+        assert items["check.bin"].done == "local"
+        assert "check.bin" not in {
+            i.id for i in mm.classic_items(store, self._state(14, "none", "charge"), {}, now=_NOW)
+        }
+
+    def test_a_camera_error_has_nothing_to_record(self):
+        items = {i.id: i for i in mm.classic_items(MaintenanceStore(), self._state(68), {}, now=_NOW)}
+        assert items["check.camera"].done == "none"
+
+    def test_with_the_task_its_own_entry_carries_the_error(self):
+        """Never two entries for one task."""
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        items = mm.classic_items(store, self._state(4), {"care_reminders": True}, now=_NOW)
+        wheel = [i for i in items if i.part == "wheel"]
+        assert len(wheel) == 1 and wheel[0].id == "clean.wheel"
+        assert wheel[0].level == "due" and wheel[0].error == 4
+
+    def test_an_error_without_a_task_is_ignored_and_the_option_can_switch_it_off(self):
+        store = MaintenanceStore()
+        assert not any(i.action == "check" for i in mm.classic_items(store, self._state(99), {}, now=_NOW))
+        assert not any(
+            i.action == "check"
+            for i in mm.classic_items(store, self._state(14), {"care_guide_on_error": "off"}, now=_NOW)
+        )
+
+    def test_prime_only_the_codes_the_apps_pictures_confirm(self):
+        store = MaintenanceStore()
+        assert {i.id for i in mm.prime_items(store, {}, {}, error=1001, now=_NOW)} == {"check.side_brush"}
+        assert mm.prime_items(store, {}, {}, error=26, now=_NOW) == []
+        counted = mm.prime_items(
+            store, {"213": _prime_part("213", used=1, left=1, category="maintenance")}, {},
+            error=201, now=_NOW,
+        )
+        assert [(i.id, i.error, i.level) for i in counted] == [("clean.sensor", 201, "due")]
+
+    async def test_a_dirt_error_makes_the_task_due_until_it_is_done(self, hass):
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        state = self._state(2)
+        tracker = _tracker(hass, store=store, state=state, options={"care_reminders": True})
+        await tracker.async_refresh(_NOW)
+        assert tracker.item("clean.brushes").level == "due"
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 2}
+        await tracker.async_refresh(_NOW + timedelta(hours=1))
+        brushes = tracker.item("clean.brushes")
+        assert brushes.level == "due" and brushes.error is None, "stays due after the error"
+        await tracker.async_done("clean.brushes")
+        assert tracker.item("clean.brushes").level == "ok"
+
+    async def test_a_wheel_error_goes_with_the_error(self, hass):
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        state = self._state(4)
+        tracker = _tracker(hass, store=store, state=state, options={"care_reminders": True})
+        await tracker.async_refresh(_NOW)
+        assert tracker.item("clean.wheel").level == "due"
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 4}
+        await tracker.async_refresh(_NOW + timedelta(hours=1))
+        assert tracker.item("clean.wheel").level == "ok"
+
+    async def test_done_while_the_error_lasts_keeps_it_out_until_it_returns(self, hass):
+        state = self._state(68)
+        tracker = _tracker(hass, state=state)
+        got = _listen(hass, "x")
+        await tracker.async_refresh()
+        await tracker.async_done("check.camera")
+        await hass.async_block_till_done()
+        assert tracker.item("check.camera") is None
+        assert ("done", "check.camera") in got
+        store = tracker.config_entry.runtime_data.maintenance_store
+        assert store.maintenance_log[-1]["id"] == "check.camera"
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 0}
+        await tracker.async_refresh()
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 68}
+        await tracker.async_refresh()
+        assert tracker.item("check.camera") is not None
+
+    async def test_a_check_with_a_cleaning_records_it_with_reminders_on(self, hass):
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        tracker = _tracker(hass, store=store, state=self._state(14), options={"care_reminders": True})
+        await tracker.async_refresh()
+        await tracker.async_done("check.bin", "clean")
+        assert store.bin_cleaned_at is not None
+        assert tracker.item("check.bin") is None
+
+    async def test_an_error_that_comes_back_soon_is_not_announced_again(self, hass):
+        state = self._state(14)
+        tracker = _tracker(hass, state=state)
+        got = _listen(hass, "x")
+        await tracker.async_refresh(_NOW)
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 0}
+        await tracker.async_refresh(_NOW + timedelta(minutes=5))
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 14}
+        await tracker.async_refresh(_NOW + timedelta(minutes=10))
+        await hass.async_block_till_done()
+        assert [g for g in got if g[1] == "check.bin"] == [("due", "check.bin")]
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 0}
+        await tracker.async_refresh(_NOW + timedelta(hours=1))
+        await tracker.async_refresh(_NOW + timedelta(hours=14))
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 14}
+        await tracker.async_refresh(_NOW + timedelta(hours=15))
+        await hass.async_block_till_done()
+        assert [g for g in got if g[1] == "check.bin"] == [("due", "check.bin")] * 2
+
+    async def test_the_prime_error_comes_from_its_shadow(self, hass):
+        tracker = _tracker(hass, prime=True)
+        tracker.config_entry.runtime_data.prime_status_coordinator = SimpleNamespace(
+            data={"ro-currentstate": {"cleanMissionStatus": {"cycle": "clean", "phase": "stuck", "error": 2}}},
+        )
+        assert tracker.current_error() == 2
+        tracker.config_entry.runtime_data.prime_status_coordinator = SimpleNamespace(data=None)
+        assert tracker.current_error() is None
+
+
+class TestWaitForTheCloudsFirstFullReport:
+    """@msva17 (j9+, #200): right after a filter reset the cloud's counter
+    came back without its remaining minutes for a while, and the
+    integration fell back -- the filter read near zero and Maintenance
+    due came on. An incomplete counter says nothing; the baseline waits
+    for the cloud's first full report."""
+
+    def _part(self, used, remaining, ts):
+        return {"part_id": "46", "count_type": "minutes", "count_used": used,
+                "count_remaining": remaining, "last_updated_ts": ts}
+
+    def test_a_reset_is_not_undone_by_a_half_report(self):
+        import time
+
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 52}
+        store.reset_filter(300)
+        store.hydrate_from_cloud_parts([self._part(3120, None, int(time.time()) + 5)], 301)
+        assert store.filter_reset_hr == 300
+        assert "filter" not in store.due_items({"runtimeStats": {"hr": 301}}, {})
+        assert store.role_remaining_hours("filter", 301, {}) == 51
+
+    def test_the_full_report_is_taken(self):
+        import time
+
+        store = MaintenanceStore()
+        store.reset_filter(300)
+        store.hydrate_from_cloud_parts([self._part(60, 3060, int(time.time()) + 5)], 302)
+        assert store.filter_reset_hr == 301
+        assert store.role_remaining_hours("filter", 302, {}) == 51
+
+
+class TestForgetALearnedInterval:
+    """@msva17 (#200): a learned interval can be wrong for reasons the
+    read-side filter cannot see -- a reset pressed by mistake, a part
+    swapped early -- and the only way back was editing the storage file."""
+
+    def test_the_store_forgets_and_keeps_the_baseline(self):
+        store = MaintenanceStore(filter_reset_hr=300)
+        store.filter_reset_history = [100, 120, 300]
+        assert store.interval_source("filter", {}) == "learned"
+        assert store.forget_learned("filter") is True
+        assert store.filter_reset_history == []
+        assert store.filter_reset_hr == 300
+        assert store.interval_source("filter", {}) == "irobot_budget"
+        assert store.forget_learned("filter") is False
+
+    async def test_the_tracker_for_one_part_or_all(self, hass):
+        store = MaintenanceStore()
+        store.filter_reset_history = [100, 200, 300]
+        store.brush_reset_history = [10, 400, 900]
+        tracker = _tracker(hass, store=store)
+        await tracker.async_refresh()
+        assert await tracker.async_forget_learned(["replace.filter"]) == ["replace.filter"]
+        assert store.brush_reset_history == [10, 400, 900]
+        assert await tracker.async_forget_learned() == ["replace.main_brush"]
+        assert await tracker.async_forget_learned() == []
+
+    async def test_a_braava_pad_and_what_cannot_be_forgotten(self, hass):
+        from homeassistant.exceptions import ServiceValidationError
+
+        store = MaintenanceStore()
+        store.brush_reset_history = [10, 40, 90]
+        tracker = _tracker(hass, store=store, state={"sku": "m611020", "bbrun": {"hr": 5}})
+        await tracker.async_refresh()
+        assert await tracker.async_forget_learned(["replace.pad"]) == ["replace.pad"]
+        with pytest.raises(ServiceValidationError):
+            await tracker.async_forget_learned(["replace.battery"])
+
+
+class TestCareGuidesOnTheEntries:
+    """4.5.0, a4: every entry names its care guide, the event carries
+    the signed link, and the robot's error recomputes at once."""
+
+    async def test_entries_name_their_guide_and_the_event_links_it(self, hass):
+        from custom_components.roomba_plus.care_guides import _DATA_KEY, CareGuides
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        from custom_components.roomba_plus.const import maintenance_event_signal
+
+        hass.data[_DATA_KEY] = CareGuides(
+            b"k" * 32, {"en": {"replace_filter": {"title": "Replace the filter"}}}, {},
+        )
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 50}
+        tracker = _tracker(hass, store=store)
+        payloads = []
+        async_dispatcher_connect(
+            hass, maintenance_event_signal("BLID1"), lambda _t, p: payloads.append(p),
+        )
+        await tracker.async_refresh(_NOW)
+        await hass.async_block_till_done()
+        assert tracker.item("replace.filter").guide_id == "replace_filter"
+        assert tracker.item("replace.battery").guide_id == "replace_battery"
+        entry_id = tracker.config_entry.entry_id
+        assert payloads[0]["guide_id"] == "replace_filter"
+        assert payloads[0]["guide_title"] == "Replace the filter"
+        assert payloads[0]["guide"].startswith(
+            f"/api/roomba_plus/care/{entry_id}/replace_filter?lang=en&exp="
+        )
+
+    def test_the_errors_care_task(self, hass):
+        state = {**_980(), "cleanMissionStatus": {"cycle": "clean", "phase": "stuck", "error": 26}}
+        assert _tracker(hass, state=state).care_cause_task() == "filter"
+        assert _tracker(hass).care_cause_task() is None
+
+    async def test_a_new_error_recomputes_at_once_and_only_then(self, hass):
+        state = _980()
+        tracker = _tracker(hass, state=state)
+        scheduled = []
+        tracker._schedule = lambda: scheduled.append(1)
+        tracker._seen_error = None
+        tracker._on_status()
+        assert scheduled == []
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 14}
+        tracker._on_status()
+        tracker._on_status()
+        assert scheduled == [1]
+
+    async def test_a_classic_robots_messages_are_listened_to(self, hass):
+        tracker = _tracker(hass)
+        unsub = MagicMock()
+        roomba = MagicMock()
+        roomba.register_on_message_callback.return_value = unsub
+        tracker.config_entry.runtime_data.roomba = roomba
+        tracker.async_start()
+        roomba.register_on_message_callback.assert_called_once_with(tracker._on_robot_message)
+        tracker.async_stop()
+        unsub.assert_called_once()
+        await hass.async_block_till_done()
+
+
+class TestMaintenanceRepairIssues:
+    """4.5.0, D1 and D2: both off by default."""
+
+    def _issues(self, hass):
+        from homeassistant.helpers import issue_registry as ir
+
+        return sorted(
+            issue_id for (domain, issue_id) in ir.async_get(hass).issues if domain == "roomba_plus"
+        )
+
+    def _overdue_tracker(self, hass, **options):
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 50}
+        return store, _tracker(hass, store=store, options=options)
+
+    async def test_an_overdue_part_raises_one_issue_only_with_the_option(self, hass):
+        store, tracker = self._overdue_tracker(hass)
+        await tracker.async_refresh(_NOW)
+        await tracker.async_refresh(_NOW + timedelta(days=7))
+        assert tracker.item("replace.filter").level == "overdue"
+        assert self._issues(hass) == []
+
+        store, tracker = self._overdue_tracker(hass, maintenance_overdue_repairs=True)
+        await tracker.async_refresh(_NOW)
+        assert self._issues(hass) == [], "due is not overdue"
+        await tracker.async_refresh(_NOW + timedelta(days=7))
+        entry_id = tracker.config_entry.entry_id
+        assert self._issues(hass) == [f"maintenance_overdue_{entry_id}_replace.filter"]
+
+    async def test_snoozed_and_never_take_it_away_and_switching_off_forgets_never(self, hass):
+        from homeassistant.helpers import issue_registry as ir
+
+        store, tracker = self._overdue_tracker(hass, maintenance_overdue_repairs=True)
+        await tracker.async_refresh(_NOW)
+        await tracker.async_refresh(_NOW + timedelta(days=7))
+        issue = ir.async_get(hass).async_get_issue(
+            "roomba_plus", f"maintenance_overdue_{tracker.config_entry.entry_id}_replace.filter",
+        )
+        assert issue.is_fixable and issue.translation_key == "maintenance_part_overdue"
+        assert issue.translation_placeholders["name"] == "Robo"
+        assert issue.data == {
+            "entry_id": tracker.config_entry.entry_id, "item_id": "replace.filter",
+        }
+
+        store.maintenance_state["replace.filter"]["snoozed_until"] = (
+            _NOW + timedelta(days=14)
+        ).isoformat()
+        await tracker.async_refresh(_NOW + timedelta(days=8))
+        assert self._issues(hass) == [], "snoozed"
+        store.maintenance_state["replace.filter"].pop("snoozed_until")
+        await tracker.async_refresh(_NOW + timedelta(days=8))
+        assert len(self._issues(hass)) == 1
+
+        await tracker.async_never_repair("replace.filter")
+        assert store.maintenance_state["replace.filter"]["no_repair"] is True
+        assert self._issues(hass) == []
+        await tracker.async_refresh(_NOW + timedelta(days=8))
+        assert self._issues(hass) == []
+
+        hass.config_entries.async_update_entry(tracker.config_entry, options={})
+        await tracker.async_refresh(_NOW + timedelta(days=8))
+        assert "no_repair" not in store.maintenance_state["replace.filter"]
+
+    async def test_an_error_issue_while_it_lasts_with_repairs_chosen(self, hass):
+        state = {**_980(), "cleanMissionStatus": {"cycle": "clean", "phase": "stuck", "error": 14}}
+        tracker = _tracker(hass, state=state, options={"care_guide_on_error": "repairs"})
+        entry_id = tracker.config_entry.entry_id
+        await tracker.async_refresh(_NOW)
+        assert self._issues(hass) == [f"maintenance_error_care_{entry_id}_bin"]
+        assert tracker.item("check.bin") is None, "the issue instead of the list item"
+
+        await tracker.async_close_error_issue("bin")
+        assert self._issues(hass) == []
+        await tracker.async_refresh(_NOW + timedelta(minutes=1))
+        assert self._issues(hass) == [], "closed until another error"
+
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 26}
+        await tracker.async_refresh(_NOW + timedelta(minutes=2))
+        assert self._issues(hass) == [f"maintenance_error_care_{entry_id}_filter"]
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 0}
+        await tracker.async_refresh(_NOW + timedelta(minutes=3))
+        assert self._issues(hass) == []
+
+    async def test_no_error_issue_with_the_list_or_off(self, hass):
+        state = {**_980(), "cleanMissionStatus": {"cycle": "clean", "phase": "stuck", "error": 14}}
+        for option in ("list", "off"):
+            tracker = _tracker(hass, state=state, options={"care_guide_on_error": option})
+            await tracker.async_refresh(_NOW)
+        assert self._issues(hass) == []
+
+    async def test_cleaned_from_the_issue_keeps_it_away_while_the_error_lasts(self, hass):
+        state = {**_980(), "cleanMissionStatus": {"cycle": "clean", "phase": "stuck", "error": 26}}
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        tracker = _tracker(
+            hass, store=store, state=state,
+            options={"care_guide_on_error": "repairs", "care_reminders": True},
+        )
+        await tracker.async_refresh(_NOW)
+        assert len(self._issues(hass)) == 1
+        await tracker.async_done("clean.filter", via="repairs")
+        assert self._issues(hass) == []
+
+    def test_what_only_cleaned_needs(self, hass):
+        tracker = _tracker(hass)
+        tracker._items = [
+            mm.MaintenanceItem("replace.filter", "replace", "filter"),
+            mm.MaintenanceItem("replace.clean_base_bag", "replace", "clean_base_bag"),
+            mm.MaintenanceItem("check.camera", "check", "camera", done="none"),
+        ]
+        assert not tracker.can_mark_cleaned(tracker._items[0]), "no cleaning entry"
+        tracker._items.append(mm.MaintenanceItem("clean.filter", "clean", "filter"))
+        assert tracker.can_mark_cleaned(tracker._items[0])
+        assert not tracker.can_mark_cleaned(tracker._items[1])
+        assert not tracker.can_mark_cleaned(tracker._items[2])
+
+
+class TestRefusalsAndAFullBinPointToCareTasks:
+    """4.5.0 b2 (concept 5a, E11): a refusal to start or a full bin
+    brings the guide like an error does -- the robot stands, and nothing
+    says why."""
+
+    def _state(self, not_ready=0, full=None, clean_base=False, error=0):
+        state = {**_980(), "cleanMissionStatus": {
+            "cycle": "none", "phase": "charge", "error": error, "notReady": not_ready,
+        }}
+        if full is not None:
+            state["bin"] = {"present": True, "full": full}
+        if clean_base:
+            state["dock"] = {"fwVer": "1"}
+        return state
+
+    @pytest.mark.parametrize("wire,reason,task", [
+        (1, "cliff", "cliff_sensors"), (6, "brush_stall", "brushes"),
+        (7, "no_bin", "bin"), (16, "bin_full", "bin"), (51, "camera", "camera"),
+    ])
+    def test_a_refusal(self, wire, reason, task):
+        assert mm.care_cause(self._state(not_ready=wire)) == reason
+        assert mm.cause_task(reason, prime=False) == task
+
+    def test_a_full_bin_only_without_a_clean_base(self):
+        assert mm.care_cause(self._state(full=True)) == "bin_full"
+        assert mm.care_cause(self._state(full=True, clean_base=True)) is None
+        assert mm.care_cause(self._state(full=False)) is None
+        assert mm.care_cause(self._state(not_ready=15)) is None, "low battery is no care task"
+
+    def test_an_error_comes_first(self):
+        state = self._state(not_ready=16)
+        state["cleanMissionStatus"].update(cycle="clean", phase="stuck", error=26)
+        assert mm.care_cause(state) == 26
+
+    def test_the_check_entry_carries_the_reason_not_an_error(self):
+        items = {i.id: i for i in mm.classic_items(
+            MaintenanceStore(), self._state(full=True), {}, now=_NOW)}
+        assert items["check.bin"].reason == "bin_full"
+        assert items["check.bin"].error is None
+
+    async def test_done_keeps_it_away_while_it_lasts_and_no_forced_due(self, hass):
+        state = self._state(not_ready=6)
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        tracker = _tracker(hass, store=store, state=state, options={"care_reminders": True})
+        await tracker.async_refresh(_NOW)
+        brushes = tracker.item("clean.brushes")
+        assert brushes.reason == "brush_stall" and brushes.level == "due"
+        assert "forced_due" not in store.maintenance_state.get("clean.brushes", {}), (
+            "a stuck brush is not a dirt error"
+        )
+        assert tracker.care_cause_task() == "brushes"
+        await tracker.async_done("clean.brushes")
+        assert store.maintenance_state["clean.brushes"]["error_dismissed"] == "brush_stall"
+        assert tracker.item("clean.brushes").reason is None
+
+    async def test_the_repair_issue_names_the_reason(self, hass):
+        from homeassistant.helpers import issue_registry as ir
+
+        tracker = _tracker(hass, state=self._state(full=True),
+                           options={"care_guide_on_error": "repairs"})
+        await tracker.async_refresh(_NOW)
+        issue = ir.async_get(hass).async_get_issue(
+            "roomba_plus", f"maintenance_error_care_{tracker.config_entry.entry_id}_bin",
+        )
+        assert issue.translation_placeholders["reason"] == "bin_full"
+        assert issue.translation_placeholders["code"] == ""
+
+    async def test_the_event_says_whether_only_cleaned_can_be_recorded(self, hass):
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+        from custom_components.roomba_plus.const import maintenance_event_signal
+
+        store = MaintenanceStore(care_since=(_NOW - timedelta(days=8)).isoformat())
+        store.profile_hours = {"filter": 50, "main_brush": 50}
+        tracker = _tracker(hass, store=store, options={"care_reminders": True})
+        got = {}
+        async_dispatcher_connect(
+            hass, maintenance_event_signal("BLID1"), lambda _t, p: got.setdefault(p["id"], p),
+        )
+        await tracker.async_refresh(_NOW)
+        await hass.async_block_till_done()
+        assert got["replace.filter"]["can_clean"] is True
+        assert got["clean.filter"]["can_clean"] is False

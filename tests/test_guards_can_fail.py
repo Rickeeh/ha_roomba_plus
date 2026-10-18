@@ -128,6 +128,34 @@ class TestMarkdownLinkGuard:
         assert guard.main() == 1
 
 
+class TestBlueprintGuard:
+    """`!input` inside a template: Home Assistant does not substitute it
+    there, and the automation does not load. The guard replaced it with
+    `True` and passed three such blueprints."""
+
+    def _check(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str) -> int:
+        guard = _load("validate_blueprints")
+        (tmp_path / "b.yaml").write_text(
+            "blueprint:\n  name: b\n  domain: automation\n"
+            "  input:\n    robot:\n      selector:\n        text:\n"
+            "variables:\n  robot: !input robot\n"
+            f"conditions:\n  - condition: template\n    value_template: '{template}'\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(guard, "BLUEPRINTS_DIR", tmp_path)
+        return guard.main()
+
+    def test_it_reports_an_input_inside_a_template(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert self._check(tmp_path, monkeypatch, "{{ (!input robot) == 1 }}") == 1
+
+    def test_the_variable_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert self._check(tmp_path, monkeypatch, "{{ robot == 1 }}") == 0
+
+
 class TestRoombapyPrimePinGuard:
     """The manifest pin and the workflow pin must agree — the manifest is
     the only pin a user gets."""

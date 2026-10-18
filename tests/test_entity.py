@@ -631,3 +631,161 @@ class TestMissionInProgress:
         from custom_components.roomba_plus.entity import mission_in_progress
 
         assert mission_in_progress(status) is expected
+
+
+class TestPrimeOnlyEntitiesGoWhenTheRobotMovesLocal:
+    """4.5.0: an entry Reconfigure moved from cloud-only to the local
+    connection keeps what both paths create and loses only what the
+    Prime path alone created -- by the `_prime_` naming."""
+
+    @staticmethod
+    def _sweep(entries, blid="0123456789ABCDEF"):
+        from custom_components.roomba_plus.entity_cleanup import (
+            async_remove_prime_only_entities,
+        )
+
+        registry = MagicMock()
+        config_entry = MagicMock()
+        config_entry.entry_id = "abc"
+        config_entry.data = {"blid": blid} if blid else {}
+        with patch(
+            "homeassistant.helpers.entity_registry.async_get", return_value=registry,
+        ), patch(
+            "homeassistant.helpers.entity_registry.async_entries_for_config_entry",
+            return_value=entries,
+        ):
+            removed = async_remove_prime_only_entities(MagicMock(), config_entry)
+        return removed, {c.args[0] for c in registry.async_remove.call_args_list}
+
+    def test_only_the_prime_only_ones_go(self):
+        removed, gone = self._sweep([
+            _entry("roomba_plus_0123456789ABCDEF", "vacuum.combo"),
+            _entry("roomba_plus_0123456789ABCDEF_battery", "sensor.combo_battery"),
+            _entry("roomba_plus_0123456789ABCDEF_connected", "binary_sensor.combo_connected"),
+            _entry("roomba_plus_0123456789ABCDEF_prime_error", "sensor.combo_prime_error"),
+            _entry("roomba_plus_0123456789ABCDEF_prime_part_71", "sensor.combo_prime_part_71"),
+            # Another robot's Prime entity is not this entry's to touch.
+            _entry("roomba_plus_FEDCBA9876543210_prime_error", "sensor.other_prime_error"),
+        ])
+        assert removed == 2
+        assert gone == {"sensor.combo_prime_error", "sensor.combo_prime_part_71"}
+
+    def test_an_entry_without_a_blid_removes_nothing(self):
+        removed, gone = self._sweep(
+            [_entry("roomba_plus__prime_error", "sensor.x")], blid=""
+        )
+        assert (removed, gone) == (0, set())
+
+    def test_no_local_entity_carries_the_prime_marker(self):
+        """What the sweep relies on: the local path creates no entity
+        whose unique id carries `_prime_`, so nothing removed comes back.
+        Every such unique id in the code belongs to a Prime class."""
+        import pathlib
+        import re
+
+        base = pathlib.Path(__file__).parent.parent / "custom_components" / "roomba_plus"
+        offenders = []
+        for path in sorted(base.glob("*.py")):
+            current_class = ""
+            for line in path.read_text().splitlines():
+                m = re.match(r"class (\w+)", line)
+                if m:
+                    current_class = m.group(1)
+                if "_attr_unique_id" in line and "_prime_" in line:
+                    if "Prime" not in current_class:
+                        offenders.append(f"{path.name}: {current_class}")
+        assert not offenders, offenders
+
+
+
+class TestMaintenanceDiagnosticsHidden:
+    """4.5.0 (E2): hide "last replaced", "wear rate" and "days until due"
+    on request, and show them again -- never touching an entity the user
+    switched off himself."""
+
+    async def test_hide_and_show(self, hass):
+        from homeassistant.helpers import entity_registry as er
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.roomba_plus.entity_cleanup import (
+            async_set_maintenance_diagnostics_hidden,
+        )
+
+        entry = MockConfigEntry(domain="roomba_plus", data={})
+        entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+        wear = registry.async_get_or_create(
+            "sensor", "roomba_plus", "roomba_plus_B_filter_wear_rate", config_entry=entry,
+        )
+        mine = registry.async_get_or_create(
+            "sensor", "roomba_plus", "roomba_plus_B_brush_last_replaced", config_entry=entry,
+            disabled_by=er.RegistryEntryDisabler.USER,
+        )
+        other = registry.async_get_or_create(
+            "sensor", "roomba_plus", "roomba_plus_B_filter_remaining_hours", config_entry=entry,
+        )
+        assert async_set_maintenance_diagnostics_hidden(hass, entry, True) == 1
+        assert registry.async_get(wear.entity_id).disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        assert registry.async_get(mine.entity_id).disabled_by is er.RegistryEntryDisabler.USER
+        assert registry.async_get(other.entity_id).disabled_by is None
+        assert async_set_maintenance_diagnostics_hidden(hass, entry, False) == 1
+        assert registry.async_get(wear.entity_id).disabled_by is None
+        assert registry.async_get(mine.entity_id).disabled_by is er.RegistryEntryDisabler.USER
+
+
+class TestANewInstallationIsLean:
+    """4.5.0 (E2): created disabled on first registration; an existing
+    installation keeps what it has."""
+
+    def test_the_diagnostic_sensors(self):
+        from custom_components.roomba_plus.const import MAINTENANCE_DIAGNOSTIC_KEYS
+        from custom_components.roomba_plus.sensor_core import SENSORS
+
+        lean = {d.key for d in SENSORS if not d.entity_registry_enabled_default}
+        assert set(MAINTENANCE_DIAGNOSTIC_KEYS) <= lean
+        assert "filter_remaining_hours" not in lean
+
+    def test_the_rarely_used_buttons(self):
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus import button as btn
+
+        entry = MagicMock()
+        for cls in (btn.BatteryResetButton, btn.WheelCleaningResetButton,
+                    btn.ContactCleaningResetButton, btn.BinCleaningResetButton):
+            assert cls(MagicMock(), "B", entry).entity_registry_enabled_default is False, cls
+        assert btn.FilterResetButton(MagicMock(), "B", entry).entity_registry_enabled_default is True
+
+
+class TestMaintenanceEntitiesFollowTheEntries:
+    """4.5.0: an entity that shows maintenance entries re-renders when they
+    are recomputed; the others do not listen -- the entries change with
+    every hour run."""
+
+    async def _signals(self, monkeypatch, shows):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from custom_components.roomba_plus import entity as entity_mod
+        from custom_components.roomba_plus.binary_sensor import RoombaMaintenanceDue
+
+        connected: list[str] = []
+        monkeypatch.setattr(
+            entity_mod, "async_dispatcher_connect",
+            lambda _hass, signal, _target: connected.append(signal) or (lambda: None),
+        )
+        e = RoombaMaintenanceDue.__new__(RoombaMaintenanceDue)
+        e.vacuum = None
+        e._blid = "B"
+        e.hass = MagicMock()
+        e._shows_maintenance = shows
+        e._async_update_device_name = AsyncMock()
+        e.schedule_update_ha_state = MagicMock()
+        e.async_on_remove = MagicMock()
+        await entity_mod.IRobotEntity.async_added_to_hass(e)
+        return connected
+
+    async def test_only_those_that_show_them(self, monkeypatch):
+        from custom_components.roomba_plus.const import maintenance_items_signal
+
+        assert maintenance_items_signal("B") in await self._signals(monkeypatch, True)
+        assert maintenance_items_signal("B") not in await self._signals(monkeypatch, False)

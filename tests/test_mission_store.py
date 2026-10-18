@@ -4963,6 +4963,7 @@ class TestTheStoredRoomsFollowTheCloud:
         assert self._store(rec).store_rooms_from_timelines(self._MAP) == 0
         assert rec["last_cleaned_rooms"] == ["Bathroom", "Office"]
 
+
     def test_a_record_without_timeline_is_left_alone(self):
         rec = {"id": "m_2", "last_cleaned_rooms": ["Bathroom"]}
         assert self._store(rec).store_rooms_from_timelines(self._MAP) == 0
@@ -5547,3 +5548,40 @@ class TestTheFoldComparesOnlyNeighbours:
                   "ended_at": "2026-01-01T01:00:30+00:00", "duration_min": 57}
         kept, dropped = _without_same_mission_twice([first, second])
         assert (len(kept), dropped) == (1, 1)
+
+
+class TestWhereTheLatestRoomsComeFrom:
+    """4.5.0: latest_rooms_source() says what latest_cleaned_rooms()
+    shows -- `requested` rooms are the ones the mission was sent to."""
+
+    @staticmethod
+    def _store(rec):
+        store = MissionStore()
+        store._records = [rec]
+        return store
+
+    def test_requested_rooms_say_so(self):
+        rec = {"id": "m_1", "last_cleaned_rooms": ["Kitchen"], "rooms_source": "requested"}
+        assert self._store(rec).latest_rooms_source() == "requested"
+
+    def test_the_cloud_decides_once_it_has_room_events(self):
+        rec = {"id": "m_1", "last_cleaned_rooms": ["Kitchen"], "rooms_source": "requested",
+               "timeline": {"finEvents": [{"type": "room", "room": {"rid": "3", "status": 5}}]}}
+        assert self._store(rec).latest_rooms_source() == "cloud"
+
+    def test_prime_synced_rooms_are_the_cloud(self):
+        assert self._store({"id": "m_1", "rooms_cleaned": []}).latest_rooms_source() == "cloud"
+
+    def test_observed_and_empty_stores_have_no_source(self):
+        assert self._store({"id": "m_1", "last_cleaned_rooms": ["A"]}).latest_rooms_source() is None
+        assert MissionStore().latest_rooms_source() is None
+
+    def test_the_cloud_answer_replaces_the_mark(self):
+        rec = {"id": "m_1", "ended_at": "2026-09-26T08:00:00+00:00",
+               "last_cleaned_rooms": ["Bathroom", "Office"], "rooms_source": "requested",
+               "timeline": {"finEvents": [
+                   {"type": "room", "room": {"rid": "6", "status": 0, "passCount": 1}}]}}
+        store = self._store(rec)
+        assert store.store_rooms_from_timelines({"3": "Bathroom", "6": "Office"}) == 1
+        assert rec["last_cleaned_rooms"] == ["Office"]
+        assert rec["rooms_source"] == "cloud"

@@ -1251,38 +1251,283 @@ class TestSettingsMapRotation:
         assert picker.config["translation_key"] == "map_rotation"
 
 
-class TestSettingsCareReminders:
-    """4.3.2: care reminders are opt-in."""
+class TestMaintenancePage:
+    """4.5.0 (E): every maintenance setting in one place, an overview,
+    and "report a part replaced". The list, care reminders and pets
+    moved here from Settings."""
+
+    def _flow(self, options=None, prime=False, tracker=None):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.models import ConnectionType
+
+        flow = _make_options_flow()
+        entry = flow._config_entry
+        entry.options = options or {}
+        entry.runtime_data.connection_type = (
+            ConnectionType.CLOUD_ONLY if prime else ConnectionType.LOCAL_PUSH
+        )
+        entry.runtime_data.maintenance = tracker or SimpleNamespace(items=[], async_done=AsyncMock())
+        flow.async_show_form = MagicMock(side_effect=lambda **kw: kw)
+        flow.async_show_menu = MagicMock(side_effect=lambda **kw: kw)
+        flow.async_create_entry = MagicMock(side_effect=lambda **kw: kw)
+        return flow
+
+    def _fields(self, result):
+        return {str(k.schema): k for k in result["data_schema"].schema}
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("stored, shown", [(None, False), (True, True)])
-    async def test_the_form_offers_it(self, stored, shown):
-        from custom_components.roomba_plus.const import CONF_CARE_REMINDERS
-        options = {} if stored is None else {CONF_CARE_REMINDERS: stored}
-        flow, entry = _flow(options=options)
-        with patch.object(
-            RoombaPlusOptionsFlow, "config_entry", new=entry, create=True
-        ):
+    async def test_settings_no_longer_carries_them(self):
+        from custom_components.roomba_plus.models import ConnectionType
+
+        for prime in (False, True):
+            flow = self._flow(prime=prime)
+            if not prime:
+                flow._config_entry.runtime_data.connection_type = ConnectionType.LOCAL_PUSH
             result = await flow.async_step_settings(None)
-        fields = {k.schema: k for k in result["data_schema"].schema}
-        assert fields[CONF_CARE_REMINDERS].default() is shown
-
-
-class TestSettingsPets:
-    """4.3.2: the pets option for the care reminders, off by default."""
+            fields = self._fields(result)
+            for key in ("enable_maintenance_list", "care_reminders", "pets_in_household"):
+                assert key not in fields, (prime, key)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("stored, shown", [(None, False), (True, True)])
-    async def test_the_form_offers_it(self, stored, shown):
-        from custom_components.roomba_plus.const import CONF_PETS
-        options = {} if stored is None else {CONF_PETS: stored}
-        flow, entry = _flow(options=options)
-        with patch.object(
-            RoombaPlusOptionsFlow, "config_entry", new=entry, create=True
-        ):
-            result = await flow.async_step_settings(None)
-        fields = {k.schema: k for k in result["data_schema"].schema}
-        assert fields[CONF_PETS].default() is shown
+    async def test_the_menu_shows_the_overview(self):
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+        from types import SimpleNamespace
+
+        tracker = SimpleNamespace(items=[
+            MaintenanceItem("replace.filter", "replace", "filter", level="soon",
+                            remaining=8.0, unit="hours", interval_source="profile"),
+            MaintenanceItem("replace.battery", "replace", "battery"),
+        ])
+        result = await self._flow(tracker=tracker).async_step_maintenance()
+        assert result["menu_options"] == ["maintenance_settings", "maintenance_report", "maintenance_forget"]
+        overview = result["description_placeholders"]["overview"]
+        assert "| `replace.filter` | soon | 8 hours | profile |" in overview
+        assert "| `replace.battery` | ok | – | – |" in overview
+
+    @pytest.mark.asyncio
+    async def test_both_generations_get_it_in_the_menu(self):
+        flow = self._flow()
+        flow._config_entry.runtime_data.has_cloud = False
+        result = await flow.async_step_init()
+        assert "maintenance" in result["menu_options"]
+        flow._config_entry.runtime_data.maintenance = None
+        assert "maintenance" not in (await flow.async_step_init())["menu_options"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prime", [False, True])
+    async def test_the_settings_and_their_defaults(self, prime):
+        result = await self._flow(prime=prime).async_step_maintenance_settings()
+        fields = self._fields(result)
+        defaults = {k: f.default() for k, f in fields.items() if callable(getattr(f, "default", None))}
+        assert defaults["enable_maintenance_list"] is False
+        assert defaults["care_reminders"] is False
+        assert defaults["pets_in_household"] is False
+        assert defaults["maintenance_soon_at"] == "80"
+        assert defaults["care_guide_on_error"] == "list"
+        assert defaults["maintenance_overdue_repairs"] is False
+        assert defaults["maintenance_calendar"] is False
+        assert defaults["hide_maintenance_diagnostics"] is False
+        hours = {"filter_threshold_hours", "brush_threshold_hours",
+                 "side_brush_threshold_hours", "clean_base_bag_threshold_hours"}
+        assert (hours <= set(fields)) is (not prime), "Prime's counters are its intervals"
+
+    @pytest.mark.asyncio
+    async def test_saving_drops_an_emptied_hour_option(self):
+        flow = self._flow(options={"filter_threshold_hours": 40, "map_enabled": True})
+        result = await flow.async_step_maintenance_settings({
+            "enable_maintenance_list": True, "care_guide_on_error": "list",
+            "brush_threshold_hours": 200,
+        })
+        assert result["data"] == {
+            "map_enabled": True, "enable_maintenance_list": True,
+            "care_guide_on_error": "list", "brush_threshold_hours": 200,
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_guide_in_the_list_needs_the_list(self):
+        flow = self._flow()
+        result = await flow.async_step_maintenance_settings({
+            "enable_maintenance_list": False, "care_guide_on_error": "list",
+        })
+        assert result["errors"] == {"care_guide_on_error": "maintenance_list_needed"}
+
+    @pytest.mark.asyncio
+    async def test_hiding_the_diagnostics_only_on_a_change(self):
+        from custom_components.roomba_plus import config_flow as cf
+
+        flow = self._flow()
+        with patch.object(cf, "async_set_maintenance_diagnostics_hidden") as hide:
+            await flow.async_step_maintenance_settings({
+                "enable_maintenance_list": True, "hide_maintenance_diagnostics": True,
+            })
+            hide.assert_called_once_with(flow.hass, flow._config_entry, True)
+            flow._config_entry.options = {"hide_maintenance_diagnostics": True}
+            await flow.async_step_maintenance_settings({
+                "enable_maintenance_list": True, "hide_maintenance_diagnostics": True,
+            })
+            assert hide.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_forget_learned_intervals_on_classic_only(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        tracker = SimpleNamespace(
+            items=[
+                MaintenanceItem("replace.filter", "replace", "filter", interval_source="learned"),
+                MaintenanceItem("replace.battery", "replace", "battery"),
+                MaintenanceItem("clean.wheel", "clean", "wheel"),
+            ],
+            async_forget_learned=AsyncMock(return_value=["replace.filter"]),
+        )
+        flow = self._flow(tracker=tracker)
+        assert "maintenance_forget" in (await flow.async_step_maintenance())["menu_options"]
+        form = await flow.async_step_maintenance_forget()
+        options = form["data_schema"].schema
+        selector_ = next(iter(options.values()))
+        assert [o["value"] for o in selector_.config["options"]] == ["replace.filter"]
+        await flow.async_step_maintenance_forget({"item": []})
+        tracker.async_forget_learned.assert_awaited_once_with(())
+        prime = self._flow(prime=True, tracker=tracker)
+        assert "maintenance_forget" not in (await prime.async_step_maintenance())["menu_options"]
+
+    @pytest.mark.asyncio
+    async def test_report_a_part_replaced(self):
+        from types import SimpleNamespace
+
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        tracker = SimpleNamespace(
+            items=[MaintenanceItem("replace.filter", "replace", "filter", level="due")],
+            async_done=AsyncMock(),
+        )
+        flow = self._flow(tracker=tracker)
+        form = await flow.async_step_maintenance_report()
+        assert set(self._fields(form)) == {"item", "action"}
+        await flow.async_step_maintenance_report({"item": "replace.filter", "action": "clean"})
+        tracker.async_done.assert_awaited_once_with("replace.filter", "clean", via="settings")
+        tracker.async_done.side_effect = HomeAssistantError("no part")
+        result = await flow.async_step_maintenance_report({"item": "replace.filter"})
+        assert result["errors"] == {"base": "maintenance_done_failed"}
+        assert result["description_placeholders"]["error"] == "no part"
+
+    def _guide_flow(self, items=(), sku="R980020", prime=False):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus import care_guides as cg
+
+        texts, schemata = cg._read_files()
+        tracker = SimpleNamespace(items=list(items), async_done=AsyncMock())
+        flow = self._flow(tracker=tracker, prime=prime)
+        flow.hass.data = {cg._DATA_KEY: cg.CareGuides(b"k" * 32, texts, schemata)}
+        flow.hass.config.language = "de"
+        flow._config_entry.entry_id = "E1"
+        flow._config_entry.runtime_data.roomba_reported_state = lambda: {"sku": sku}
+        return flow, tracker
+
+    @pytest.mark.asyncio
+    async def test_care_guides_in_the_menu_once_loaded(self):
+        assert "maintenance_guide" not in (await self._flow().async_step_maintenance())["menu_options"]
+        flow, _tracker = self._guide_flow()
+        assert (await flow.async_step_maintenance())["menu_options"] == [
+            "maintenance_settings", "maintenance_report", "maintenance_guide", "maintenance_forget",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_robots_guides_most_urgent_first_in_its_language(self):
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        flow, _tracker = self._guide_flow([
+            MaintenanceItem("replace.filter", "replace", "filter", guide_id="replace_filter"),
+            MaintenanceItem("replace.side_brush", "replace", "side_brush", level="due",
+                            guide_id="replace_side_brush"),
+        ])
+        form = await flow.async_step_maintenance_guide()
+        options = form["data_schema"].schema["guide"].config["options"]
+        values = [o["value"] for o in options]
+        assert values[:3] == ["replace_side_brush", "replace_filter", "clean_filter"]
+        assert "clean_bin" in values and "replace_pad" not in values
+        assert options[0]["label"] == "Seitenbürste ersetzen"
+
+    @pytest.mark.asyncio
+    async def test_a_braava_gets_its_own_cleaning(self):
+        flow, _tracker = self._guide_flow(sku="m611020")
+        form = await flow.async_step_maintenance_guide()
+        values = [o["value"] for o in form["data_schema"].schema["guide"].config["options"]]
+        assert values == ["clean_cliff_sensors", "clean_contact"]
+
+    @pytest.mark.asyncio
+    async def test_the_guide_with_its_drawing_and_done_from_here(self):
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        flow, tracker = self._guide_flow([
+            MaintenanceItem("replace.filter", "replace", "filter", guide_id="replace_filter"),
+            MaintenanceItem("clean.filter", "clean", "filter", guide_id="clean_filter"),
+        ])
+        form = await flow.async_step_maintenance_guide({"guide": "clean_filter"})
+        assert form["step_id"] == "maintenance_guide_show"
+        placeholders = form["description_placeholders"]
+        assert placeholders["title"] == "Filter reinigen"
+        assert placeholders["guide"].startswith(
+            "![Filter reinigen](/api/roomba_plus/care/E1/clean_filter/schema.svg?lang=de&exp="
+        )
+        assert "**So geht's**" in placeholders["guide"]
+        assert placeholders["link"].startswith("/api/roomba_plus/care/E1/clean_filter?lang=de")
+        assert set(self._fields(form)) == {"done"}
+        await flow.async_step_maintenance_guide_show({"done": True})
+        tracker.async_done.assert_awaited_once_with("clean.filter", via="settings")
+
+    @pytest.mark.asyncio
+    async def test_when_and_both_drawings_of_the_contacts(self):
+        """Concept 5a: "When" -- the interval, its source, what is left and
+        the last time -- and the dock beside the robot for the contacts."""
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        flow, _tracker = self._guide_flow([
+            MaintenanceItem("clean.contact", "clean", "contact", guide_id="clean_contact",
+                            interval=30.0, interval_unit="days", interval_source="calendar",
+                            remaining=12.0, unit="days", last_done="2026-10-01T10:00:00+00:00"),
+        ])
+        flow.hass.config.language = "en"
+        form = await flow.async_step_maintenance_guide({"guide": "clean_contact"})
+        guide = form["description_placeholders"]["guide"]
+        assert guide.count("schema.svg?") == 2 and "&n=1)" in guide
+        assert "**When**  \nInterval 30 days, on the care calendar · 12 days left · Last done 2026-10-01" in guide
+
+    @pytest.mark.asyncio
+    async def test_no_drawing_and_nothing_to_tick_where_there_is_none(self):
+        flow, tracker = self._guide_flow(prime=True)
+        form = await flow.async_step_maintenance_guide({"guide": "clean_camera"})
+        assert not form["description_placeholders"]["guide"].startswith("![")
+        assert self._fields(form) == {}
+        await flow.async_step_maintenance_guide_show({})
+        tracker.async_done.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_done_is_shown(self):
+        from homeassistant.exceptions import HomeAssistantError
+
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        flow, tracker = self._guide_flow([
+            MaintenanceItem("replace.bag", "replace", "bag", guide_id="replace_bag", done="cloud"),
+        ], prime=True)
+        tracker.async_done.side_effect = HomeAssistantError("iRobot said no")
+        await flow.async_step_maintenance_guide({"guide": "replace_bag"})
+        result = await flow.async_step_maintenance_guide_show({"done": True})
+        assert result["errors"] == {"base": "maintenance_done_failed"}
+        assert result["description_placeholders"]["error"] == "iRobot said no"
+
+    @pytest.mark.asyncio
+    async def test_without_the_guides_it_aborts(self):
+        flow = self._flow()
+        flow.async_abort = MagicMock(side_effect=lambda **kw: kw)
+        assert (await flow.async_step_maintenance_guide())["reason"] == "care_guides_unavailable"
+        assert (await flow.async_step_maintenance_guide_show())["reason"] == "care_guides_unavailable"
 
 
 class TestAWrongLibrarySaysSo:
@@ -1888,6 +2133,7 @@ class TestReconfigureStep:
 
         validate = validate or AsyncMock(return_value={})
         monkeypatch.setattr(cf, "validate_input", validate)
+        monkeypatch.setattr(cf, "async_remove_prime_only_entities", MagicMock(return_value=0))
         flow = self._flow(data)
         written: dict = {}
         flow.hass.config_entries.async_update_entry = (
@@ -1918,6 +2164,37 @@ class TestReconfigureStep:
         assert data["blid"] == "0123456789ABCDEF"
         assert data["irobot_username"] == "user@example.com"
         assert data["irobot_password"] == "hunter2"
+
+    @pytest.mark.asyncio
+    async def test_the_switch_removes_the_prime_only_entities_first(self, monkeypatch):
+        """4.5.0: before the reload, so the local setup starts clean."""
+        from custom_components.roomba_plus import config_flow as cf
+
+        order: list[str] = []
+        flow, written, _v = self._saving_flow(monkeypatch, self._ACCOUNT_ENTRY)
+        sweep = MagicMock(side_effect=lambda hass, entry: order.append("sweep") or 3)
+        monkeypatch.setattr(cf, "async_remove_prime_only_entities", sweep)
+        flow.hass.config_entries.async_reload = AsyncMock(
+            side_effect=lambda *_a: order.append("reload")
+        )
+
+        await flow.async_step_reconfigure({"host": "192.0.2.10", "password": "x"})
+
+        sweep.assert_called_once()
+        assert sweep.call_args.args[1] is flow._entry_for_test
+        assert order == ["sweep", "reload"]
+
+    @pytest.mark.asyncio
+    async def test_a_local_entry_loses_no_entity(self, monkeypatch):
+        from custom_components.roomba_plus import config_flow as cf
+
+        flow, _w, _v = self._saving_flow(
+            monkeypatch, {"host": "192.0.2.2", "blid": "B1", "password": "pw"}
+        )
+        sweep = MagicMock(return_value=0)
+        monkeypatch.setattr(cf, "async_remove_prime_only_entities", sweep)
+        await flow.async_step_reconfigure({"host": "192.0.2.9", "password": "pw"})
+        sweep.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_local_entry_gains_no_connection_type(self, monkeypatch):
@@ -4051,3 +4328,64 @@ class TestAnUnknownSkuTakesThePrimePath:
         with _discovery(devices), patch.object(flow, "_async_current_ids", return_value=set()):
             result = await flow.async_step_user()
         assert result["step_id"] == "prime_account"
+
+
+class TestSettingsWallsAndDoors:
+    """4.5.0: wall thickness and door width for the 900-series layout,
+    right after the map rotation; not offered to other robots."""
+
+    @pytest.mark.asyncio
+    async def test_a_900_series_is_asked(self):
+        from custom_components.roomba_plus.const import (
+            CONF_DOOR_WIDTH_CM, CONF_MAP_ROTATION, CONF_WALL_THICKNESS_CM,
+        )
+        from custom_components.roomba_plus.models import MapCapability
+
+        flow, entry = _flow(options={CONF_DOOR_WIDTH_CM: 90})
+        entry.runtime_data.map_capability = MapCapability.EPHEMERAL
+        with patch.object(RoombaPlusOptionsFlow, "config_entry", new=entry, create=True):
+            result = await flow.async_step_settings(None)
+        keys = [k.schema for k in result["data_schema"].schema]
+        at = keys.index(CONF_MAP_ROTATION)
+        assert keys[at + 1:at + 3] == [CONF_WALL_THICKNESS_CM, CONF_DOOR_WIDTH_CM]
+        defaults = {k.schema: k.default() for k in result["data_schema"].schema}
+        assert defaults[CONF_WALL_THICKNESS_CM] == 15 and defaults[CONF_DOOR_WIDTH_CM] == 90
+        with pytest.raises(Exception):
+            result["data_schema"]({CONF_WALL_THICKNESS_CM: 2})
+
+    @pytest.mark.asyncio
+    async def test_other_robots_are_not(self):
+        from custom_components.roomba_plus.const import CONF_WALL_THICKNESS_CM
+
+        flow, entry = _flow()
+        with patch.object(RoombaPlusOptionsFlow, "config_entry", new=entry, create=True):
+            result = await flow.async_step_settings(None)
+        assert CONF_WALL_THICKNESS_CM not in [k.schema for k in result["data_schema"].schema]
+
+
+class TestSettingsWallsAndDoorsForEveryMap:
+    """4.5.0: a Smart Map robot and a Prime robot draw walls and doors on
+    their rooms maps, so both are asked too."""
+
+    @pytest.mark.asyncio
+    async def test_a_smart_map_robot_is_asked(self):
+        from custom_components.roomba_plus.const import CONF_WALL_THICKNESS_CM
+        from custom_components.roomba_plus.models import MapCapability
+
+        flow, entry = _flow()
+        entry.runtime_data.map_capability = MapCapability.SMART
+        with patch.object(RoombaPlusOptionsFlow, "config_entry", new=entry, create=True):
+            result = await flow.async_step_settings(None)
+        assert CONF_WALL_THICKNESS_CM in [k.schema for k in result["data_schema"].schema]
+
+    @pytest.mark.asyncio
+    async def test_the_prime_form_has_them(self):
+        from custom_components.roomba_plus.models import ConnectionType
+
+        flow = _make_options_flow()
+        flow._config_entry.runtime_data.connection_type = ConnectionType.CLOUD_ONLY
+        flow._config_entry.options = {"door_width_cm": 100}
+        flow.async_show_form = MagicMock(side_effect=lambda **kw: kw)
+        result = await flow.async_step_settings(None)
+        defaults = {str(k): k.default() for k in result["data_schema"].schema}
+        assert defaults["wall_thickness_cm"] == 15 and defaults["door_width_cm"] == 100

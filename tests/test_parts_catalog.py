@@ -25,7 +25,7 @@ class TestParse:
     def test_links_join_by_part_id_and_only_real_ones_count(self):
         parsed = pc.parse_catalogue(CATALOGUE)
         assert parsed["67"] == {"guide_url": "https://help.irobot.com/filter",
-                                "part_name": "Filter"}
+                                "buy_url": "https://x", "part_name": "Filter"}
         assert parsed["71"] == {"part_name": "Brushes"}, "an empty guide is no guide"
         assert parsed["147"]["guide_url"] == "https://help.irobot.com/bag"
         assert "guide_url" not in parsed.get("9", {}), "https only"
@@ -126,3 +126,27 @@ class TestTheSensorsShowTheGuide:
         attrs = sensor.extra_state_attributes
         assert attrs["guide_url"] == "https://help.irobot.com/filter"
         store.cloud_part_by_role.assert_called_with("filter")
+
+
+class TestTheEntriesHearOfIt:
+    """4.5.0: the catalogue arrives after the maintenance entries were
+    built; its links reach them through a recompute."""
+
+    @pytest.mark.asyncio
+    async def test_a_loaded_catalogue_is_announced(self):
+        data = SimpleNamespace(blid="B1", parts_catalogue={})
+        sent = []
+        with patch.object(pc, "async_fetch_catalogue", AsyncMock(return_value={"35": {"part_name": "Filter"}})), \
+                patch.object(pc, "async_dispatcher_send", lambda hass, signal: sent.append(signal)):
+            await pc.async_load_into(MagicMock(), data, "R980020")
+        assert data.parts_catalogue == {"35": {"part_name": "Filter"}}
+        assert sent == ["roomba_plus_maintenance_changed_B1"]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_one_is_not(self):
+        data = SimpleNamespace(blid="B1", parts_catalogue={})
+        sent = []
+        with patch.object(pc, "async_fetch_catalogue", AsyncMock(return_value={})), \
+                patch.object(pc, "async_dispatcher_send", lambda hass, signal: sent.append(signal)):
+            await pc.async_load_into(MagicMock(), data, "R980020")
+        assert sent == []

@@ -7,7 +7,7 @@ event entities carry the same moments as ordinary state.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,12 +21,13 @@ from custom_components.roomba_plus.models import ConnectionType
 from tests.conftest import entry_mock
 
 
-def _entry(connection_type=ConnectionType.LOCAL_PUSH, entry_id="E1"):
+def _entry(connection_type=ConnectionType.LOCAL_PUSH, entry_id="E1", maintenance=None):
     entry = entry_mock()
     entry.entry_id = entry_id
     entry.runtime_data.connection_type = connection_type
     entry.runtime_data.blid = "BLID1"
     entry.runtime_data.roomba = None
+    entry.runtime_data.maintenance = maintenance
     return entry
 
 
@@ -110,4 +111,224 @@ class TestTheyFollowTheBus:
         await event_mod.RoombaMomentEvent.async_added_to_hass(entity)
         entity.hass.bus.async_listen.assert_any_call(
             EVENT_ROOM_COMPLETED, entity._on_bus_event
+        )
+
+
+class TestTheMaintenanceEvent:
+    """4.5.0: one entity, four event types, the entry as its data."""
+
+    @pytest.mark.asyncio
+    async def test_both_generations_get_it_with_maintenance(self):
+        for kind in (ConnectionType.LOCAL_PUSH, ConnectionType.CLOUD_ONLY):
+            created = await _created(_entry(kind, maintenance=object()))
+            entity = created["maintenance"]
+            assert entity.unique_id == "roomba_plus_BLID1_maintenance"
+            assert entity.event_types == ["due", "overdue", "done", "snoozed"]
+
+    @pytest.mark.asyncio
+    async def test_none_without_maintenance(self):
+        assert "maintenance" not in await _created(_entry())
+
+    @pytest.mark.asyncio
+    async def test_it_carries_the_entry_it_is_sent(self):
+        entity = (await _created(_entry(maintenance=object())))["maintenance"]
+        entity.async_write_ha_state = MagicMock()
+        entity._on_maintenance("due", {"entry_id": "E1", "id": "replace.filter", "level": "due"})
+        assert entity.state_attributes == {
+            "event_type": "due", "entry_id": "E1", "id": "replace.filter", "level": "due",
+        }
+        entity.async_write_ha_state.assert_called_once()
+        assert entity.new_state_filter({"batPct": 5}) is False
+
+    @pytest.mark.asyncio
+    async def test_it_listens_once_added(self):
+        from custom_components.roomba_plus.const import maintenance_event_signal
+
+        entity = (await _created(_entry(maintenance=object())))["maintenance"]
+        entity.hass = MagicMock()
+        entity.async_on_remove = MagicMock()
+        connected = []
+        with patch.object(
+            event_mod, "async_dispatcher_connect",
+            lambda hass, signal, target: connected.append((signal, target)),
+        ), patch.object(
+            event_mod.IRobotEntity, "async_added_to_hass", _noop_method,
+        ):
+            await entity.async_added_to_hass()
+        assert (maintenance_event_signal("BLID1"), entity._on_maintenance) in connected
+
+
+async def _noop_method(self):
+    return None
+
+
+class TestTheMaintenanceBlueprint:
+    """blueprints/automation/roomba_plus_maintenance.yaml (4.5.0, b1),
+    run in Home Assistant against the maintenance event's attributes."""
+
+    async def _automation(self, hass, **extra_input):
+        import shutil
+        from pathlib import Path
+
+        from homeassistant.setup import async_setup_component
+        from pytest_homeassistant_custom_component.common import async_mock_service
+
+        source = Path(__file__).parent.parent / "blueprints" / "automation" / "roomba_plus_maintenance.yaml"
+        target = Path(hass.config.path("blueprints", "automation", "roomba_plus", source.name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, target)
+        sent = async_mock_service(hass, "notify", "phone")
+        done = async_mock_service(hass, "roomba_plus", "maintenance_done")
+        later = async_mock_service(hass, "roomba_plus", "maintenance_snooze")
+        hass.states.async_set("event.robo_maintenance", "2026-10-17T10:00:00+00:00", {})
+        assert await async_setup_component(hass, "automation", {"automation": {
+            "use_blueprint": {"path": f"roomba_plus/{source.name}", "input": {
+                "maintenance_event": "event.robo_maintenance",
+                "vacuum_entity": "vacuum.robo",
+                "notify_action": [{"action": "notify.phone", "data": {
+                    "title": "{{ notification_title }}",
+                    "message": "{{ notification_message }}",
+                    "data": {"url": "{{ notification_url }}",
+                             "actions": "{{ notification_actions }}"},
+                }}],
+                # Any time, unless a test says otherwise.
+                "send_from": "00:00:00",
+                "send_until": "00:00:00",
+                **extra_input,
+            }},
+        }})
+        await hass.async_block_till_done()
+        return sent, done, later
+
+    def _fire(self, hass, when, **attrs):
+        payload = {"event_type": "due", "id": "replace.filter", "name": "Robo",
+                   "guide": "/api/roomba_plus/care/E1/replace_filter?sig=x",
+                   "guide_title": "Replace the filter", "error": None, **attrs}
+        hass.states.async_set("event.robo_maintenance", when, payload)
+
+    async def test_due_is_sent_with_the_guide_and_two_buttons(self, hass):
+        sent, _done, _later = await self._automation(hass)
+        self._fire(hass, "2026-10-17T11:00:00+00:00")
+        await hass.async_block_till_done()
+        assert len(sent) == 1
+        data = sent[0].data
+        assert data["title"] == "Robo"
+        assert data["message"] == "Replace the filter is due"
+        assert data["data"]["url"] == "/api/roomba_plus/care/E1/replace_filter?sig=x"
+        assert [a["action"] for a in data["data"]["actions"]] == [
+            "ROOMBA_PLUS_DONE|vacuum.robo|replace.filter|replace",
+            "ROOMBA_PLUS_LATER|vacuum.robo|replace.filter",
+            "URI",
+        ]
+        assert [a["title"] for a in data["data"]["actions"]] == [
+            "Replaced", "Remind me later", "How to do it",
+        ]
+        assert data["data"]["actions"][2]["uri"] == "/api/roomba_plus/care/E1/replace_filter?sig=x"
+
+    async def test_the_buttons_by_kind_of_entry_three_at_most(self, hass):
+        sent, _done, _later = await self._automation(hass)
+        self._fire(hass, "2026-10-17T11:00:00+00:00", can_clean=True)
+        self._fire(hass, "2026-10-17T12:00:00+00:00", id="clean.wheel", guide_title="Clean the wheels")
+        self._fire(hass, "2026-10-17T13:00:00+00:00", id="check.bin", guide=None)
+        await hass.async_block_till_done()
+        titles = [[a["title"] for a in c.data["data"]["actions"]] for c in sent]
+        assert titles == [
+            ["Replaced", "Only cleaned", "Remind me later"],
+            ["Cleaned", "Remind me later", "How to do it"],
+            ["Cleaned", "Remind me later"],
+        ]
+        assert sent[0].data["data"]["actions"][1]["action"] == (
+            "ROOMBA_PLUS_DONE|vacuum.robo|replace.filter|clean"
+        )
+
+    @pytest.mark.parametrize("hour,sent_now", [(23, False), (7, False), (12, True)])
+    async def test_only_within_the_hours(self, hass, freezer, hour, sent_now):
+        """Outside 08:00-21:00 the run waits for 08:00 (Home Assistant's
+        own wait_for_trigger); within, it sends at once."""
+        import asyncio
+        from datetime import datetime
+
+        from homeassistant.util import dt as dt_util
+
+        freezer.move_to(datetime(2026, 10, 17, hour, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE))
+        sent, _done, _later = await self._automation(
+            hass, send_from="08:00:00", send_until="21:00:00",
+        )
+        self._fire(hass, "2026-10-17T21:30:00+00:00")
+        # A waiting run would hold block_till_done: let the loop turn.
+        for _ in range(30):
+            await asyncio.sleep(0)
+        assert (len(sent) == 1) is sent_now
+        # Stop a waiting run, so the test can end.
+        await hass.services.async_call(
+            "automation", "turn_off", {"entity_id": "all"}, blocking=True,
+        )
+
+    async def test_an_error_and_the_wording_and_what_is_not_chosen(self, hass):
+        sent, _done, _later = await self._automation(
+            hass, due_text="ist fällig", error_text="Fehler",
+        )
+        self._fire(hass, "2026-10-17T11:00:00+00:00", id="check.bin", error=14,
+                   guide_title="Behälter leeren")
+        self._fire(hass, "2026-10-17T12:00:00+00:00", event_type="done")
+        await hass.async_block_till_done()
+        assert [c.data["message"] for c in sent] == ["Fehler 14: Behälter leeren ist fällig"]
+
+    async def test_without_a_guide_the_entry_names_itself(self, hass):
+        sent, _done, _later = await self._automation(hass)
+        self._fire(hass, "2026-10-17T11:00:00+00:00", event_type="overdue",
+                   id="replace.part_202", guide=None, guide_title=None)
+        await hass.async_block_till_done()
+        assert sent[0].data["message"] == "replace.part_202 is overdue"
+        assert sent[0].data["data"]["url"] == ""
+
+    async def test_the_buttons_mark_done_or_snooze_this_robot_only(self, hass):
+        _sent, done, later = await self._automation(hass, snooze_days=3)
+        bus = hass.bus
+        bus.async_fire("mobile_app_notification_action",
+                       {"action": "ROOMBA_PLUS_DONE|vacuum.robo|replace.filter|clean"})
+        bus.async_fire("mobile_app_notification_action",
+                       {"action": "ROOMBA_PLUS_DONE|vacuum.robo|clean.wheel"})
+        bus.async_fire("mobile_app_notification_action",
+                       {"action": "ROOMBA_PLUS_LATER|vacuum.robo|clean.wheel"})
+        bus.async_fire("mobile_app_notification_action",
+                       {"action": "ROOMBA_PLUS_DONE|vacuum.other|replace.filter"})
+        bus.async_fire("mobile_app_notification_action", {"action": "SOMETHING_ELSE"})
+        await hass.async_block_till_done()
+        assert [(c.data["entity_id"], c.data["item"], c.data.get("action")) for c in done] == [
+            (["vacuum.robo"], "replace.filter", "clean"),
+            (["vacuum.robo"], "clean.wheel", None),
+        ]
+        assert [(c.data["item"], c.data["days"]) for c in later] == [("clean.wheel", 3)]
+
+    async def test_the_default_is_a_persistent_notification_with_the_link(self, hass):
+        import shutil
+        from pathlib import Path
+
+        from homeassistant.setup import async_setup_component
+
+        source = Path(__file__).parent.parent / "blueprints" / "automation" / "roomba_plus_maintenance.yaml"
+        target = Path(hass.config.path("blueprints", "automation", "roomba_plus", source.name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, target)
+        hass.states.async_set("event.robo_maintenance", "2026-10-17T10:00:00+00:00", {})
+        assert await async_setup_component(hass, "persistent_notification", {})
+        assert await async_setup_component(hass, "automation", {"automation": {
+            "use_blueprint": {"path": f"roomba_plus/{source.name}", "input": {
+                "maintenance_event": "event.robo_maintenance",
+                "vacuum_entity": "vacuum.robo",
+                "send_from": "00:00:00",
+                "send_until": "00:00:00",
+            }},
+        }})
+        self._fire(hass, "2026-10-17T11:00:00+00:00")
+        await hass.async_block_till_done()
+        from homeassistant.components import persistent_notification as pn
+
+        notes = list(pn._async_get_or_create_notifications(hass).values())
+        assert len(notes) == 1
+        assert notes[0]["title"] == "Robo"
+        assert notes[0]["message"] == (
+            "Replace the filter is due\n\n"
+            "[How to do it](/api/roomba_plus/care/E1/replace_filter?sig=x)"
         )

@@ -792,6 +792,27 @@ section: see [A Prime robot that says it is cleaning and is
 not](#a-prime-robot-that-says-it-is-cleaning-and-is-not). The tell is
 `phase` reading `stale`, and only a power cycle clears it.
 
+## Room names show as boxes on the map
+
+The maps draw their labels with DejaVu Sans, which has no Japanese,
+Chinese or Korean characters; Roomba+ does not ship a font for them,
+which would add 5 to 20 MB to every installation. Since 4.5.0 a label
+falls back to the first font that has all its characters:
+
+1. Download a font with your script, for example **Noto Sans JP**,
+   **Noto Sans SC/TC** or **Noto Sans KR** (free, SIL Open Font License),
+   as a `.ttf`, `.otf` or `.ttc` file.
+2. Put it into the folder `roomba_plus/fonts` in your Home Assistant
+   configuration folder (the one with `configuration.yaml`; create the
+   folder), for example `/config/roomba_plus/fonts/NotoSansJP-Regular.ttf`.
+3. Restart Home Assistant.
+
+The folder is outside the integration, so an update keeps the font.
+Fonts the system already has (Noto CJK, WenQuanYi, IPA, Nanum) are used
+too; Home Assistant OS has none. Until a font is there, the log says once
+which characters it cannot draw. The diagnostics download lists the fonts
+it found under `map_fallback_fonts` (file names only).
+
 ## Room names are missing on a local-only install
 
 Fixed in v4.0.0b1. Zone names you have saved live in the integration's

@@ -1022,9 +1022,7 @@ class TestConsumableHelpers:
     def test_days_until_due_falls_back_to_local_hours(self):
         """Without a cloud figure the local remaining hours decide."""
         maint = MagicMock()
-        maint.cloud_remaining_hours.return_value = None
-        maint.threshold_hours.return_value = 60
-        maint.remaining_hours.return_value = 20
+        maint.role_remaining_hours.return_value = 20
         maint.reset_baseline_for_role.return_value = (0, None)
         store = MagicMock()
         store.wear_rate_since_reset.return_value = 2.0

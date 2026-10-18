@@ -2779,3 +2779,56 @@ class TestAMapOptionSavedIsAMapRedrawn:
         assert entity._png == b"NEW"
         assert entity._attr_image_last_updated is not None
         entity.async_write_ha_state.assert_called_once()
+
+
+class TestThePrimeRoomsMapMarksDoors:
+    """4.5.0: doors where two rooms' polygons meet; walls from the polygons
+    only when the bundle has no floor plan of its own."""
+
+    ROOM = [(0.0, 0.0), (3000.0, 0.0), (3000.0, 3000.0), (0.0, 3000.0)]
+    HALL = [(0.0, -1500.0), (6000.0, -1500.0), (6000.0, -150.0), (2000.0, -150.0),
+            (2000.0, 0.0), (1100.0, 0.0), (1100.0, -150.0), (0.0, -150.0)]
+
+    def _image(self, floor_plan=()):
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus.image import PrimeRoomsImage
+        from custom_components.roomba_plus.prime_room_map import PrimeFloorPlan
+
+        entity = PrimeRoomsImage.__new__(PrimeRoomsImage)
+        entity._renderer = None
+        entity._names = {}
+        entity._preferences = {}
+        entity._config_entry = MagicMock()
+        entity._config_entry.options = {}
+        entity._config_entry.runtime_data.prime_positions = []
+        entity._polygons = {"1": self.ROOM, "2": self.HALL}
+        import io
+
+        from PIL import Image
+        entity._zone_polygons = {}
+        entity._live_bundle = None
+        entity._robot_pose = None
+        entity._floor_plan = PrimeFloorPlan(
+            room_names={}, room_polygons={}, floor_plan=list(floor_plan), borders=[],
+            carpet=[], furniture=[], dock=None,
+        )
+        image = Image.open(io.BytesIO(entity._render_png())).convert("RGB")
+        return entity, image
+
+    def _at(self, entity, x, y):
+        return tuple(map(round, entity._renderer._mm_to_px_fit(x, y)))  # noqa: SLF001
+
+    def test_the_door_and_walls_without_a_floor_plan(self):
+        from custom_components.roomba_plus.image import ROOMS_MAP_DOOR, ROOMS_MAP_WALL
+
+        entity, image = self._image()
+        assert image.getpixel(self._at(entity, 1500, 0)) == ROOMS_MAP_DOOR
+        assert image.getpixel(self._at(entity, 2500, -75)) == ROOMS_MAP_WALL
+
+    def test_with_a_floor_plan_its_walls_stay_iRobots(self):
+        from custom_components.roomba_plus.image import ROOMS_MAP_DOOR, ROOMS_MAP_WALL
+
+        entity, image = self._image(floor_plan=[[(-500.0, 3500.0), (6500.0, 3500.0)]])
+        assert image.getpixel(self._at(entity, 1500, 0)) == ROOMS_MAP_DOOR
+        assert image.getpixel(self._at(entity, 2500, -75)) != ROOMS_MAP_WALL

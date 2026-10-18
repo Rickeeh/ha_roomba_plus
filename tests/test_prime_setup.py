@@ -953,10 +953,27 @@ class TestClassicShapedReadsOnPrime:
         # only; the second from the Classic mission callback. Both read
         # the state for one thing -- whether the robot is a Braava or has
         # a pad -- and fall back to "unknown mode" when they get nothing.
-        assert count == 31, (
-            f"{count} call sites, expected 31 — a new one needs a decision "
+        # 34 since the maintenance model (4.5.0): MaintenanceTracker's
+        # compute(), _on_cloud_parts() and _async_replace_classic().
+        # 35 with current_error(), which reads the Classic state only
+        # after its Prime branch has returned.
+        #
+        # DECIDED: no Prime entry reaches them. compute() reads the
+        # Classic state only after its Prime branch has returned; the
+        # cloud-parts listener is attached on Classic only; a Prime
+        # entry's parts are marked done through the cloud reset, never
+        # the local replacement.
+        # 38 with the care guides (4.5.0): the page's and the guide
+        # form's drawing variant, and the guide form's Braava check.
+        #
+        # DECIDED: all three read the SKU only under `if not prime`; a
+        # Prime robot draws the e/i/j underside.
+        # 37 since the guides read one context (care_guides.context_for)
+        # instead of the form reading the SKU itself.
+        assert count == 37, (
+            f"{count} call sites, expected 37 — a new one needs a decision "
             "about whether a Prime entry reaches it, and a Prime fallback "
-            "if it does. Four of the 31 are inside the fallback helpers "
+            "if it does. Four of the 37 are inside the fallback helpers "
             "themselves, which read Classic first on purpose."
         )
 

@@ -439,8 +439,10 @@ class TestDoorDistanceGate:
         into whichever one it's actually closest to, not always the
         first in insertion order."""
         store = RoomSegStore(min_distance_cells=3.0)
-        store.rooms["room_1"] = SegRoom(id="room_1", cells={(0, 0)})
-        store.rooms["room_2"] = SegRoom(id="room_2", cells={(1, 0)})
+        # The two rooms meet at both doors: an unmatched door is kept only
+        # where its rooms still meet (4.5.0).
+        store.rooms["room_1"] = SegRoom(id="room_1", cells={(0, 0), (33, 33)})
+        store.rooms["room_2"] = SegRoom(id="room_2", cells={(1, 0), (34, 33)})
         near_door = SegDoor(
             id="door_near", room_a="room_1", room_b="room_2",
             cell=(0, 0), saddle_mm=100.0, cx=0.0, cy=0.0,
@@ -1679,3 +1681,556 @@ class TestTheSecond980sHome:
         store._recompute(remaining)
         assert "room_7" in store.rooms
         assert "room_8" not in store.rooms
+
+
+class TestTheMaintainers980Rooms:
+    """The maintainer's own 980 against how his flat is actually divided
+    (tests/fixtures/maintainer_980_rooms, October 2026): the coverage
+    grid of six clean missions, every cell labelled with its room, the
+    seven openings with a real crossing of each, and the three room pairs
+    that only share a wall. Room names replaced.
+
+    Rooms by walls, where the second 980's home is rooms by furniture
+    (TestTheSecond980sHome). A change to the areas runs against both.
+    """
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    _F = _json.loads(_Path("tests/fixtures/maintainer_980_rooms/rooms.json").read_text())
+    _CELLS = {tuple(int(n) for n in k.split(",")): v for k, v in _F["cells"].items()}
+    _ROOM = {tuple(c): name for name, cs in _F["rooms"].items() for c in cs}
+
+    def _segmented(self):
+        store = RoomSegStore()
+        assert store.maybe_recompute(self._CELLS) is True
+        return store
+
+    def _passages(self):
+        from custom_components.roomba_plus.room_seg_store import CELL_MM
+
+        return [
+            (f"m{i}", [[((x + 0.5) * CELL_MM, (y + 0.5) * CELL_MM) for x, y in d["passage"]]])
+            for i, d in enumerate(self._F["doors"])
+        ]
+
+    def _wall_cells(self):
+        """Cells where two rooms that only share a wall meet."""
+        walls = {frozenset(w) for w in self._F["walls"]}
+        out = set()
+        for c, room in self._ROOM.items():
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    other = self._ROOM.get((c[0] + dx, c[1] + dy))
+                    if other and frozenset((room, other)) in walls:
+                        out.add(c)
+        return out
+
+    @staticmethod
+    def _near(door, cells, reach):
+        from custom_components.roomba_plus.room_seg_store import CELL_MM
+
+        gx, gy = round(door.cx / CELL_MM), round(door.cy / CELL_MM)
+        return any(abs(gx - x) <= reach and abs(gy - y) <= reach for x, y in cells)
+
+    def test_the_fixture(self):
+        assert len(self._CELLS) == 2412
+        assert len(self._F["rooms"]) == 8
+        assert len(self._F["doors"]) == 7
+        assert all(d["passage"] for d in self._F["doors"])
+        assert len(self._F["walls"]) == 3
+
+    @pytest.mark.parametrize(
+        "room", ["Hall", "Bedroom 1", "Bedroom 2", "Bedroom 3", "Bathroom"]
+    )
+    def test_five_rooms_are_each_one_area(self, room):
+        """What the areas get right on this flat, as a floor for any change:
+        each of these rooms is one area, at least 85% of the room and at
+        least 85% that room. The hall's area includes the storage room
+        with the dock: 27 driven cells, too few for an area of its own.
+        (Not yet so: the dressing room shares an area with part of the main
+        bedroom, whose rest is an area of its own.)"""
+        rooms = {room, "Storage room"} if room == "Hall" else {room}
+        own = {c for c, r in self._ROOM.items() if r in rooms}
+        best = max(self._segmented().rooms.values(), key=lambda a: len(a.cells & own))
+        assert len(best.cells & own) / len(own) >= 0.85
+        assert len(best.cells & own) / len(best.cells) >= 0.85
+
+    def test_rooms_that_share_a_wall_touch_on_the_grid(self):
+        """Why touching is not a door: before any path is checked, three of
+        the doors lie on a wall."""
+        store = self._segmented()
+        walls = self._wall_cells()
+        on_walls = [d for d in store.driven_doors if self._near(d, walls, 1)]
+        assert len(on_walls) == 3
+
+    def test_only_doors_a_path_went_through_are_driven(self):
+        store = self._segmented()
+        store.note_paths(self._passages())
+        walls = self._wall_cells()
+        assert not [d for d in store.driven_doors if self._near(d, walls, 1)]
+
+    def test_every_door_between_two_areas_is_driven(self):
+        """Every door of the flat that lies between two areas. The open
+        passage between dressing room and main bedroom lies inside one,
+        and so does the storage room's door (see above)."""
+        store = self._segmented()
+        store.note_paths(self._passages())
+        for door in self._F["doors"]:
+            if door["kind"] != "door" or "Storage room" in door["rooms"]:
+                continue
+            box = [
+                (x, y)
+                for x in range(door["cells_x"][0], door["cells_x"][1] + 1)
+                for y in range(door["cells_y"][0], door["cells_y"][1] + 1)
+            ]
+            assert any(self._near(d, box, 10) for d in store.driven_doors), door["rooms"]
+            assert any(self._near(d, box, 10) and d.driven for d in store.doors)
+
+    def test_named_rooms_stay_apart_when_one_area_takes_both(self):
+        """A smeared mission let the hall's area take in the next room, and
+        that room's name was gone (the maintainer's 980, 9 October)."""
+        store = self._segmented()
+        own = {r: {c for c, n in self._ROOM.items() if n == r} for r in ("Hall", "Bedroom 3")}
+        for name, cells in own.items():
+            area = max(store.rooms.values(), key=lambda a: len(a.cells & cells))
+            store.rename_room(area.id, name)
+        smeared = dict(self._CELLS)
+        # Floor that was never there joins the two rooms wide open; without
+        # the rule the hall's area takes in the bedroom and its name.
+        for x in range(-11, 4):
+            for y in range(-20, 11):
+                smeared[(x, y)] = 1.0
+        store._recompute(smeared)
+        names = sorted(r.name for r in store.rooms.values() if r.name)
+        assert names == ["Bedroom 3", "Hall"]
+
+
+class TestDoorsAndNamedRoomsHold:
+    """The rules behind TestTheMaintainers980Rooms, on small grids."""
+
+    def test_two_named_rooms_in_one_cluster_are_divided(self):
+        from custom_components.roomba_plus.room_segmentation import RoomSegmentationResult
+
+        left = {(x, y) for x in range(0, 6) for y in range(0, 6)}
+        right = {(x, y) for x in range(6, 12) for y in range(0, 6)}
+        store = RoomSegStore()
+        store.rooms = {
+            "room_1": SegRoom(id="room_1", cells=set(left), name="Kitchen", confirmed=True),
+            "room_2": SegRoom(id="room_2", cells=set(right), name="Dining", confirmed=True),
+        }
+        merged = RoomSegmentationResult(
+            rooms={0: left | right | {(12, 0)}}, doors=[], dist={c: 1.0 for c in left | right | {(12, 0)}}, seeds=[],
+        )
+        kept = store._keep_named_apart(merged)
+        assert sorted(len(c) for c in kept.rooms.values()) == [36, 37]
+        assert len(kept.doors) == 1
+        store._match_rooms(kept)
+        assert sorted(r.name for r in store.rooms.values()) == ["Dining", "Kitchen"]
+
+    def test_one_name_on_two_areas_is_not_divided(self):
+        """Several areas under one name are one room by the user's choice."""
+        from custom_components.roomba_plus.room_segmentation import RoomSegmentationResult
+
+        left = {(x, 0) for x in range(0, 6)}
+        right = {(x, 0) for x in range(6, 12)}
+        store = RoomSegStore()
+        store.rooms = {
+            "room_1": SegRoom(id="room_1", cells=set(left), name="Living", confirmed=True),
+            "room_2": SegRoom(id="room_2", cells=set(right), name="Living", confirmed=True),
+        }
+        merged = RoomSegmentationResult(rooms={0: left | right}, doors=[], dist={}, seeds=[])
+        assert store._keep_named_apart(merged) is merged
+
+    def test_a_cell_no_seed_reaches_goes_to_the_largest_part(self):
+        from custom_components.roomba_plus.room_seg_store import _divide_by_seeds
+
+        cells = {(0, 0), (1, 0), (5, 0), (9, 9)}
+        parts = _divide_by_seeds(cells, [{(0, 0), (1, 0)}, {(5, 0)}])
+        assert sorted(len(p) for p in parts) == [1, 3]
+
+    def test_a_door_left_where_its_areas_no_longer_meet_goes(self):
+        store = RoomSegStore()
+        store.rooms["room_1"] = SegRoom(id="room_1", cells={(0, 0)})
+        store.rooms["room_2"] = SegRoom(id="room_2", cells={(1, 0)})
+        store.doors = [SegDoor(
+            id="door_1", room_a="room_1", room_b="room_2", cell=(30, 30),
+            saddle_mm=100.0, cx=4500.0, cy=4500.0,
+        )]
+
+        class _Nothing:
+            doors: list = []
+
+        store._match_doors(_Nothing(), {})
+        assert store.doors == []
+
+    def _corridor(self):
+        """Two 10x10 areas side by side, doors between them at y 2."""
+        store = RoomSegStore()
+        store.rooms["room_1"] = SegRoom(id="room_1", cells={(x, y) for x in range(10) for y in range(10)})
+        store.rooms["room_2"] = SegRoom(id="room_2", cells={(x, y) for x in range(10, 20) for y in range(10)})
+        store.doors = [SegDoor(
+            id="door_1", room_a="room_1", room_b="room_2", cell=(10, 2),
+            saddle_mm=100.0, cx=1500.0, cy=300.0,
+        )]
+        return store
+
+    @staticmethod
+    def _path(*cells):
+        return [((x + 0.5) * 150.0, (y + 0.5) * 150.0) for x, y in cells]
+
+    def test_a_crossing_from_deep_to_deep_drives_the_door(self):
+        store = self._corridor()
+        assert store.note_paths([("m1", [self._path(*[(x, 2) for x in range(3, 17)])])]) == 1
+        assert store.doors[0].driven_by == ["m1"]
+        # once per mission
+        assert store.note_paths([("m1", [self._path(*[(x, 2) for x in range(16, 2, -1)])])]) == 0
+
+    def test_a_path_along_the_boundary_does_not(self):
+        store = self._corridor()
+        store.note_paths([("m1", [self._path(*[(9, y) for y in range(10)], *[(10, y) for y in range(10)])])])
+        assert store.doors[0].driven_by == []
+        assert store.driven_doors == []
+
+    def test_nothing_is_counted_across_a_gap_between_runs(self):
+        store = self._corridor()
+        store.note_paths([("m1", [self._path((3, 2), (2, 2)), self._path((16, 2), (17, 2))])])
+        assert store.driven_doors == []
+
+    def test_a_crossing_far_from_the_door_is_not_it(self):
+        store = self._corridor()
+        store.doors[0].cx, store.doors[0].cy = 1500.0, 9000.0
+        store.note_paths([("m1", [self._path(*[(x, 2) for x in range(3, 17)])])])
+        assert store.driven_doors == []
+
+    def test_without_any_path_every_door_counts(self):
+        store = self._corridor()
+        assert store.path_evidence is False
+        assert store.driven_doors == store.doors
+        assert store.note_paths([]) == 0
+        assert store.path_evidence is False
+
+    def test_driven_doors_survive_a_save(self):
+        door = SegDoor(id="d", room_a="a", room_b="b", cell=(0, 0), saddle_mm=1.0)
+        for i in range(25):
+            door.note_driven(f"m{i}")
+        again = SegDoor.from_dict(door.to_dict())
+        assert again.driven_by == [f"m{i}" for i in range(5, 25)]
+        assert SegDoor.from_dict({**door.to_dict(), "driven_by": None}).driven_by == []
+
+    @pytest.mark.asyncio
+    async def test_the_evidence_flag_survives_a_save(self):
+        store = self._corridor()
+        store.note_paths([("m1", [self._path((3, 2))])])
+        saved = {}
+
+        class _Store:
+            def __init__(self, *_a, **_k):
+                pass
+
+            async def async_save(self, data):
+                saved.update(data)
+
+            async def async_load(self):
+                return saved
+
+        with patch("custom_components.roomba_plus.room_seg_store.Store", _Store):
+            await store.async_save(MagicMock(), "e")
+            again = RoomSegStore()
+            await again.async_load(MagicMock(), "e")
+        assert again.path_evidence is True
+        assert store.diagnostic_info()["driven_door_count"] == 0
+
+
+class TestStraightWallsOnTheMaintainers980:
+    """room_layout (4.5.0) on the maintainer's flat: every wall between
+    rooms and every outer wall is straight there, the beds are furniture,
+    and the doors are gaps where the robot went through."""
+
+    import json as _json
+    from pathlib import Path as _Path
+
+    _F = _json.loads(_Path("tests/fixtures/maintainer_980_rooms/rooms.json").read_text())
+    _CELLS = {tuple(int(n) for n in k.split(",")): v for k, v in _F["cells"].items()}
+    _ROOM = {tuple(c): name for name, cs in _F["rooms"].items() for c in cs}
+
+    def _layout(self, share=0.42):
+        from collections import Counter
+
+        from custom_components.roomba_plus.room_layout import build_layout
+        from custom_components.roomba_plus.room_seg_store import CELL_MM
+
+        store = RoomSegStore()
+        store.maybe_recompute(self._CELLS)
+        store.note_paths([
+            (f"m{i}", [[((x + 0.5) * CELL_MM, (y + 0.5) * CELL_MM) for x, y in d["passage"]]])
+            for i, d in enumerate(self._F["doors"])
+        ])
+        # Named as the maintainer would: each area after the room most of it is.
+        for rid, area in list(store.rooms.items()):
+            store.rename_room(rid, Counter(self._ROOM.get(c, "?") for c in area.cells).most_common(1)[0][0])
+        areas, doors = store.layout_inputs()
+        return store, build_layout(areas, doors, share)
+
+    @staticmethod
+    def _is_rectangle(cells):
+        xs = [c[0] for c in cells]
+        ys = [c[1] for c in cells]
+        return len(cells) == (max(xs) - min(xs) + 1) * (max(ys) - min(ys) + 1)
+
+    def test_no_layout_where_the_lanes_do_not_follow_two_axes(self):
+        _store, layout = self._layout(share=0.2)
+        assert layout is None
+        assert self._layout(share=None)[1] is None
+
+    @pytest.mark.parametrize("room", ["Bedroom 1", "Bedroom 2", "Bedroom 3", "Bathroom"])
+    def test_the_rooms_are_rectangles(self, room):
+        _store, layout = self._layout()
+        assert self._is_rectangle(layout.rooms[room])
+
+    def test_every_wall_is_straight_and_axis_parallel(self):
+        _store, layout = self._layout()
+        assert layout.walls
+        assert all(w.x1 == w.x2 or w.y1 == w.y2 for w in layout.walls)
+
+    def test_two_rooms_share_one_wall(self):
+        """Bedroom 2 and 3 meet: no second wall a hand's width away."""
+        _store, layout = self._layout()
+        b2, b3 = layout.rooms["Bedroom 2"], layout.rooms["Bedroom 3"]
+        assert any((x + 1, y) in b3 or (x - 1, y) in b3 for x, y in b2)
+
+    def test_the_beds_are_furniture(self):
+        _store, layout = self._layout()
+        for room in ("Bedroom 1", "Bedroom 2"):
+            assert len(layout.furniture & layout.rooms[room]) >= 60, room
+        assert not layout.furniture & set(self._CELLS)
+
+    def test_each_driven_door_is_a_gap_across_the_way_it_was_crossed(self):
+        store, layout = self._layout()
+        assert layout.unplaced_doors == 0
+        assert len(layout.doors) == len(store.driven_doors)
+        by_pair = {frozenset((d.room_a, d.room_b)): d for d in layout.doors}
+        assert by_pair[frozenset(("Hall", "Bedroom 1"))].along_x is False
+        assert by_pair[frozenset(("Hall", "Bedroom 2"))].along_x is True
+        for door in layout.doors:
+            for wall in layout.walls:
+                if door.along_x and wall.y1 == wall.y2 == door.cy:
+                    assert not min(wall.x1, wall.x2) < door.cx < max(wall.x1, wall.x2)
+                if not door.along_x and wall.x1 == wall.x2 == door.cx:
+                    assert not min(wall.y1, wall.y2) < door.cy < max(wall.y1, wall.y2)
+
+    def test_the_diagnostics_hold_counts_not_places(self):
+        _store, layout = self._layout()
+        diag = layout.diagnostics()
+        assert diag["rooms"] == len(layout.rooms)
+        assert diag["doors_not_placed"] == 0
+        assert not {"cx", "cy", "x1", "walls_mm"} & set(diag)
+
+
+class TestStraightWallRules:
+    """The steps of room_layout on small grids."""
+
+    @staticmethod
+    def _rect(x0, x1, y0, y1):
+        return frozenset((x, y) for x in range(x0, x1) for y in range(y0, y1))
+
+    def test_travel_along_the_axes(self):
+        from custom_components.roomba_plus.room_layout import axis_share
+
+        lanes = [[(float(x), float(y)) for x in range(0, 30_000, 100)] for y in (0, 300)]
+        assert axis_share(lanes) == pytest.approx(1.0)
+        diagonal = [[(float(i * 100), float(i * 100)) for i in range(300)]]
+        assert axis_share(diagonal) == 0.0
+        assert axis_share([[(0.0, 0.0), (100.0, 0.0)]]) is None
+
+    def test_a_ragged_seam_becomes_one_straight_wall(self):
+        from custom_components.roomba_plus.room_layout import AreaInput, build_layout
+
+        left = set(self._rect(0, 10, 0, 10))
+        right = set(self._rect(10, 20, 0, 10))
+        # the segmentation's call on boundary cells: a jagged line
+        for y in (2, 5, 8):
+            left.add((10, y)); right.discard((10, y))
+        layout = build_layout(
+            [AreaInput("A", frozenset(left)), AreaInput("B", frozenset(right))], [], 0.5,
+        )
+        assert self._rect(0, 10, 0, 10) <= layout.rooms["A"] or self._rect(0, 11, 0, 10) <= layout.rooms["A"]
+        vertical_inside = {w.x1 for w in layout.walls if w.x1 == w.x2 and 0 < w.x1 < 20 * 150}
+        assert len(vertical_inside) == 1
+
+    def test_rooms_a_wall_apart_meet_halfway(self):
+        from custom_components.roomba_plus.room_layout import AreaInput, build_layout
+
+        layout = build_layout(
+            [AreaInput("A", self._rect(0, 10, 0, 10)), AreaInput("B", self._rect(12, 22, 0, 10))],
+            [], 0.5,
+        )
+        assert max(c[0] for c in layout.rooms["A"]) + 1 == min(c[0] for c in layout.rooms["B"])
+
+    def test_a_doorway_beyond_the_wall_is_the_neighbours(self):
+        from custom_components.roomba_plus.room_layout import AreaInput, build_layout
+
+        hall = set(self._rect(0, 4, 0, 30)) | {(4, 14), (4, 15)}   # drove into the doorway
+        room = self._rect(4, 14, 0, 30) - {(4, 14), (4, 15)}
+        layout = build_layout(
+            [AreaInput("Hall", frozenset(hall)), AreaInput("Room", frozenset(room))], [], 0.5,
+        )
+        assert layout.rooms["Hall"] == self._rect(0, 4, 0, 30)
+
+    def test_an_opening_much_wider_than_a_door_is_open(self):
+        from custom_components.roomba_plus.room_layout import DoorInput, _door_shape
+
+        wide = DoorInput("A", "B", 0.0, 0.0, tuple((float(x), 0.0, 0.0, 100.0) for x in range(0, 1500, 100)))
+        cx, _cy, along_x, width, is_open = _door_shape(wide, 800.0, 340.0)
+        assert along_x is True and is_open and width == pytest.approx(1740.0)
+        narrow = DoorInput("A", "B", 0.0, 0.0, ((0.0, 0.0, 100.0, 5.0), (0.0, 100.0, 100.0, 0.0)))
+        assert _door_shape(narrow, 800.0, 340.0)[2:] == (False, 800.0, False)
+        assert _door_shape(DoorInput("A", "B", 5.0, 6.0), 800.0, 340.0) == (5.0, 6.0, None, 800.0, False)
+
+    def test_a_door_without_crossings_goes_in_the_nearest_wall(self):
+        from custom_components.roomba_plus.room_layout import AreaInput, DoorInput, build_layout
+
+        layout = build_layout(
+            [AreaInput("A", self._rect(0, 10, 0, 10)), AreaInput("B", self._rect(10, 20, 0, 10))],
+            [DoorInput("A", "B", 1500.0, 750.0), DoorInput("A", "B", 9000.0, 9000.0)], 0.5,
+        )
+        assert [(d.cx, d.along_x) for d in layout.doors] == [(1500.0, False)]
+        assert layout.unplaced_doors == 1
+
+    def test_one_name_on_two_areas_is_one_room(self):
+        from custom_components.roomba_plus.room_layout import AreaInput, build_layout
+
+        layout = build_layout(
+            [AreaInput("Living", self._rect(0, 5, 0, 5)), AreaInput("Living", self._rect(5, 10, 0, 5))],
+            [], 0.5,
+        )
+        assert list(layout.rooms) == ["Living"]
+        assert not [w for w in layout.walls if w.x1 == w.x2 == 750.0]
+
+    def test_from_the_stores(self):
+        from custom_components.roomba_plus.room_layout import layout_diagnostics, layout_from_stores
+
+        store = RoomSegStore()
+        store.rooms["room_1"] = SegRoom(id="room_1", cells=set(self._rect(0, 10, 0, 10)))
+        store.rooms["room_2"] = SegRoom(id="room_2", cells=set(self._rect(0, 3, 0, 3)), hidden=True)
+        lanes = MagicMock(missions=[{"points": [[float(x), 0.0] for x in range(0, 30_000, 100)]}])
+        layout = layout_from_stores(store, lanes)
+        assert list(layout.rooms) == ["room_1"]
+        assert layout_diagnostics(store, lanes)["drawn"] is True
+        assert layout_diagnostics(store, None) == {"drawn": False, "axis_share": None, "needs_axis_share": 0.25}
+        assert layout_from_stores(object(), lanes) is None
+        assert layout_from_stores(MagicMock(), lanes) is None
+
+    def test_the_revision_moves_with_every_change(self):
+        store = RoomSegStore()
+        store.rooms["room_1"] = SegRoom(id="room_1", cells={(0, 0)})
+        before = store.revision
+        store.rename_room("room_1", "Hall")
+        store.hide_room("room_1")
+        store.unhide_room("room_1")
+        assert store.revision == before + 3
+
+    def test_the_direction_is_taken_over_several_points(self):
+        """A last step sideways at the boundary does not turn the door."""
+        from custom_components.roomba_plus.room_seg_store import _passages
+
+        room_of = {(x, y): ("A" if x < 10 else "B") for x in range(20) for y in range(10)}
+        depth = {c: min(abs(c[0] - 9.5), 9) for c in room_of}
+        path = [((x + 0.5) * 150.0, 300.0) for x in range(3, 10)]
+        path += [(10.2 * 150.0, 300.0 + 200.0)]   # sideways into B
+        path += [((x + 0.5) * 150.0, 500.0) for x in range(11, 17)]
+        (crossing,) = _passages([path], room_of, {c: int(v) for c, v in depth.items()})
+        _pair, _cell, (_x, _y, dx, dy) = crossing
+        assert abs(dx) > abs(dy)
+
+    def test_crossings_are_kept_once_per_mission(self):
+        store = TestDoorsAndNamedRoomsHold()._corridor()
+        path = [((x + 0.5) * 150.0, 2.5 * 150.0) for x in range(3, 17)]
+        store.note_paths([("m1", [path])])
+        store.note_paths([("m1", [path])])
+        door = store.doors[0]
+        assert len(door.crossings) == 1 and door.crossings[0][2] > 0
+        for i in range(50):
+            door.note_crossings([[0.0, 0.0, 1.0, 0.0]])
+        assert len(door.crossings) == 40
+        again = SegDoor.from_dict({**door.to_dict(), "crossings": [[1, 2, 3, 4], [1, 2]]})
+        assert again.crossings == [[1.0, 2.0, 3.0, 4.0]]
+
+
+class TestWallsFromRoomPolygons:
+    """room_layout.polygon_walls (4.5.0): rooms that touch along a divider
+    have an opening there; every other edge is a wall; two rooms' walls a
+    wall's thickness apart are one wall."""
+
+    ROOM = [(0, 0), (3000, 0), (3000, 3000), (0, 3000)]
+    NEXT = [(3150, 0), (6150, 0), (6150, 3000), (3150, 3000)]
+    HALL = [(0, -1500), (6150, -1500), (6150, -150), (2000, -150),
+            (2000, 0), (1100, 0), (1100, -150), (0, -150)]
+
+    def test_a_doorway_is_a_door_and_the_rest_walls(self):
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        found = polygon_walls({"room": self.ROOM, "hall": self.HALL})
+        assert [(o.room_a, o.room_b, o.open) for o in found.openings] == [("hall", "room", False)]
+        door = found.openings[0]
+        assert sorted((door.a[0], door.b[0])) == [1100.0, 2000.0]
+        # the room's bottom wall and the hall's top: one wall, halfway
+        assert any(w.a[1] == w.b[1] == -75.0 for w in found.walls)
+        assert not any(w.a[1] == w.b[1] == 0.0 and w.a[0] < 1000 < w.b[0] for w in found.walls)
+
+    def test_wide_is_an_open_passage(self):
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        found = polygon_walls({"room": self.ROOM, "hall": [(0, -1500), (3000, -1500), (3000, 0), (0, 0)]})
+        assert found.openings[0].open is True
+        assert polygon_walls(
+            {"room": self.ROOM, "hall": [(0, -1500), (3000, -1500), (3000, 0), (0, 0)]},
+            door_mm=2800.0,
+        ).openings[0].open is False
+
+    def test_two_rooms_a_wall_apart_have_one_wall(self):
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        found = polygon_walls({"a": self.ROOM, "b": self.NEXT})
+        verticals = sorted({w.a[0] for w in found.walls if w.a[0] == w.b[0]})
+        assert verticals == [0.0, 3075.0, 6150.0]
+
+    def test_rooms_too_far_apart_keep_their_own_walls(self):
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        far = [(x + 1000, y) for x, y in self.NEXT]
+        verticals = sorted({w.a[0] for w in polygon_walls({"a": self.ROOM, "b": far}).walls if w.a[0] == w.b[0]})
+        assert verticals == [0.0, 3000.0, 4150.0, 7150.0]
+
+    def test_the_far_side_of_a_room_is_not_its_neighbours_wall(self):
+        """Two parallel edges within reach that do not face each other --
+        one room's left side and the next room's left side."""
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        small = {f"r{i}": [(i * 400, 0), (i * 400 + 300, 0), (i * 400 + 300, 300), (i * 400, 300)] for i in range(3)}
+        verticals = {w.a[0] for w in polygon_walls(small).walls if w.a[0] == w.b[0]}
+        assert 200.0 not in verticals and 350.0 in verticals
+
+    def test_any_direction_and_either_winding(self):
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        turn = math.radians(30)
+
+        def rot(poly):
+            return [(x * math.cos(turn) - y * math.sin(turn), x * math.sin(turn) + y * math.cos(turn)) for x, y in poly]
+
+        found = polygon_walls({"room": rot(self.ROOM)[::-1] + [rot(self.ROOM)[::-1][0]], "hall": rot(self.HALL)})
+        assert len(found.openings) == 1 and found.openings[0].open is False
+        assert found.diagnostics()["doors"] == 1
+        assert not {"a", "b"} & set(found.diagnostics())
+
+
+class TestADividerSeparatesTwoSides:
+    def test_edges_on_one_side_are_no_opening(self):
+        """Two polygons on the same side of a line (one drawn over the
+        other) share no divider."""
+        from custom_components.roomba_plus.room_layout import polygon_walls
+
+        big = [(0, 0), (3000, 0), (3000, 3000), (0, 3000)]
+        inner = [(1000, 0), (2000, 0), (2000, 1000), (1000, 1000)]
+        assert polygon_walls({"a": big, "b": inner}).openings == ()

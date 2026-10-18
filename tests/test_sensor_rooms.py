@@ -243,6 +243,32 @@ class TestLastMissionSummarySensor:
         assert attrs["cleaned_rooms"] == ["Hallway"]
         assert attrs["room_coverage"] == {"Hallway": 0.8}
 
+    def test_requested_rooms_are_marked_as_such(self):
+        """4.5.0: nothing observed the rooms -- the summary says they are
+        the requested ones, not the cleaned ones."""
+        record = {"result": "completed", "last_cleaned_rooms": ["Hallway"],
+                  "rooms_source": "requested"}
+        cc = MagicMock()
+        cc.regions = [{"id": "5", "name": "Hallway"}]
+        sensor = _make_last_mission_summary_sensor(
+            mission_store=_store_with(record), cloud_coordinator=cc,
+        )
+        attrs = sensor.extra_state_attributes
+        assert attrs["cleaned_rooms"] == ["Hallway"]
+        assert attrs["cleaned_rooms_source"] == "requested"
+
+    def test_rooms_from_the_cloud_say_cloud(self):
+        record = {"result": "completed", "rooms_source": "requested",
+                  "timeline": {"finEvents": [{"type": "room", "room": {
+                      "rid": "5", "status": 0, "area": 50, "totalArea": 40}}]}}
+        umf = MagicMock()
+        umf.aligned = True
+        umf.rid_to_name.return_value = {"5": "Hallway"}
+        sensor = _make_last_mission_summary_sensor(
+            mission_store=_store_with(record), umf_aligner=umf,
+        )
+        assert sensor.extra_state_attributes["cleaned_rooms_source"] == "cloud"
+
     def test_error_mission_error_code_populated(self):
         """Error mission → native_value = 'error', error_code present."""
         record = {
@@ -1964,3 +1990,29 @@ class TestTheCurrentRoomFromThePosition:
             monkeypatch, ["Kitchen", "Hall"], visited=[], idx=0, estimates=[600.0, 300.0],
         )
         assert state["current_room_source"] == "estimate"
+
+
+def test_the_planned_order_names_a_zone_as_a_zone_on_the_commands_map():
+    """4.5.0: the live planned order and the mission's names come from
+    one lookup (CommandRegionNames): zone 21 is not room 21, and the
+    command's map wins over the active one."""
+    from types import SimpleNamespace
+
+    from custom_components.roomba_plus.sensor_rooms import _get_planned_room_order
+
+    cc = MagicMock()
+    cc.active_pmap_id = "MAP_A"
+    cc.region_names_by_type = {
+        "MAP_A": {"rid": {"21": "Kitchen", "1": "Primary Bathroom"}, "zid": {"21": "Couch"}},
+        "MAP_B": {"rid": {"1": "Master Bedroom"}, "zid": {}},
+    }
+    roomba = SimpleNamespace(master_state={"state": {"reported": {
+        "cleanMissionStatus": {"phase": "run", "initiator": "localApp"},
+        "lastCommand": {"command": "start", "initiator": "localApp", "pmap_id": "MAP_B",
+                        "regions": [{"region_id": "1", "type": "rid"},
+                                    {"region_id": "21", "type": "zid"}]},
+    }}})
+    data = SimpleNamespace(cloud_coordinator=cc, roomba=roomba, mission_command=None,
+                           mission_timer_store=None)
+    # Zone 21 exists only on MAP_A: found there after the command's map.
+    assert _get_planned_room_order(data) == ["Master Bedroom", "Couch"]

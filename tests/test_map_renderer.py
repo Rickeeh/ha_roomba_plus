@@ -12,6 +12,7 @@ from __future__ import annotations
 import struct
 import sys
 import pytest
+from pathlib import Path
 from custom_components.roomba_plus.map_renderer import MapRenderer
 from custom_components.roomba_plus.map_renderer import RendererConfig
 from custom_components.roomba_plus.map_renderer import _STATE_VERSION
@@ -1859,3 +1860,170 @@ class TestADrawnPathMoves:
         assert not r.reconfigure(size_px=600, scale=10.0, quarter_turns=4)
         assert r._last_png is not None
 
+
+
+class TestThe900SeriesLayoutIsDrawn:
+    """4.5.0: straight walls, doors and furniture from the areas, drawn
+    instead of the dashed area outlines while the user has drawn nothing."""
+
+    @staticmethod
+    def _layout():
+        from custom_components.roomba_plus.room_layout import AreaInput, DoorInput, build_layout
+
+        def rect(x0, x1, y0, y1):
+            return frozenset((x, y) for x in range(x0, x1) for y in range(y0, y1))
+
+        hall = rect(-10, 0, -10, 10) - {(-5, 0), (-5, 1)}   # a bed nothing drove
+        return build_layout(
+            [AreaInput("Hall", hall), AreaInput("room_2", rect(0, 10, -10, 10))],
+            [DoorInput("Hall", "room_2", 0.0, 0.0, ((0.0, 0.0, 500.0, 0.0),))],
+            0.5,
+        )
+
+    def _drawn(self, user_geometry=False):
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus.geometry_store import GeometryStore, UserWall
+
+        geometry = GeometryStore()
+        if user_geometry:
+            geometry.walls = [UserWall(id="w", x1=0, y1=0, x2=100, y2=0)]
+        r = _make_renderer_with_stores(
+            geometry_store=geometry,
+            room_seg_store=_room_seg_store_with_room(-1500, 1500, -1500, 1500),
+        )
+        r.add_pose(100, 100, 0)
+        r.set_room_layout(self._layout())
+        draw = MagicMock()
+        r._draw_inference_suggestions(draw)
+        return draw
+
+    def test_walls_doors_furniture_and_names(self):
+        from custom_components.roomba_plus.map_renderer import (
+            LAYOUT_DOOR, LAYOUT_FURNITURE, LAYOUT_WALL,
+        )
+
+        draw = self._drawn()
+        lines = [c.kwargs.get("fill") for c in draw.line.call_args_list]
+        assert lines.count(LAYOUT_WALL) == len(self._layout().walls)
+        assert LAYOUT_DOOR in lines
+        assert [c.kwargs.get("fill") for c in draw.rectangle.call_args_list] == [LAYOUT_FURNITURE] * 2
+        # the area without a name by its number, as the naming form
+        assert sorted(c.args[1] for c in draw.text.call_args_list) == ["2", "Hall"]
+        draw.ellipse.assert_not_called()   # no dashed suggestion markers
+
+    def test_not_over_what_the_user_drew(self):
+        draw = self._drawn(user_geometry=True)
+        draw.line.assert_not_called()
+
+    def test_an_open_passage_is_a_gap_only(self):
+        from dataclasses import replace
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus.map_renderer import LAYOUT_DOOR
+
+        layout = self._layout()
+        layout = replace(layout, doors=tuple(replace(d, open=True) for d in layout.doors))
+        r = _make_renderer()
+        draw = MagicMock()
+        r._draw_room_layout(draw, layout)
+        assert LAYOUT_DOOR not in [c.kwargs.get("fill") for c in draw.line.call_args_list]
+
+    def test_the_picture_renders(self):
+        r = _make_renderer_with_stores(
+            room_seg_store=_room_seg_store_with_room(-1500, 1500, -1500, 1500),
+        )
+        r.add_pose(100, 100, 0)
+        r.set_room_layout(self._layout())
+        assert _render_is_valid_png(r)
+
+
+class TestLabelsInScriptsDejaVuLacks:
+    """@kyoheimukaida (Combo j9+): Japanese room names were boxes. DejaVu
+    Sans has no CJK glyphs; a label is drawn with the first font that has
+    all its characters -- the user's in <config>/roomba_plus/fonts/, then
+    the system's."""
+
+    _FIXTURE = Path(__file__).parent / "fixtures" / "fonts" / "roomba_plus_test_cjk.ttf"
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        mr.set_fallback_fonts([])
+        mr._reported_missing.clear()
+        yield
+        mr.set_fallback_fonts([])
+        mr._reported_missing.clear()
+
+    def test_ascii_and_dejavu_text_keep_the_bundled_font(self):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        assert mr.label_font("Kitchen", mr.LABEL_FONT) is mr.LABEL_FONT
+        assert mr.label_font("Küche – Ελληνικά", mr.LABEL_FONT) is mr.LABEL_FONT
+        assert mr.label_font("", mr.LABEL_FONT) is mr.LABEL_FONT
+
+    def test_without_a_font_it_says_once_what_is_missing_and_where_a_font_goes(self, caplog):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        assert mr.label_font("玄関", mr.LABEL_FONT) is mr.LABEL_FONT
+        mr.label_font("玄関", mr.LABEL_FONT)
+        warnings = [r for r in caplog.records if "MAP-FONT" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "玄関" in warnings[0].getMessage()
+        assert "roomba_plus/fonts" in warnings[0].getMessage()
+
+    def test_the_first_font_with_every_character(self, caplog):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        mr.set_fallback_fonts([Path("/nonexistent/font.ttf"), self._FIXTURE])
+        font = mr.label_font("玄関", mr.LABEL_FONT)
+        assert font is not mr.LABEL_FONT
+        assert font.path == str(self._FIXTURE) and font.size == mr.LABEL_FONT.size
+        assert not [r for r in caplog.records if "no font draws" in r.getMessage()]
+
+    def test_none_covers_all_the_one_that_misses_fewest(self):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        mr.set_fallback_fonts([self._FIXTURE])
+        # The test font has 玄 and 関 but no "x": it misses one, DejaVu two.
+        assert mr.label_font("玄関x", mr.LABEL_FONT).path == str(self._FIXTURE)
+        # 茶 is in neither: DejaVu stays.
+        assert mr.label_font("茶", mr.LABEL_FONT) is mr.LABEL_FONT
+
+    def test_the_users_fonts_first_then_regular_sans_system_fonts(self, tmp_path, monkeypatch):
+        from custom_components.roomba_plus import map_renderer as mr
+
+        user = tmp_path / "fonts"
+        user.mkdir()
+        (user / "b_mine.otf").write_bytes(b"")
+        (user / "a_mine.ttf").write_bytes(b"")
+        (user / "readme.txt").write_text("x")
+        system = tmp_path / "system"
+        (system / "opentype" / "noto").mkdir(parents=True)
+        for name in ("NotoSansCJK-Bold.ttc", "NotoSerifCJK-Regular.ttc",
+                     "NotoSansCJK-Regular.ttc", "DejaVuSerif.ttf"):
+            (system / "opentype" / "noto" / name).write_bytes(b"")
+        monkeypatch.setattr(mr, "SYSTEM_FONT_DIRS", (system, tmp_path / "missing"))
+        assert [p.name for p in mr.find_fallback_fonts(user)] == [
+            "a_mine.ttf", "b_mine.otf",
+            "NotoSansCJK-Regular.ttc", "NotoSansCJK-Bold.ttc", "NotoSerifCJK-Regular.ttc",
+        ]
+        assert [p.name for p in mr.find_fallback_fonts(None)][0] == "NotoSansCJK-Regular.ttc"
+
+    def test_the_rooms_map_draws_japanese_names_with_the_fallback(self):
+        """End to end on the naming picture's label path: the fixture font
+        draws a filled square for 玄 where DejaVu draws its empty box."""
+        from PIL import Image, ImageDraw
+
+        from custom_components.roomba_plus import map_renderer as mr
+
+        def ink(font):
+            image = Image.new("L", (40, 40))
+            ImageDraw.Draw(image).text((8, 8), "玄", font=font, fill=255)
+            return sum(image.tobytes()) // 255
+
+        before = ink(mr.label_font("玄", mr.NAMING_LABEL_FONT))
+        mr.set_fallback_fonts([self._FIXTURE])
+        after = ink(mr.label_font("玄", mr.NAMING_LABEL_FONT))
+        assert after > before * 2, (before, after)

@@ -245,3 +245,41 @@ class TestOneMissionOnce:
         assert [m["mission_key"] for m in store.missions] == [
             "2026-10-01T09:00:00", "2026-10-02T08:59:58",
         ]
+
+
+class TestWhatTheGridLearned:
+    """Each mission keeps the stretches the coverage grid learned from
+    (4.5.0), so a later room recompute checks its doors against where the
+    robot actually went -- not against a stretch after it was carried."""
+
+    def test_the_stretches_are_kept_and_shifted(self):
+        store = MissionTrajectoryStore()
+        points = [(float(i), 0.0) for i in range(6)]
+        store.record_mission("m1", points, learned_runs=[[0, 2, 0.0, 0.0], [3, 6, 10.0, 5.0], [5, 99, 0, 0]])
+        assert store.missions[0]["learned_runs"] == [[0, 2, 0.0, 0.0], [3, 6, 10.0, 5.0]]
+        assert store.learned_paths() == [
+            ("m1", [[(0.0, 0.0), (1.0, 0.0)], [(13.0, 5.0), (14.0, 5.0), (15.0, 5.0)]]),
+        ]
+
+    def test_a_mission_without_them_is_not_used(self):
+        store = MissionTrajectoryStore()
+        store.record_mission("old", [(0.0, 0.0), (1.0, 0.0)])
+        store.record_mission("none", [(0.0, 0.0)], learned_runs=[])
+        assert store.learned_paths() == [("none", [])]
+
+    @pytest.mark.asyncio
+    async def test_they_survive_a_load(self):
+        store = MissionTrajectoryStore()
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value={
+            "version": PAYLOAD_VERSION,
+            "missions": [
+                {"mission_key": "m1", "ended_at": "", "points": [[0.0, 0.0], [1.0, 0.0]],
+                 "learned_runs": [[0, 2, 0.0, 0.0], ["x", 1, 0, 0], [1, 2]]},
+                {"mission_key": "m0", "ended_at": "", "points": [[0.0, 0.0]]},
+            ],
+        })
+        with patch("homeassistant.helpers.storage.Store", return_value=store_mock):
+            await store.async_load(MagicMock(), "e1")
+        assert store.missions[0]["learned_runs"] == [[0, 2, 0.0, 0.0]]
+        assert "learned_runs" not in store.missions[1]

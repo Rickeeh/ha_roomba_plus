@@ -270,10 +270,7 @@ class TestRoombaSensorNativeValue:
         arithmetic does not. Preferring the store is the whole reason it
         exists."""
         store = MagicMock()
-        # No cloud counter for this part — this test is about the local
-        # threshold/store fallback, which only runs when the cloud has none.
-        store.cloud_remaining_hours.return_value = None
-        store.remaining_hours.return_value = 42
+        store.role_remaining_hours.return_value = 42
 
         sensor = self._sensor(
             "filter_remaining_hours", run_stats={"hr": 30},
@@ -281,15 +278,15 @@ class TestRoombaSensorNativeValue:
         )
 
         assert sensor.native_value == 42
-        store.remaining_hours.assert_called_once_with("filter", 30, 100)
+        store.role_remaining_hours.assert_called_once_with(
+            "filter", 30, {"filter_threshold_hours": 100}
+        )
 
     def test_brush_hours_use_their_own_threshold_and_role(self):
         """Filter and brush wear at different rates and are replaced
         independently -- crossing the two would be silently wrong."""
         store = MagicMock()
-        # As above: local-path test, so no cloud counter.
-        store.cloud_remaining_hours.return_value = None
-        store.remaining_hours.return_value = 11
+        store.role_remaining_hours.return_value = 11
 
         sensor = self._sensor(
             "brush_remaining_hours", run_stats={"hr": 60},
@@ -297,7 +294,33 @@ class TestRoombaSensorNativeValue:
         )
 
         assert sensor.native_value == 11
-        store.remaining_hours.assert_called_once_with("main_brush", 60, 200)
+        store.role_remaining_hours.assert_called_once_with(
+            "main_brush", 60, {"brush_threshold_hours": 200}
+        )
+
+    def test_a_980_counts_down_from_its_series_profile(self):
+        """4.5.0. The sensor took the hour option or the 52 h fallback and
+        skipped the series profile the due check used: a 980 at 60 h on
+        a 100 h profile read 0 hours left and was not due."""
+        from custom_components.roomba_plus.maintenance_store import MaintenanceStore
+
+        store = MaintenanceStore()
+        store.profile_hours = {"filter": 100}
+        sensor = self._sensor("filter_remaining_hours", run_stats={"hr": 60}, store=store)
+        assert sensor.native_value == 40
+
+    def test_a_cloud_counter_counts_on_between_polls(self):
+        """4.5.0. The cloud figure stood still until the next read -- and
+        it was read once, at setup."""
+        from custom_components.roomba_plus.maintenance_store import MaintenanceStore
+
+        store = MaintenanceStore()
+        store.hydrate_from_cloud_parts([{
+            "part_id": "35", "count_type": "minutes", "count_used": 600,
+            "count_remaining": 2400, "last_updated_ts": 1700000000,
+        }], 100)
+        sensor = self._sensor("filter_remaining_hours", run_stats={"hr": 110}, store=store)
+        assert sensor.native_value == 30
 
     def test_missing_runtime_hours_are_treated_as_zero(self):
         """A freshly connected robot has no 'hr' yet; the sensor must
@@ -1066,10 +1089,10 @@ class TestLifecycle:
 
 class TestRemainingHours:
 
-    def test_a_cloud_figure_wins(self):
+    def test_the_stores_figure_is_shown(self):
         s = _s("filter_remaining_hours", role=_role(), remaining=True)
         store = MagicMock()
-        store.cloud_remaining_hours.return_value = 42
+        store.role_remaining_hours.return_value = 42
         s._config_entry.runtime_data.maintenance_store = store
         assert s.native_value == 42
 

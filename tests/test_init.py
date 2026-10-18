@@ -1552,7 +1552,10 @@ class TestRemoveCalendarEntityIfDisabled:
         config_entry.options = {CONF_ENABLE_SCHEDULE_CALENDAR: False}
         config_entry.entry_id = "entry1"
 
-        calendar_entry = MagicMock(domain="calendar", entity_id="calendar.roomba_schedule")
+        calendar_entry = MagicMock(
+            domain="calendar", entity_id="calendar.roomba_schedule",
+            unique_id="roomba_plus_B_schedule",
+        )
         sensor_entry = MagicMock(domain="sensor", entity_id="sensor.roomba_battery")
         fake_er = MagicMock()
 
@@ -1575,7 +1578,10 @@ class TestRemoveCalendarEntityIfDisabled:
         # Both optional platforms on: the to-do list is opt-in (4.0.0a30)
         # and cleared like the calendar when it is off. Care reminders on
         # too (4.3.2), or their entities are swept.
-        config_entry.options = {"enable_maintenance_list": True, "care_reminders": True}
+        config_entry.options = {
+            "enable_maintenance_list": True, "care_reminders": True,
+            "maintenance_calendar": True,
+        }
         config_entry.entry_id = "entry1"
 
         fake_er = MagicMock()
@@ -1585,6 +1591,49 @@ class TestRemoveCalendarEntityIfDisabled:
 
         mock_entries.assert_not_called()
         fake_er.async_remove.assert_not_called()
+
+
+class TestEachCalendarLeavesWithItsOwnOption:
+    """4.5.0: the schedule calendar and the maintenance calendar share the
+    platform; switching one off removes that one only."""
+
+    def _run(self, options):
+        from custom_components.roomba_plus import _remove_switched_off_optional_entities
+
+        config_entry = MagicMock()
+        config_entry.options = {"enable_maintenance_list": True, "care_reminders": True, **options}
+        config_entry.entry_id = "entry1"
+        rows = [
+            MagicMock(domain="calendar", entity_id="calendar.r_schedule", unique_id="roomba_plus_B_schedule"),
+            MagicMock(domain="calendar", entity_id="calendar.p_schedule", unique_id="roomba_plus_P_prime_schedule"),
+            MagicMock(domain="calendar", entity_id="calendar.r_maintenance", unique_id="roomba_plus_B_maintenance"),
+            MagicMock(domain="sensor", entity_id="sensor.r_maintenance", unique_id="roomba_plus_B_maintenance"),
+        ]
+        fake_er = MagicMock()
+        with patch("homeassistant.helpers.entity_registry.async_get", return_value=fake_er), patch(
+            "homeassistant.helpers.entity_registry.async_entries_for_config_entry", return_value=rows,
+        ):
+            _remove_switched_off_optional_entities(MagicMock(), config_entry)
+        return sorted(c.args[0] for c in fake_er.async_remove.call_args_list)
+
+    def test_maintenance_calendar_off_by_default(self):
+        assert self._run({}) == ["calendar.r_maintenance"]
+
+    def test_schedule_off_maintenance_on(self):
+        assert self._run({"enable_schedule_calendar": False, "maintenance_calendar": True}) == [
+            "calendar.p_schedule", "calendar.r_schedule",
+        ]
+
+    def test_the_platform_loads_for_either(self):
+        from homeassistant.const import Platform
+
+        from custom_components.roomba_plus import _optional_platforms
+
+        entry = MagicMock()
+        entry.options = {"enable_schedule_calendar": False, "maintenance_calendar": True}
+        assert Platform.CALENDAR in _optional_platforms(entry)
+        entry.options = {"enable_schedule_calendar": False}
+        assert Platform.CALENDAR not in _optional_platforms(entry)
 
 
 class TestCareReminderEntitiesLeaveWithTheOption:
@@ -2827,3 +2876,63 @@ class TestPhaseFinalizeCreatesTheLivePositionStream:
         await _phase_finalize(ctx)
         TestPhaseFinalizeWiresTheRobotUp._teardown(ctx)
         assert ctx.config_entry.runtime_data.live_position is None
+
+
+class TestMapFontsFromTheConfigFolder:
+    """@kyoheimukaida: a font for Japanese room names goes into
+    <config>/roomba_plus/fonts/ -- outside the integration, so an update
+    keeps it -- and is read once per start."""
+
+    @pytest.fixture(autouse=True)
+    def _no_fonts_from_earlier_setups(self):
+        """Every setup reads the fonts; start and end without any."""
+        from custom_components.roomba_plus import map_renderer as mr
+
+        mr.set_fallback_fonts([])
+        yield
+        mr.set_fallback_fonts([])
+
+    async def test_the_users_font_is_found_once(self, hass, monkeypatch, tmp_path):
+        import shutil
+        from pathlib import Path
+
+        from custom_components.roomba_plus import _async_setup_map_fonts
+        from custom_components.roomba_plus import map_renderer as mr
+
+        monkeypatch.setattr(mr, "SYSTEM_FONT_DIRS", ())
+        monkeypatch.setattr(hass.config, "config_dir", str(tmp_path))
+        folder = Path(hass.config.path("roomba_plus", "fonts"))
+        folder.mkdir(parents=True)
+        shutil.copy(
+            Path(__file__).parent / "fixtures" / "fonts" / "roomba_plus_test_cjk.ttf",
+            folder / "NotoSansJP-Regular.ttf",
+        )
+        try:
+            await _async_setup_map_fonts(hass)
+            assert mr.fallback_font_names() == ["NotoSansJP-Regular.ttf"]
+            (folder / "NotoSansJP-Regular.ttf").unlink()
+            await _async_setup_map_fonts(hass)
+            assert mr.fallback_font_names() == ["NotoSansJP-Regular.ttf"], "once per start"
+        finally:
+            mr.set_fallback_fonts([])
+
+    async def test_no_folder_no_fonts_no_error(self, hass, monkeypatch):
+        from custom_components.roomba_plus import _async_setup_map_fonts
+        from custom_components.roomba_plus import map_renderer as mr
+
+        monkeypatch.setattr(mr, "SYSTEM_FONT_DIRS", ())
+        await _async_setup_map_fonts(hass)
+        assert mr.fallback_font_names() == []
+
+    async def test_a_failing_font_search_never_stops_the_setup(self, hass, monkeypatch):
+        """Fonts only draw labels: whatever goes wrong reading them, the
+        robot is set up all the same."""
+        from custom_components.roomba_plus import _async_setup_map_fonts
+        from custom_components.roomba_plus import map_renderer as mr
+
+        def broken(_folder):
+            raise ValueError("a font the system cannot read")
+
+        monkeypatch.setattr("custom_components.roomba_plus.find_fallback_fonts", broken)
+        await _async_setup_map_fonts(hass)
+        assert mr.fallback_font_names() == []

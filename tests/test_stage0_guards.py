@@ -599,7 +599,6 @@ _LEGACY_ICON_KEYS = frozenset({
         ("device_tracker.py", "device_tracker"),
         ("calendar.py", "calendar"),
         ("todo.py", "todo"),
-        ("todo_prime.py", "todo"),
     ],
 )
 def test_platform_translation_keys_have_icons(module: str, domain: str) -> None:
@@ -641,7 +640,7 @@ def test_icons_entries_refer_to_real_keys() -> None:
     for domain, entries in icons.items():
         used: set[str] = set()
         modules = {
-            "sensor": ("sensor_core.py", "sensor_cloud.py", "sensor_rooms.py",
+            "sensor": ("sensor.py", "sensor_core.py", "sensor_cloud.py", "sensor_rooms.py",
                        "sensor_diagnostics.py", "sensor_prime.py"),
             "binary_sensor": ("binary_sensor.py",),
             "button": ("button.py", "button_prime.py"),
@@ -650,7 +649,8 @@ def test_icons_entries_refer_to_real_keys() -> None:
             "image": ("image.py",),
             "device_tracker": ("device_tracker.py",),
             "calendar": ("calendar.py",),
-            "todo": ("todo.py", "todo_prime.py"),
+            "todo": ("todo.py",),
+            "event": ("event.py",),
         }.get(domain, ())
         for m in modules:
             used |= _translation_keys_in_source(m)

@@ -1868,7 +1868,7 @@ class TestPrimeDueForEveryCounterType:
 
     @pytest.mark.parametrize("count_type", ["hr", "evacs", "combo_missions"])
     def test_a_used_up_replacement_part_is_due(self, count_type):
-        from custom_components.roomba_plus.todo_prime import _needs_attention
+        from custom_components.roomba_plus.prime_parts import needs_attention as _needs_attention
 
         part = SimpleNamespace(counter_category="replacement", count_type=count_type, count_remaining=0)
         assert _needs_attention(part) is True
@@ -1876,6 +1876,6 @@ class TestPrimeDueForEveryCounterType:
         assert _needs_attention(part) is False
 
     def test_a_maintenance_counter_at_zero_means_just_done(self):
-        from custom_components.roomba_plus.todo_prime import _needs_attention
+        from custom_components.roomba_plus.prime_parts import needs_attention as _needs_attention
 
         assert _needs_attention(SimpleNamespace(counter_category="maintenance", count_remaining=0)) is False

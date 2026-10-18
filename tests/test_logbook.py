@@ -160,6 +160,7 @@ class TestRegistersAllEvents:
             EVENT_MAP_DRIFT_DETECTED,
             EVENT_MAP_RETRAIN_IN_PROGRESS,
             EVENT_MISSION_ANOMALY,
+            EVENT_MISSION_REASSESSED,
             EVENT_MIXED_SCHEDULE,
             EVENT_SCHEDULE_SUBOPTIMAL,
             EVENT_STUCK_PATTERN,
@@ -178,7 +179,9 @@ class TestRegistersAllEvents:
         assert EVENT_MAP_DRIFT_DETECTED in described
         assert EVENT_MAP_RETRAIN_IN_PROGRESS in described
         assert EVENT_CLOUD_STALE in described
-        assert len(described) == 12
+        # 4.5.0 -- a Classic mission's second verdict from the cloud's numbers
+        assert EVENT_MISSION_REASSESSED in described
+        assert len(described) == 13
 
 
 # ── formerly tests/test_coverage_mid_gaps.py ────────────────────────────────────
@@ -208,6 +211,8 @@ class TestLogbookDescribers:
         "describe_cancellation_recurrence": ({"count": 3}, ["3"]),
         "describe_stuck_pattern": ({"room": "Hall", "count": 5}, ["Hall"]),
         "describe_mission_anomaly": ({"kind": "duration"}, []),
+        "describe_mission_reassessed": ({"recommended_action": "Check for a spill."},
+                                        ["Check for a spill."]),
         "describe_mixed_schedule": ({}, []),
         "describe_schedule_suboptimal": ({"days": ["Mon", "Thu"]}, ["Mon"]),
         "describe_map_drift_detected": ({}, []),

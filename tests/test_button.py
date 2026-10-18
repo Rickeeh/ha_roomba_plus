@@ -1385,3 +1385,40 @@ class TestCareCleaningButtons:
                  patch.object(btn._MaintenanceResetButton, "robot_unique_id", "rid"):
                 ids.add(cls(MagicMock(), "B", MagicMock()).unique_id)
         assert len(ids) == 6
+
+
+class TestPadButtonOnlyWithAPad:
+    """4.5.0: "pad replaced" was on every Classic robot, a 980 included,
+    and wrote the main-brush counter. Only a Braava gets it now, and a
+    robot without a pad loses the one it has."""
+
+    async def _names(self, hass, sku):
+        state = {"sku": sku}
+        roomba = MagicMock()
+        roomba.master_state = {"state": {"reported": state}}
+        entry = MagicMock()
+        entry.options = {}
+        data = entry.runtime_data
+        data.connection_type = ConnectionType.LOCAL_PUSH
+        data.roomba, data.blid, data.has_cloud = roomba, "PADB", False
+        added = []
+        await btn.async_setup_entry(hass, entry, lambda ents, *a, **k: added.extend(ents))
+        return [type(e).__name__ for e in added]
+
+    @pytest.mark.asyncio
+    async def test_a_braava_has_it_a_980_does_not(self, hass):
+        assert "PadResetButton" in await self._names(hass, "m611020")
+        assert "PadResetButton" not in await self._names(hass, "R980020")
+
+    @pytest.mark.asyncio
+    async def test_the_980s_old_button_leaves_the_registry(self, hass):
+        from homeassistant.helpers import entity_registry as er
+
+        entry = MockConfigEntry(domain=DOMAIN, data={"blid": "PADB"})
+        entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+        registry.async_get_or_create(
+            "button", DOMAIN, "roomba_plus_PADB_reset_pad", config_entry=entry,
+        )
+        await self._names(hass, "R980020")
+        assert registry.async_get_entity_id("button", DOMAIN, "roomba_plus_PADB_reset_pad") is None

@@ -1864,3 +1864,53 @@ class TestTheCoverageMapTurnsAsTheUserChose:
         cell_px = int(CELL_SIZE_MM * 400 / side)
         assert red
         assert all(abs(x - p * 400) <= cell_px + 1 and abs(y - q * 400) <= cell_px + 1 for x, y in red)
+
+
+class TestTheGridCountsTheMissionsItLearned:
+    """RoomSegStore waits for three missions before it divides the floor.
+    It was handed the robot's lifetime count of completed runs, which
+    never starts again: after the maintainer's grid was emptied his 980
+    had hundreds, and the areas were cut from the first mission (4.5.0)."""
+
+    def test_each_mission_counts_once(self):
+        gs = GridStore()
+        assert gs.missions_learned == 0
+        gs.update_from_mission([(0.0, 0.0)], [])
+        gs.update_from_mission([(0.0, 0.0)], [])
+        assert gs.missions_learned == 2
+
+    @staticmethod
+    async def _loaded(saved):
+        gs = GridStore()
+        store_mock = AsyncMock()
+        store_mock.async_load = AsyncMock(return_value=saved)
+        with patch("homeassistant.helpers.storage.Store", return_value=store_mock):
+            await gs.async_load(MagicMock(), "e")
+        return gs
+
+    @pytest.mark.asyncio
+    async def test_the_count_survives_a_save(self):
+        gs = GridStore()
+        gs.update_from_mission([(0.0, 0.0)], [])
+        saved: dict = {}
+        store_mock = AsyncMock()
+
+        async def _capture(data):
+            saved.update(data)
+
+        store_mock.async_save = _capture
+        with patch("homeassistant.helpers.storage.Store", return_value=store_mock):
+            await gs.async_save(MagicMock(), "e")
+        assert (await self._loaded(saved)).missions_learned == 1
+
+    @pytest.mark.asyncio
+    async def test_a_grid_from_before_the_count_is_unknown(self):
+        gs = await self._loaded({"version": PAYLOAD_VERSION, "cells": {"1,2": 0.5}})
+        assert gs.missions_learned is None
+        gs.update_from_mission([(0.0, 0.0)], [])
+        assert gs.missions_learned is None
+
+    @pytest.mark.asyncio
+    async def test_an_empty_grid_from_before_starts_at_nought(self):
+        gs = await self._loaded({"version": PAYLOAD_VERSION, "cells": {}})
+        assert gs.missions_learned == 0

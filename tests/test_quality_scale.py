@@ -285,10 +285,14 @@ class TestEveryMenuEntryHasALabel:
             re.findall(r'menu\.append\("([a-z_0-9]+)"\)',
                        (root / "config_flow.py").read_text(encoding="utf-8"))
         )
-        named = set(
-            json.loads((root / "strings.json").read_text(encoding="utf-8"))
-            ["options"]["step"]["init"]["menu_options"]
-        )
+        # Every menu step's labels: the maintenance page (4.5.0) is a
+        # second menu, built the same way.
+        named = {
+            option
+            for step in json.loads((root / "strings.json").read_text(encoding="utf-8"))
+            ["options"]["step"].values()
+            for option in step.get("menu_options", {})
+        }
 
         assert not (offered - named), (
             f"menu entries with no label: {sorted(offered - named)}"

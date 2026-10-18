@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "Waarvoor",
+    "how": "Zo doe je het",
+    "note": "Let op",
+    "irobot": "De handleiding van iRobot voor je model",
+    "expired_title": "Deze link is verlopen",
+    "expired_text": "Links naar verzorgingshandleidingen zijn 30 dagen geldig. Een nieuwe vind je in Home Assistant onder Instellingen → Apparaten en diensten → Roomba+ → Configureren → Onderhoud → Verzorgingshandleiding.",
+    "unknown_title": "Hier is geen handleiding",
+    "unknown_text": "Deze handleiding bestaat niet. Open Configureren → Onderhoud → Verzorgingshandleiding in Home Assistant.",
+    "when": "Wanneer"
+  },
+  "clean_filter": {
+    "title": "Filter reinigen",
+    "why": "Het filter houdt fijn stof in de opvangbak. Zitten de plooien vol, dan daalt de zuigkracht en neemt de robot minder op.",
+    "steps": [
+      "Druk op de ontgrendeling van de opvangbak en neem de bak uit de robot.",
+      "Til het filter aan het lipje eruit.",
+      "Klop het tegen de binnenkant van een vuilnisbak tot er geen stof meer uit valt. Borstel de plooien niet.",
+      "Plaats het filter terug met de plooien in dezelfde richting en schuif de bak erin tot hij vastklikt."
+    ],
+    "caution": "Was een papieren filter nooit en laat het niet nat worden: eenmaal nat filtert het niet meer.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak en trek de bak uit de robot.",
+          "Maak het filter los door het omlaag te drukken en til het eruit.",
+          "Tik het tegen de binnenkant van een vuilnisbak tot er geen stof meer uit valt. Borstel de plooien niet.",
+          "Zet het filter terug en schuif de bak erin tot hij klikt."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak, neem de bak eruit en leeg hem.",
+          "Druk op het lipje van het filterklepje en til het klepje op.",
+          "Trek het filter aan het gele lipje eruit en tik het tegen de binnenkant van een vuilnisbak tot er geen stof meer uit valt.",
+          "Zet het filter terug, sluit het klepje en schuif de bak erin tot hij klikt."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak achter op de robot en neem de bak eruit.",
+          "Open het klepje van de bak boven een vuilnisbak en leeg de bak.",
+          "Pak het filter aan de zijkanten, trek het naar links eruit en tik het tegen de binnenkant van de vuilnisbak tot er geen stof meer uit valt.",
+          "Zet het filter terug en schuif de bak in zijn geleider tot hij klikt."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Druk op de ontgrendeling op de klep, open hem en til de bak aan zijn handvat eruit.",
+          "Houd de bak boven een vuilnisbak en druk op zijn ontgrendeling om hem te legen.",
+          "Open het filterklepje, trek het filter aan zijn lus eruit en tik het tegen de binnenkant van de vuilnisbak.",
+          "Zet het filter terug en sluit het klepje: het sluit alleen als het filter goed zit. Zet de bak terug."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Hoofdborstels reinigen",
+    "why": "De hoofdborstels tillen vuil van tapijt en harde vloer naar de opvangbak. Opgewonden haar laat ze slippen en ze nemen minder op.",
+    "steps": [
+      "Leg de robot ondersteboven op een zachte ondergrond.",
+      "Open het borstelframe met de lipjes en til beide borstels eruit.",
+      "Trek de eindkappen eraf en verwijder haar en draden van de uiteinden en assen. Snijd opgewonden haar langs de groef door.",
+      "Zet de eindkappen terug, plaats elke borstel waar zijn vorm past en sluit het frame."
+    ],
+    "caution": "De twee borstels zijn verschillend en passen maar in één richting. Niet forceren.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Leg de robot ondersteboven op een zachte ondergrond.",
+          "Til de twee gele lipjes van het borstelframe op en neem de haarborstel en de klopborstel eruit.",
+          "Trek de eindkappen eraf en verwijder haar en draden van de uiteinden en assen.",
+          "Zet de eindkappen terug, plaats elke borstel waar zijn vorm past en sluit het frame."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Leg de robot ondersteboven op een zachte ondergrond.",
+          "Knijp de gele lipjes van het borstelframe samen en klap het frame omhoog.",
+          "Neem beide rubberen rollen eruit, trek de eindkappen eraf en verwijder haar van de vierkante en zeskantige pennen.",
+          "Zet de eindkappen terug, plaats elke rol waar zijn pen past en sluit het frame tot het klikt."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Leg de robot ondersteboven op een zachte ondergrond.",
+          "Druk op de ontgrendelknop naast de borstels en open het borstelframe.",
+          "Neem beide rubberen rollen eruit, trek de eindkappen eraf en verwijder haar van de uiteinden en assen.",
+          "Zet de eindkappen terug, plaats elke rol waar zijn vorm past en sluit het frame."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Leg de robot ondersteboven op een zachte ondergrond.",
+          "Druk op de knop rechts van de reinigingskop: de vergrendeling gaat omhoog.",
+          "Neem beide rubberen rollen eruit, trek de eindkappen eraf en verwijder haar van de uiteinden en assen.",
+          "Zet de eindkappen terug, plaats de rollen waar hun vorm past en sluit de vergrendeling."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Zijborstel reinigen",
+    "why": "De zijborstel veegt vuil uit randen en hoeken in het pad van de robot. Verwarde of verbogen armen laten het liggen.",
+    "steps": [
+      "Leg de robot ondersteboven.",
+      "Draai de schroef in het midden van de borstel los, of trek de borstel eraf als hij geen schroef heeft.",
+      "Verwijder haar van de armen en de naaf en buig verbogen haren recht.",
+      "Zet de borstel terug op zijn as en maak hem vast."
+    ],
+    "caution": "Vervang een borstel met vervormde armen: hij komt niet meer tot aan de rand.",
+    "variants": {
+      "s": {
+        "title": "Hoekborstel reinigen",
+        "why": "De hoekborstel veegt vuil uit hoeken en langs randen naar het pad van de robot. Verwarde of verbogen armen laten het liggen.",
+        "steps": [
+          "Leg de robot ondersteboven.",
+          "Draai de schroef los met een kleine schroevendraaier en neem de hoekborstel eraf.",
+          "Verwijder haar van de armen en de aandrijfpen.",
+          "Zet de borstel terug op de pen en draai de schroef weer vast."
+        ],
+        "caution": "Draai de schroef vast: een losse hoekborstel valt eraf tijdens het reinigen."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Wielen reinigen",
+    "why": "Het voorwiel en de aandrijfwielen dragen de robot. Haar of zand erin laat hem opzij trekken of stoppen.",
+    "steps": [
+      "Leg de robot ondersteboven.",
+      "Trek het voorwiel uit zijn houder en haal het wiel van de as.",
+      "Verwijder haar en vuil van wiel, as en houder.",
+      "Draai de aandrijfwielen met de hand rond en verwijder wat blijft haken; duw dan het voorwiel terug tot het vastklikt."
+    ],
+    "caution": "Trek de aandrijfwielen er niet uit: ze zijn niet bedoeld om te demonteren.",
+    "variants": {
+      "s": {
+        "why": "Het zwenkwiel achteraan en de aandrijfwielen dragen de robot. Haar of zand erin laat hem afwijken of stoppen.",
+        "steps": [
+          "Leg de robot ondersteboven.",
+          "Trek het zwenkwiel achteraan uit zijn houder en haal het wiel van de as.",
+          "Verwijder haar en vuil van wiel, as en houder.",
+          "Draai de aandrijfwielen met de hand en verwijder wat blijft haken; druk dan het zwenkwiel terug tot het klikt."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Valsensoren reinigen",
+    "why": "De valsensoren kijken omlaag naar trappen en randen. Stof op hun venstertjes kan de robot laten stoppen of een rand laten missen.",
+    "steps": [
+      "Leg de robot ondersteboven.",
+      "Veeg elk sensorvenster af met een licht vochtige melaminespons of doek.",
+      "Controleer dat geen venster bekrast of afgedekt is."
+    ],
+    "caution": "Spuit nooit een schoonmaakmiddel op de sensoren of in hun openingen."
+  },
+  "clean_contact": {
+    "title": "Laadcontacten reinigen",
+    "why": "De laadcontacten op de robot en het station geleiden de laadstroom. Een laagje erop onderbreekt het laden.",
+    "steps": [
+      "Neem de robot van het station.",
+      "Wrijf de laadcontacten van de robot met een licht vochtige melaminespons of doek tot ze glanzen.",
+      "Haal de stekker van het station 60 seconden uit het stopcontact en reinig de contacten op dezelfde manier.",
+      "Steek de stekker er weer in en zet de robot op het station."
+    ],
+    "caution": "Niets schurends en geen metalen gereedschap. Groene, koperkleurige of ingezakte contacten zijn beschadigd: neem contact op met de klantenservice van iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Neem de robot van het station.",
+          "Wrijf de laadcontacten van de robot met een licht vochtige melaminespons of doek tot ze glanzen.",
+          "Haal de stekker van de Home Base 60 seconden uit het stopcontact en reinig de contacten op dezelfde manier. Veeg het venster van de docksensor alleen met een droge doek af.",
+          "Steek de stekker er weer in en zet de robot op de Home Base."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Neem de robot van de Clean Base.",
+          "Wrijf de laadcontacten van de robot met een licht vochtige melaminespons of doek tot ze glanzen.",
+          "Haal de stekker van de Clean Base 60 seconden uit het stopcontact en reinig de contacten op de oprit op dezelfde manier.",
+          "Steek de stekker er weer in en zet de robot op de Clean Base."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Neem de robot van het station.",
+          "Wrijf de laadcontacten van de robot met een licht vochtige melaminespons of doek tot ze glanzen.",
+          "Haal de stekker van het station 60 seconden uit het stopcontact. Veeg de contacten, het infraroodvenster en de dockmarkering alleen met een droge doek af.",
+          "Steek de stekker er weer in en zet de robot op het station."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Opvangbak legen en controleren",
+    "why": "De opvangbak bewaart wat de robot opneemt. Een volle of slecht geplaatste bak voorkomt dat hij meer opneemt.",
+    "steps": [
+      "Druk op de ontgrendeling en neem de opvangbak eruit.",
+      "Open het klepje boven een vuilnisbak en leeg de bak.",
+      "Neem het filter eruit, klop het schoon en verwijder stof uit de filterzitting.",
+      "Plaats het filter terug en schuif de bak erin tot hij vastklikt."
+    ],
+    "caution": "Spoel alleen een bak die daarvoor bedoeld is, zonder filter, en laat hem helemaal drogen voor hij terug gaat.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak achter op de robot en neem de bak eruit.",
+          "Open het klepje van de bak boven een vuilnisbak en leeg de bak.",
+          "Haal het filter eruit en tik het schoon. Spoel de bak met de hand met warm water als hij vuil is.",
+          "Laat de bak helemaal drogen, zet het filter terug en schuif de bak erin tot hij klikt."
+        ],
+        "caution": "Alleen met de hand spoelen, nooit in de vaatwasser en nooit met het filter erin."
+      },
+      "s": {
+        "steps": [
+          "Druk op de ontgrendeling op de klep en til de bak aan zijn handvat eruit.",
+          "Houd de bak boven een vuilnisbak en druk op zijn ontgrendeling om hem te legen.",
+          "Haal het filter eruit en tik het schoon. Spoel de bak met warm water als hij vuil is.",
+          "Laat de bak helemaal drogen, zet het filter terug en de bak in de robot."
+        ],
+        "caution": "Alleen met de hand spoelen, nooit in de vaatwasser en nooit met het filter erin."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Cameravenster reinigen",
+    "why": "De camera en de sensorvensters helpen de robot de weg te vinden. Vegen laten hem zijn positie kwijtraken.",
+    "steps": [
+      "Zoek het cameravenster boven of aan de voorkant van de robot.",
+      "Veeg het voorzichtig af met een schone, droge microvezeldoek.",
+      "Veeg de andere sensorvensters aan de voorkant op dezelfde manier af."
+    ],
+    "caution": "Geen vloeistof en geen schoonmaakmiddel op de vensters."
+  },
+  "clean_wash_dock": {
+    "title": "Wasstation reinigen",
+    "why": "Het wasstation spoelt de dweil. Vuil in de bak of een volle vuilwatertank stopt het wassen.",
+    "steps": [
+      "Neem de vuilwatertank eruit, leeg en spoel hem.",
+      "Til de wasbak eruit en spoel hem onder stromend water.",
+      "Veeg de bodem van het station droog en plaats bak en tank terug.",
+      "Vul de schoonwatertank bij als die bijna leeg is."
+    ],
+    "caution": "Laat de bak drogen voordat de robot er weer op rijdt."
+  },
+  "clean_dock_washing_system": {
+    "title": "Waswerk van het station reinigen",
+    "why": "Het waswerk van het station spoelt vuil uit de dweil. Blijven er resten in zitten, dan komt de dweil vuil terug.",
+    "steps": [
+      "Til het wasinzetstuk uit het station.",
+      "Spoel het onder stromend water en verwijder haar en vuil uit de openingen.",
+      "Veeg de plek van het inzetstuk in het station schoon.",
+      "Plaats het inzetstuk zo terug dat het vlak ligt."
+    ],
+    "caution": "Geen schoonmaakmiddel, tenzij de handleiding van het station het toestaat."
+  },
+  "clean_mop_washing_system": {
+    "title": "Waswerk van de dweil reinigen",
+    "why": "Het waswerk van de roldweil schraapt vuil water van de dweil. Raken de openingen verstopt, dan kan vuil water op de vloer druppen.",
+    "steps": [
+      "Neem de roldweil van de robot.",
+      "Spoel de schraper en de openingen onder stromend water en maak verstopte gaatjes vrij met een zacht borsteltje.",
+      "Spoel de roldweil en laat hem drogen.",
+      "Plaats de roldweil terug tot hij vastklikt."
+    ],
+    "caution": "Geen scherp gereedschap in de openingen van de schraper."
+  },
+  "replace_filter": {
+    "title": "Filter vervangen",
+    "why": "Een filter verliest na verloop van tijd zijn werking, ook als het regelmatig wordt uitgeklopt.",
+    "steps": [
+      "Neem de opvangbak uit de robot.",
+      "Til het oude filter aan het lipje eruit.",
+      "Plaats het nieuwe filter met de plooien in dezelfde richting als het oude.",
+      "Schuif de bak terug tot hij vastklikt en meld het filter als vervangen."
+    ],
+    "caution": "Gebruik een filter voor dit model: een filter dat niet goed afsluit laat stof door.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak en trek de bak eruit.",
+          "Druk het oude filter omlaag en til het eruit.",
+          "Plaats het nieuwe filter met de plooien dezelfde kant op als het oude.",
+          "Schuif de bak erin tot hij klikt en meld het filter als vervangen."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Neem de bak uit de robot.",
+          "Druk op het lipje van het filterklepje, til het klepje op en trek het oude filter aan het gele lipje eruit.",
+          "Plaats het nieuwe filter met de plooien dezelfde kant op en sluit het klepje.",
+          "Schuif de bak erin tot hij klikt en meld het filter als vervangen."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Druk op de ontgrendeling van de opvangbak achter op de robot en neem de bak eruit.",
+          "Pak het oude filter aan de zijkanten en trek het naar links eruit.",
+          "Plaats het nieuwe filter met de plooien dezelfde kant op als het oude.",
+          "Schuif de bak in zijn geleider tot hij klikt en meld het filter als vervangen."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Open de klep en til de bak aan zijn handvat eruit.",
+          "Open het filterklepje en trek het oude filter aan zijn lus eruit.",
+          "Plaats het nieuwe filter en sluit het klepje: het sluit alleen als het filter goed zit.",
+          "Zet de bak terug en meld het filter als vervangen."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Hoofdborstels vervangen",
+    "why": "Versleten borstels bereiken de vloer slechter en nemen minder vuil op.",
+    "steps": [
+      "Leg de robot ondersteboven en open het borstelframe.",
+      "Til beide borstels eruit. Bewaar de eindkappen als de nieuwe borstels ze niet hebben.",
+      "Plaats de nieuwe borstels waar hun vorm past en sluit het frame.",
+      "Meld de borstels als vervangen."
+    ],
+    "caution": "De twee borstels zijn verschillend en passen maar in één richting. Niet forceren.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Leg de robot ondersteboven en til de twee gele lipjes van het borstelframe op.",
+          "Neem de haarborstel en de klopborstel eruit. Bewaar de eindkappen als de nieuwe borstels er geen hebben.",
+          "Plaats de nieuwe borstels waar hun vorm past en sluit het frame.",
+          "Meld de borstels als vervangen."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Leg de robot ondersteboven, knijp de gele lipjes samen en klap het borstelframe omhoog.",
+          "Neem beide rollen eruit. Bewaar de eindkappen als de nieuwe er geen hebben.",
+          "Plaats de nieuwe rollen waar hun pennen passen en sluit het frame tot het klikt.",
+          "Meld de borstels als vervangen."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Leg de robot ondersteboven en druk op de ontgrendelknop naast de borstels.",
+          "Neem beide rollen eruit. Bewaar de eindkappen als de nieuwe er geen hebben.",
+          "Plaats de nieuwe rollen waar hun vorm past en sluit het frame.",
+          "Meld de borstels als vervangen."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Leg de robot ondersteboven en druk op de knop rechts van de reinigingskop.",
+          "Neem beide rollen eruit. Bewaar de eindkappen als de nieuwe er geen hebben.",
+          "Plaats de nieuwe rollen waar hun vorm past en sluit de vergrendeling.",
+          "Meld de borstels als vervangen."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Zijborstel vervangen",
+    "why": "Een versleten zijborstel komt niet meer in randen en hoeken.",
+    "steps": [
+      "Leg de robot ondersteboven.",
+      "Draai de schroef los of trek de oude borstel van de as.",
+      "Druk de nieuwe borstel op de as en maak hem vast.",
+      "Meld de zijborstel als vervangen."
+    ],
+    "caution": "Bewaar de schroef: een losse borstel valt eraf tijdens het reinigen.",
+    "variants": {
+      "s": {
+        "title": "Hoekborstel vervangen",
+        "why": "Een versleten hoekborstel komt niet meer in de hoeken.",
+        "steps": [
+          "Leg de robot ondersteboven.",
+          "Draai de schroef los en neem de oude hoekborstel eraf.",
+          "Zet de nieuwe hoekborstel op de pen en draai de schroef vast.",
+          "Meld de hoekborstel als vervangen."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Zak vervangen",
+    "why": "De zak in het station vangt op wat de robot erin leegt. Is hij vol, dan kan het station de robot niet meer legen.",
+    "steps": [
+      "Open het deksel van het station.",
+      "Trek de zak aan het lipje eruit: het lipje sluit de opening af.",
+      "Plaats de nieuwe zak en schuif zijn kartonnetje in de geleider tot het vastzit.",
+      "Sluit het deksel en meld de zak als vervangen."
+    ],
+    "caution": "Gebruik een zak niet opnieuw: de afsluiting sluit maar één keer."
+  },
+  "replace_battery": {
+    "title": "Accu vervangen",
+    "why": "Een accu verliest bij elke lading capaciteit. De robot werkt dan korter en kan stoppen voordat hij klaar is.",
+    "steps": [
+      "Zet de robot uit en leg hem ondersteboven.",
+      "Draai de schroeven van het accudeksel los en neem het deksel eraf.",
+      "Trek de oude accu aan de lipjes eruit en plaats de nieuwe met de contacten in dezelfde richting.",
+      "Zet het deksel terug, plaats de robot op het station en meld de accu als vervangen."
+    ],
+    "caution": "Gebruik een accu voor dit model en lever de oude in bij een inzamelpunt voor batterijen."
+  },
+  "replace_pad": {
+    "title": "Dweilpad vervangen",
+    "why": "Een versleten pad laat strepen achter en neemt minder vuil op.",
+    "steps": [
+      "Til de robot op of neem hem van het station.",
+      "Trek het oude pad van de houder.",
+      "Schuif of druk het nieuwe pad op de houder tot het vastzit.",
+      "Meld het pad als vervangen."
+    ],
+    "caution": "Was wasbare pads zonder wasverzachter; gebruik wegwerppads maar één keer."
+  },
+  "replace_roller": {
+    "title": "Roldweil vervangen",
+    "why": "Een versleten roldweil drukt niet meer gelijkmatig op de vloer en laat strepen achter.",
+    "steps": [
+      "Neem de roldweil van de robot.",
+      "Plaats de nieuwe tot hij aan beide kanten vastklikt.",
+      "Meld de roldweil als vervangen."
+    ],
+    "caution": "Laat een gewassen roldweil drogen voordat hij terug gaat."
+  },
+  "replace_detergent": {
+    "title": "Reinigingsmiddel vervangen",
+    "why": "Het station voegt reinigingsmiddel uit zijn cartridge aan het dweilwater toe. Is die leeg, dan dweilt de robot alleen met water.",
+    "steps": [
+      "Open het reinigingsmiddelvak van het station.",
+      "Neem de lege cartridge eruit.",
+      "Plaats de nieuwe tot hij vastzit en sluit het vak.",
+      "Meld het reinigingsmiddel als vervangen."
+    ],
+    "caution": "Gebruik alleen reinigingsmiddel voor dit station: andere middelen kunnen schuimen of het beschadigen."
+  }
+}

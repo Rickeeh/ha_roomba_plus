@@ -39,9 +39,12 @@ from typing import TYPE_CHECKING, Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .room_layout import CELL_MM as LAYOUT_CELL_MM
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from .geometry_store import GeometryStore
+    from .room_layout import RoomLayout
     from .room_seg_store import RoomSegStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -157,6 +160,138 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 LABEL_FONT      = _load_font(13)
 LABEL_FONT_SMALL = _load_font(12)
 
+
+# ── Fonts for characters DejaVu Sans lacks (4.5.0) ───────────────────────────
+#
+# JAPANESE ROOM NAMES WERE BOXES (@kyoheimukaida, Combo j9+): DejaVu Sans
+# has no CJK glyphs, and a font that loads draws every missing character
+# as its empty box. Bundling a CJK font would add 5 to 20 MB to every
+# installation, so a label is drawn with the first font that has all its
+# characters: DejaVu Sans, then the fonts in `<config>/roomba_plus/fonts/`
+# -- outside the integration, so an update keeps them -- then fonts the
+# system has. A label no font covers is drawn with the one that covers
+# most, and the log says once what is missing and where a font goes.
+
+FONT_EXTENSIONS: tuple[str, ...] = (".ttf", ".otf", ".ttc")
+#: Where a system keeps fonts; Home Assistant OS has none with CJK.
+SYSTEM_FONT_DIRS: tuple[Path, ...] = (Path("/usr/share/fonts"), Path("/usr/local/share/fonts"))
+#: File names of system fonts worth trying, lower case.
+_SYSTEM_FONT_HINTS: tuple[str, ...] = (
+    "cjk", "notosansjp", "notosanssc", "notosanstc", "notosanskr",
+    "droidsansfallback", "wqy", "ipag", "ipaex", "takao", "nanum",
+)
+#: A code point no font maps: what a font draws for a missing character.
+_NOT_A_CHARACTER = "\U0010FFFD"
+_PROBE_SIZE = 16
+
+_fallback_fonts: list[Path] = []
+_fonts: dict[tuple[str, int], Any] = {}
+_probe_masks: dict[tuple[str, str], bytes] = {}
+_reported_missing: set[str] = set()
+
+
+def find_fallback_fonts(user_dir: Path | None) -> list[Path]:
+    """The fallback fonts: the user's, sorted by name, then the
+    system's CJK fonts. Reads the disk -- run it in the executor."""
+    found: list[Path] = []
+    if user_dir is not None and user_dir.is_dir():
+        found.extend(
+            p for p in sorted(user_dir.iterdir())
+            if p.is_file() and p.suffix.lower() in FONT_EXTENSIONS
+        )
+    system: list[Path] = []
+    for root in SYSTEM_FONT_DIRS:
+        if not root.is_dir():
+            continue
+        system.extend(
+            p for p in root.rglob("*")
+            if p.suffix.lower() in FONT_EXTENSIONS
+            and any(hint in p.name.lower().replace("-", "").replace("_", "") for hint in _SYSTEM_FONT_HINTS)
+        )
+    # Sans before serif, regular before bold or thin: a label should not
+    # turn black because the first font with the characters is a heavy cut.
+    return found + sorted(system, key=_system_font_rank)
+
+
+def _system_font_rank(path: Path) -> tuple[int, int, str]:
+    name = path.name.lower()
+    serif = 1 if "serif" in name or "mincho" in name or "myungjo" in name else 0
+    weight = 1 if any(w in name for w in ("black", "bold", "heavy", "light", "thin", "medium")) else 0
+    return serif, weight, name
+
+
+def set_fallback_fonts(paths: list[Path]) -> None:
+    """Use these fonts, in this order, for what DejaVu Sans lacks."""
+    _fallback_fonts[:] = paths
+    _fonts.clear()
+    _probe_masks.clear()
+
+
+def fallback_font_names() -> list[str]:
+    """The fallback fonts' file names, for diagnostics -- no paths."""
+    return [p.name for p in _fallback_fonts]
+
+
+def _font(path: Path, size: int) -> Any | None:
+    key = (str(path), size)
+    if key not in _fonts:
+        try:
+            _fonts[key] = ImageFont.truetype(str(path), size)
+        except OSError:
+            _LOGGER.warning("MAP-FONT: could not load %s", path.name)
+            _fonts[key] = None
+    return _fonts[key]
+
+
+def _probe(font: Any, path: Path, char: str) -> bytes:
+    key = (str(path), char)
+    if key not in _probe_masks:
+        image = Image.new("L", (_PROBE_SIZE * 3, _PROBE_SIZE * 3))
+        ImageDraw.Draw(image).text((_PROBE_SIZE, _PROBE_SIZE), char, font=font, fill=255)
+        _probe_masks[key] = image.tobytes()
+    return _probe_masks[key]
+
+
+def _missing(path: Path, text: str) -> set[str]:
+    """The characters of `text` the font at `path` draws as its box."""
+    font = _font(path, _PROBE_SIZE)
+    if font is None:
+        return {c for c in text if not c.isspace()}
+    box = _probe(font, path, _NOT_A_CHARACTER)
+    return {c for c in set(text) if not c.isspace() and _probe(font, path, c) == box}
+
+
+def label_font(text: str, base: Any) -> Any:
+    """The font to draw `text` with, at `base`'s size: `base` (DejaVu
+    Sans) where it has every character, else the first fallback font that
+    does, else the one that misses fewest."""
+    size = getattr(base, "size", None)
+    if not text or not isinstance(size, int) or text.isascii():
+        return base
+    lacking = _missing(_FONT_PATH, text)
+    if not lacking:
+        return base
+    best: tuple[int, Path] | None = None
+    for path in _fallback_fonts:
+        still = _missing(path, "".join(lacking))
+        if not still:
+            return _font(path, size) or base
+        if best is None or len(still) < best[0]:
+            best = (len(still), path)
+    unseen = lacking - _reported_missing
+    if unseen:
+        _reported_missing.update(unseen)
+        _LOGGER.warning(
+            "MAP-FONT: no font draws %s on the map. Put a font that has "
+            "them (for Japanese, Chinese or Korean e.g. Noto Sans CJK) into "
+            "the folder roomba_plus/fonts in your Home Assistant "
+            "configuration folder and restart Home Assistant",
+            "".join(sorted(unseen)),
+        )
+    if best is not None and best[0] < len(lacking):
+        return _font(best[1], size) or base
+    return base
+
 # ── Colours (RGBA) ────────────────────────────────────────────────────────────
 BG_COLOUR       = (255, 255, 255, 255)  # White background (floor)
 FLOOR_BORDER    = (220, 220, 220, 255)  # Light grey — subtle canvas border
@@ -187,6 +322,9 @@ FLOOR_PLAN_FILL  = (238, 241, 246, 255)  # Pale grey-blue — a room of the floo
 FLOOR_PLAN_LINE  = (170, 180, 195, 255)  # Grey — its outline
 FLOOR_PLAN_TEXT  = (110, 120, 135, 255)  # Grey — its name
 OBSTACLE_OUTLINE = (186, 117,  23, 190)  # Amber — obstacle border and hatch
+LAYOUT_WALL      = ( 60,  66,  78, 255)  # Near black — a straight wall of the 900-series layout (4.5.0)
+LAYOUT_FURNITURE = (226, 210, 188, 255)  # Light brown — floor inside a room nothing drove: furniture
+LAYOUT_DOOR      = ( 40, 150,  90, 230)  # Green — a door the robot went through
 
 # ── Robot footprint (real chassis diameter, mm) ───────────────────────────────
 # pose.point.x/y is the robot's own reported navigation centre — the geometric
@@ -337,6 +475,11 @@ class MapRenderer:
         #: the map entity before render(); drawn first and part of the
         #: fit, so the picture holds the whole floor while the path grows.
         self.floor_plan: list[tuple[str | None, list[tuple[float, float]]]] = []
+        #: THE 900-SERIES LAYOUT (4.5.0): straight walls, doors and
+        #: furniture derived from the areas (room_layout). Set by the map
+        #: entity before render(); drawn instead of the dashed area
+        #: outlines, and like them only while the user has drawn nothing.
+        self.room_layout: RoomLayout | None = None
         #: The turn a path of requested positions was drawn with, in
         #: radians (4.4.1), set by the map entity; None for a pose path or
         #: before the first position. For the diagnostics.
@@ -1256,6 +1399,10 @@ class MapRenderer:
         """The rooms to draw under the path (see `floor_plan`)."""
         self.floor_plan = list(plan)
 
+    def set_room_layout(self, layout: RoomLayout | None) -> None:
+        """The 900-series layout to draw (see `room_layout`)."""
+        self.room_layout = layout
+
     # ── Geometry layers ───────────────────────────────────────────────────────
 
     def _draw_floor_plan(self, draw: ImageDraw.ImageDraw) -> None:
@@ -1282,7 +1429,7 @@ class MapRenderer:
             cy = sum(y for _x, y in polygon) / len(polygon)
             draw.text(
                 self._mm_to_px_fit(cx, cy), name,
-                fill=FLOOR_PLAN_TEXT, anchor="mm", font=LABEL_FONT_SMALL,
+                fill=FLOOR_PLAN_TEXT, anchor="mm", font=label_font(name, LABEL_FONT_SMALL),
             )
 
     def _draw_inference_suggestions(self, draw: ImageDraw.ImageDraw) -> None:
@@ -1305,6 +1452,9 @@ class MapRenderer:
             return
         if self._geometry_store is not None and self._geometry_store.has_user_geometry:
             return  # user has confirmed layout — suggestions no longer shown
+        if self.room_layout is not None:
+            self._draw_room_layout(draw, self.room_layout)
+            return
 
         # Room outline rectangles (dashed)
         offset = self._geometry_store.wall_offset_mm if self._geometry_store else 200
@@ -1328,7 +1478,7 @@ class MapRenderer:
                 (x_min + x_max) / 2,
                 (y_min + y_max) / 2,
             )
-            draw.text((lx, ly), label, fill=SUGGEST_LABEL, anchor="mm", font=LABEL_FONT)
+            draw.text((lx, ly), label, fill=SUGGEST_LABEL, anchor="mm", font=label_font(label, LABEL_FONT))
 
         # Door crossing markers (filled circles)
         if self._geometry_store:
@@ -1343,6 +1493,51 @@ class MapRenderer:
                     outline=(255, 255, 255, 200),
                     width=1,
                 )
+
+    def _draw_room_layout(self, draw: ImageDraw.ImageDraw, layout: RoomLayout) -> None:
+        """Furniture, straight walls with their doors, and the room names.
+
+        Walls as thick as the configured wall; a door as a thin green line
+        across its gap, an open passage as the gap alone.
+        """
+        cell = LAYOUT_CELL_MM
+        for x, y in layout.furniture:
+            x1, y1 = self._mm_to_px_fit(x * cell, (y + 1) * cell)
+            x2, y2 = self._mm_to_px_fit((x + 1) * cell, y * cell)
+            draw.rectangle(
+                [min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)],
+                fill=LAYOUT_FURNITURE,
+            )
+        width = max(2, int(round(layout.wall_mm / max(self._fit_scale, 1e-6))))
+        for wall in layout.walls:
+            draw.line(
+                [self._mm_to_px_fit(wall.x1, wall.y1), self._mm_to_px_fit(wall.x2, wall.y2)],
+                fill=LAYOUT_WALL, width=width,
+            )
+        for door in layout.doors:
+            if door.open:
+                continue
+            half = door.width_mm / 2
+            if door.along_x:
+                a, b = (door.cx - half, door.cy), (door.cx + half, door.cy)
+            else:
+                a, b = (door.cx, door.cy - half), (door.cx, door.cy + half)
+            draw.line(
+                [self._mm_to_px_fit(*a), self._mm_to_px_fit(*b)],
+                fill=LAYOUT_DOOR, width=2,
+            )
+        for key, cells in layout.rooms.items():
+            if not cells:
+                continue
+            mx = (sum(c[0] for c in cells) / len(cells) + 0.5) * cell
+            my = (sum(c[1] for c in cells) / len(cells) + 0.5) * cell
+            # An area without a name is shown by its number, as the
+            # naming form asks for it (room_seg_store.area_number).
+            label = key.removeprefix("room_")
+            draw.text(
+                self._mm_to_px_fit(mx, my), label,
+                fill=SUGGEST_LABEL, anchor="mm", font=label_font(label, LABEL_FONT),
+            )
 
     def _draw_user_geometry(self, draw: ImageDraw.ImageDraw) -> None:
         """Layer 1.6 — user-authored walls, doors, and obstacle rectangles.
@@ -1363,7 +1558,7 @@ class MapRenderer:
             draw.line([x1, y1, x2, y2], fill=WALL_CENTRE, width=WALL_CENTRE_WIDTH)
             if wall.label:
                 mx, my = (x1 + x2) // 2, (y1 + y2) // 2
-                draw.text((mx, my - 8), wall.label, fill=WALL_FILL, anchor="mm", font=LABEL_FONT_SMALL)
+                draw.text((mx, my - 8), wall.label, fill=WALL_FILL, anchor="mm", font=label_font(wall.label, LABEL_FONT_SMALL))
 
         for door in self._geometry_store.doors:
             cx, cy = self._mm_to_px_fit(door.cx, door.cy)
@@ -1386,7 +1581,7 @@ class MapRenderer:
                 clockwise=self._cfg.mirror_x,
             )
             if door.label:
-                draw.text((cx, cy - 10), door.label, fill=DOOR_FILL, anchor="mm", font=LABEL_FONT_SMALL)
+                draw.text((cx, cy - 10), door.label, fill=DOOR_FILL, anchor="mm", font=label_font(door.label, LABEL_FONT_SMALL))
 
         for obs in self._geometry_store.obstacles:
             x1, y1 = self._mm_to_px_fit(obs.x, obs.y + obs.h)   # top-left in image
@@ -1402,7 +1597,7 @@ class MapRenderer:
             self._draw_hatch(draw, x1, y1, x2, y2, OBSTACLE_OUTLINE)
             if obs.label:
                 lx, ly = (x1 + x2) // 2, (y1 + y2) // 2
-                draw.text((lx, ly), obs.label, fill=OBSTACLE_OUTLINE, anchor="mm", font=LABEL_FONT_SMALL)
+                draw.text((lx, ly), obs.label, fill=OBSTACLE_OUTLINE, anchor="mm", font=label_font(obs.label, LABEL_FONT_SMALL))
 
     # ── Geometry drawing primitives ───────────────────────────────────────────
 
@@ -1836,7 +2031,7 @@ def render_area_map(
             label,
             fill=NAMING_LABEL,
             anchor="mm",
-            font=NAMING_LABEL_FONT,
+            font=label_font(label, NAMING_LABEL_FONT),
             stroke_width=2,
             stroke_fill=(255, 255, 255, 255),
         )

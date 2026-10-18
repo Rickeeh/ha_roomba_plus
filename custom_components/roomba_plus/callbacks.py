@@ -29,15 +29,17 @@ from .position_room import PositionRoomTracker
 from .const import (
     lifetime_hours,
     IN_MISSION_COMMANDS,
+    mission_command,
     mission_command_regions,
     mission_scope,
     ROOM_EVENT_CLOSED_AT_END_STATUSES,
     ROOM_EVENT_DONE_STATUSES,
     recovered_after_stuck,
     ROOMS_AWAITING_CLOUD,
+    ROOMS_REQUESTED,
     mission_store_changed_signal,
 )
-from .const import CLEANING_PHASES, CONF_BLID, CONF_CORRELATION_ENTITIES, CONF_SMART_ZONE_DATA, END_SIGNAL_DEBOUNCE_COUNT, END_SIGNAL_MIN_HOLD_SECONDS, EVENT_MAP_RETRAIN_COMPLETED, EVENT_MAP_RETRAIN_STARTED, EVENT_MISSION_COMPLETED, EVENT_ROOM_COMPLETED, POSE_POINT_CM_TO_MM, ROOM_TRANSITION_CANDIDATE_PHASES, UNVISITED_ROOMS_MAX_SUPPRESSION_SECONDS, active_charge_cycles, estcap_to_mah
+from .const import CLEANING_PHASES, CONF_BLID, CONF_CORRELATION_ENTITIES, CONF_SMART_ZONE_DATA, END_SIGNAL_DEBOUNCE_COUNT, END_SIGNAL_MIN_HOLD_SECONDS, EVENT_MAP_RETRAIN_COMPLETED, EVENT_MAP_RETRAIN_STARTED, EVENT_MISSION_COMPLETED, EVENT_MISSION_REASSESSED, EVENT_ROOM_COMPLETED, POSE_POINT_CM_TO_MM, ROOM_TRANSITION_CANDIDATE_PHASES, UNVISITED_ROOMS_MAX_SUPPRESSION_SECONDS, active_charge_cycles, estcap_to_mah
 from .map_renderer import ROBOT_DIAMETER_MM_ISJ_SERIES
 from .room_times import (
     cleaning_mode,
@@ -58,7 +60,7 @@ if TYPE_CHECKING:
     from .models import RoombaConfigEntry, RoombaData
 
 from .structural_failures import record_failure, record_success
-from .room_cleaning import region_names_across_maps
+from .room_cleaning import CommandRegionNames, region_names_across_maps, region_names_for_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,6 +188,43 @@ def _observed_rooms(entry: Any, last_room_worked: bool = True) -> list[str] | No
         return None
 
 
+def _start_position_rooms(entry: Any) -> None:
+    """A 900-series mission starts its visited rooms from none (4.5.0).
+
+    Room tracking is reset where a mission's room plan is built, and a
+    900-series mission that cleans the whole floor has no plan: without
+    this, its visited rooms would run on from the mission before.
+    """
+    runtime = getattr(entry, "runtime_data", None)
+    if getattr(runtime, "room_seg_store", None) is None:
+        return
+    tracker = getattr(runtime, "position_room", None)
+    if isinstance(tracker, PositionRoomTracker):
+        tracker.reset()
+
+
+def _rooms_seen_by_position(entry: Any, zones: list[str]) -> list[str] | None:
+    """The named rooms a 900-series robot's position went into (4.5.0).
+
+    WENT INTO, NOT ASKED FOR. A whole-floor mission has no room plan, so
+    it was recorded with every named room -- the rooms it was sent to.
+    The maintainer's 980 was credited with the hall and a bedroom on a
+    run that spent 86% of one other room's floor and 1% of that
+    bedroom's. Its position says where it was (position_room).
+
+    Named rooms only, as `zones` holds them: an unnamed area is no room
+    the history can show. None where the position never lay in a room,
+    which leaves the requested rooms, marked as such.
+    """
+    runtime = getattr(entry, "runtime_data", None)
+    if getattr(runtime, "room_seg_store", None) is None:
+        return None
+    tracker = getattr(runtime, "position_room", None)
+    if not isinstance(tracker, PositionRoomTracker) or tracker.last_in_room is None:
+        return None
+    return [room for room in tracker.visited if room in zones]
+
+
 def _skipped_rooms(entry: Any) -> tuple[list[str], list[str]]:
     """(names, region ids) of the rooms skipped by command this mission
     (4.4.2). Read when the mission ends, before the timer store clears."""
@@ -196,6 +235,28 @@ def _skipped_rooms(entry: Any) -> tuple[list[str], list[str]]:
         [str(n) for n in names] if isinstance(names, list) else [],
         [str(r) for r in rids] if isinstance(rids, list) else [],
     )
+
+
+def _leave_room_sent_home(hass: HomeAssistant, entry: Any) -> None:
+    """The room the robot was in when it was sent home, recorded as
+    skipped (4.5.0) -- MissionTimerStore.mark_skipped(), the skip's own
+    bookkeeping. Nothing without a planned room to point at: a mission
+    sent to the whole home has no room list to leave. No region id: the
+    dock names none, and the cloud's room events already mark the room
+    as interrupted. Idempotent, so the last room's skip (pause, then
+    dock) is not recorded twice."""
+    store = getattr(getattr(entry, "runtime_data", None), "mission_timer_store", None)
+    if store is None or getattr(store, "mission_id", None) is None:
+        return
+    planned = getattr(store, "planned_rooms", None)
+    idx = getattr(store, "current_room_idx", None)
+    if not isinstance(planned, list) or not isinstance(idx, int) or not 0 <= idx < len(planned):
+        return
+    if store.mark_skipped(idx, hass, entry.entry_id):
+        _LOGGER.debug(
+            "MissionStore: sent home in planned room %d of %d, recorded as skipped",
+            idx + 1, len(planned),
+        )
 
 
 def _rooms_are_guesses(entry: Any, *, saw_travelling: bool) -> bool:
@@ -523,21 +584,25 @@ def _capture_zone_names(
         ))
     if data.map_capability == MapCapability.SMART:
         last_cmd = _merged_top_level(entry, reported, "lastCommand")
+        held = getattr(data, "mission_command", None)
         # Not from a start at the robot's buttons (mission_command_regions).
-        region_ids = [
-            r.get("region_id")
-            for r in mission_command_regions(
-                _merged_top_level(entry, reported, "cleanMissionStatus"), last_cmd,
-                getattr(data, "mission_command", None),
+        regions = [
+            r for r in mission_command_regions(
+                _merged_top_level(entry, reported, "cleanMissionStatus"), last_cmd, held,
             )
             if isinstance(r, dict) and r.get("region_id")
         ]
-        if region_ids and data.cloud_coordinator:
-            # Across every map: a mission can target a room on a map
-            # the robot is not currently using, and this is the lookup
-            # that names the rooms it visits.
-            id_to_name = region_names_across_maps(data.cloud_coordinator)
-            return [id_to_name[rid] for rid in region_ids if rid in id_to_name]
+        if regions and data.cloud_coordinator:
+            # BY THE COMMAND'S MAP AND EACH REGION'S TYPE (4.5.0). Across
+            # every map, because a mission can target a map the robot is
+            # not using -- but a zone and a room may share a number, and
+            # so may two maps' rooms; the command says which it meant.
+            command = mission_command(last_cmd, held)
+            pmap_id = command.get("pmap_id") if isinstance(command, dict) else None
+            return region_names_for_command(
+                data.cloud_coordinator, regions,
+                str(pmap_id) if pmap_id else None,
+            )
     return []  # NONE (600-series) or SMART without cloud
 
 
@@ -909,6 +974,14 @@ async def async_record_mission(
     if rooms_are_guesses and observed_rooms is not None:
         record["tracked_rooms"] = list(observed_rooms)
         record["rooms_source"] = ROOMS_AWAITING_CLOUD
+    elif observed_rooms is None and record["last_cleaned_rooms"]:
+        # ASKED FOR, NOT SEEN (4.5.0). Without room tracking the list
+        # above is `zones`: the rooms the mission was sent to. They stay
+        # -- nothing better is known until the cloud answers -- but the
+        # record says what they are, and so do the vacuum and the last
+        # mission sensor. A room the robot never reached was shown as
+        # cleaned (#196 side note).
+        record["rooms_source"] = ROOMS_REQUESTED
 
     # NOT A MISSION: under half a minute between a known start and the
     # end, "completed", nothing cleaned, nothing stuck or lifted. A tester's
@@ -1390,6 +1463,7 @@ def _handle_mission_start(
     ):
         ms.had_cleaning_phase = True
         ms.current_mission_zones = _capture_zone_names(entry, reported)
+        _start_position_rooms(entry)
         ms.current_mission_scope = _capture_scope(entry, reported)
         _note_mission_start_command(entry, reported, ms.current_mission_scope)
         ms.mission_start_ts = candidate_mission_start_ts
@@ -1584,11 +1658,20 @@ def _update_room_progress(
                 # can't resolve a name).
                 from .mission_store import MissionStore as _MS
                 _cc = getattr(entry.runtime_data, "cloud_coordinator", None)
-                _cloud_id_to_name: dict[str, str] = (
-                    region_names_across_maps(_cc)
+                # BY THE COMMAND'S MAP AND EACH REGION'S TYPE (4.5.0), as
+                # the mission's names are (_capture_zone_names).
+                _plan_cmd = mission_command(
+                    _rep.get("lastCommand"),
+                    getattr(entry.runtime_data, "mission_command", None),
+                )
+                _plan_pmap = (
+                    _plan_cmd.get("pmap_id") if isinstance(_plan_cmd, dict) else None
+                )
+                _cloud_names = CommandRegionNames(
+                    _cc, str(_plan_pmap) if _plan_pmap else None
                 )
                 _names = [
-                    _cloud_id_to_name.get(_MS.extract_rid(r) or "")
+                    _cloud_names.name(r)
                     or r.get("region_name")
                     or (_zone.get(_MS.extract_rid(r)) or {}).get("name")
                     or _MS.extract_rid(r)
@@ -1938,8 +2021,11 @@ def _confirm_mission_end(
             else:
                 result_override = "stuck_and_abandoned"
 
+        _observed = _observed_rooms(entry, last_room_worked=ms.ran_in_room)
+        if _observed is None:
+            _observed = _rooms_seen_by_position(entry, ms.current_mission_zones)
         entry.async_create_task(
-            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed_rooms(entry, last_room_worked=ms.ran_in_room), rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope, stuck_at=ms.stuck_at if ms.had_stuck_event else 0.0, skipped=_skipped_rooms(entry))
+            hass, async_record_mission(hass, entry, mission, reported, list(ms.current_mission_zones), observed_rooms=_observed, rooms_are_guesses=_rooms_are_guesses(entry, saw_travelling=ms.saw_travelling), start_ts=ms.mission_start_ts, nstuck_delta=nstuck_delta, mission_error_code=ms.mission_error_code, recharge_min=ms.recharge_min_accumulator + ms.current_leg_rechrgM, result_override=result_override, npicks_delta=npicks_delta, scope=ms.current_mission_scope, stuck_at=ms.stuck_at if ms.had_stuck_event else 0.0, skipped=_skipped_rooms(entry))
         )
         # MP1 (v2.6.0): clear mission timer at end
         _mts = getattr(entry.runtime_data, "mission_timer_store", None)
@@ -2530,6 +2616,14 @@ def make_mission_callback(
             candidate_cycle=_candidate_cycle,
             candidate_mission_start_ts=_candidate_mission_start_ts,
         )
+
+        # SENT HOME, ROOM LEFT (4.5.0, @Thonno's suggestion a). A room the
+        # user abandons by sending the robot home is not cleaned -- the
+        # cloud's own room event for it says "interrupted" (status 5),
+        # which no source counts. Recorded like a skip, so the mission
+        # record does not list it as cleaned.
+        if phase == "hmUsrDock" and ms.last_phase != "hmUsrDock" and ms.had_cleaning_phase:
+            _leave_room_sent_home(hass, entry)
 
         # F4e — accumulate recharge time on every hmMidMsn entry
         if phase == "hmMidMsn":
@@ -3820,6 +3914,98 @@ def learn_room_times_from_store(
     return learned, marked
 
 
+#: How far back a mission still gets a second verdict when the cloud's
+#: numbers for it arrive. The cloud has them minutes after the mission.
+REASSESS_WINDOW = datetime.timedelta(hours=24)
+
+
+def missions_waiting_for_cloud(
+    store: Any, now: datetime.datetime | None = None,
+) -> list[tuple[dict[str, Any], str | None]]:
+    """The recent missions the cloud has not been matched with yet, each
+    with its verdict without the cloud's numbers.
+
+    A Classic robot reports no dirt count: it, and often the area, come
+    with the cloud's mission history minutes after the mission ended --
+    after `roomba_plus_mission_completed`, which therefore never says
+    `dirt_spike` on a Classic robot. Taken before the merge, for
+    `announce_reassessed_missions()` after it. The records themselves,
+    not their ids: the merge can correct a mission's start, and its id
+    with it."""
+    now = now or dt_util.utcnow()
+    waiting: list[tuple[dict[str, Any], str | None]] = []
+    for record in reversed(store.records):
+        ended = dt_util.parse_datetime(str(record.get("ended_at") or ""))
+        if ended is not None:
+            ended = dt_util.as_utc(ended)
+        if ended is None or now - ended > REASSESS_WINDOW:
+            break
+        if record.get("missionId") or not record.get("id"):
+            continue
+        explanation = store.explain_mission(record["id"]) or {}
+        waiting.append((record, explanation.get("anomaly_reason")))
+    return waiting
+
+
+def announce_reassessed_missions(
+    hass: HomeAssistant,
+    config_entry: "RoombaConfigEntry",
+    store: Any,
+    waiting: list[tuple[dict[str, Any], str | None]],
+) -> int:
+    """Fire `roomba_plus_mission_reassessed` for each mission of
+    `waiting` that the cloud has now been matched with and whose numbers
+    make it unusual for another reason than before. Once per mission:
+    a matched mission is not waiting any more. Returns how many fired."""
+    fired = 0
+    for record, before in waiting:
+        if not record.get("missionId") or not record.get("id"):
+            continue
+        explanation = store.explain_mission(record["id"]) or {}
+        reason = explanation.get("anomaly_reason")
+        if reason is None or reason == before:
+            continue
+        hass.bus.async_fire(
+            EVENT_MISSION_REASSESSED,
+            {
+                "entry_id": config_entry.entry_id,
+                "name": config_entry.title,
+                "mission_id": record["id"],
+                "ended_at": record.get("ended_at"),
+                "is_anomalous": True,
+                "anomaly_reason": reason,
+                "recommended_action": explanation.get("recommended_action"),
+                "anomaly_reason_before": before,
+            },
+        )
+        fired += 1
+    if fired:
+        # The run of unusual missions may be longer now, too.
+        from .repairs import async_check_mission_anomaly
+        config_entry.async_create_task(
+            hass, async_check_mission_anomaly(hass, config_entry),
+            name="roomba_plus_mission_anomaly_after_cloud",
+        )
+    return fired
+
+
+def backfill_and_reassess(
+    hass: HomeAssistant,
+    config_entry: "RoombaConfigEntry",
+    store: Any,
+    raw_records: Any,
+) -> Any:
+    """Merge the cloud's mission history into the store, then give the
+    missions it filled in their second verdict. After every cloud refresh
+    and at setup -- a mission that ended before a restart gets its numbers
+    after it."""
+    waiting = missions_waiting_for_cloud(store)
+    result = store.backfill_from_cloud(raw_records)
+    if waiting and result.enriched:
+        announce_reassessed_missions(hass, config_entry, store, waiting)
+    return result
+
+
 def make_cloud_refresh_callback(
     hass: HomeAssistant,
     config_entry: "RoombaConfigEntry",
@@ -3840,7 +4026,7 @@ def make_cloud_refresh_callback(
         ms = config_entry.runtime_data.mission_store
         if ms is None:
             return
-        _bf = ms.backfill_from_cloud(cloud_coordinator.raw_records)
+        _bf = backfill_and_reassess(hass, config_entry, ms, cloud_coordinator.raw_records)
         # And the missions that were never recorded here (4.2.13) --
         # after backfill, so a mission recorded locally is paired first.
         _adopted = ms.adopt_missing_from_cloud(

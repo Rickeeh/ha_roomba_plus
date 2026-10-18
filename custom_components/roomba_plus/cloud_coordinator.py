@@ -1418,6 +1418,41 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return result
 
     @property
+    def region_names_by_type(self) -> dict[str, dict[str, dict[str, str]]]:
+        """{pmap_id: {"rid": {id: name}, "zid": {id: name}}} for every map
+        (4.5.0) -- regions_by_pmap with rooms and zones kept apart.
+
+        A room and a zone may share a number: regions_by_pmap folds both
+        into one dict and the room wins, so a zone command for zone 21
+        was recorded under room 21's name. room_cleaning
+        .region_names_for_command() resolves each region by its own map
+        and its own type from here."""
+        result: dict[str, dict[str, dict[str, str]]] = {}
+        if not self.data:
+            return result
+        for pmap in self.data.get("pmaps", []):
+            details = pmap.get("active_pmapv_details") or {}
+            pmapv = details.get("active_pmapv") or {}
+            pmap_id = pmapv.get("pmap_id")
+            if not pmap_id:
+                continue
+            by_type: dict[str, dict[str, str]] = {"rid": {}, "zid": {}}
+            for source, kind, keys in (
+                ("regions", "rid", ("region_id", "id")),
+                ("zones", "zid", ("zone_id", "id")),
+            ):
+                for region in details.get(source) or []:
+                    if not isinstance(region, dict):
+                        continue
+                    rid = str(next((region[k] for k in keys if region.get(k)), "") or "")
+                    name = region.get("name") or ""
+                    if rid and name:
+                        by_type[kind].setdefault(rid, str(name))
+            if by_type["rid"] or by_type["zid"]:
+                result[str(pmap_id)] = by_type
+        return result
+
+    @property
     def zones(self) -> list[dict[str, Any]]:
         """Return custom zones from the ACTIVE pmap only.
 
@@ -1665,6 +1700,10 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "points2d": [], "keepoutzones": [],
                 "observed_zones": [], "regions": [],
                 "region_suggestions": [],   # v3.2.0 ROOM-TYPE-SUGGEST
+                # The map format has door and threshold layers (4.5.0);
+                # whether a robot fills them is not known yet, so only
+                # their counts reach the diagnostics.
+                "doors": [], "thresholds": [],
             }
             for m in maps:
                 if not isinstance(m, dict):
@@ -1683,6 +1722,8 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # a conservative fallback, never overriding a user-set
                 # region name. See sensor.py's id_to_display_name().
                 geo["region_suggestions"].extend(m.get("region_suggestions") or [])
+                geo["doors"].extend(m.get("doors") or [])
+                geo["thresholds"].extend(m.get("thresholds") or [])
 
             _LOGGER.debug(
                 "iRobot cloud: UMF parsed — "
@@ -1708,6 +1749,8 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "points2d":   geo["points2d"],
                 "regions":    geo["regions"],
                 "region_suggestions": geo["region_suggestions"],   # v3.2.0 ROOM-TYPE-SUGGEST
+                "doors":      geo["doors"],
+                "thresholds": geo["thresholds"],
                 "pmap_id":    active_id,
                 "version_id": version_id,
                 # The poses and header angles (4.3.3, umf_typed_poses).

@@ -8,7 +8,7 @@ functions live in sensor_helpers.py. No behaviour change vs. v3.3.1.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any, cast
 
@@ -35,7 +35,10 @@ import datetime as dt_stdlib
 from homeassistant.util import dt as dt_util
 
 from .parts_catalog import guide_url_for
+from .maintenance_model import MaintenanceItem
 from .const import (
+    MAINTENANCE_DIAGNOSTIC_KEYS,
+    lifetime_hours,
     CONF_PETS,
     DEFAULT_PETS,
     replacement_guidance_months,
@@ -196,6 +199,32 @@ def _consumable_threshold(entity: "IRobotEntity") -> int | None:
         return None
     store = entity._config_entry.runtime_data.maintenance_store
     return store.threshold_hours(role, entity._config_entry.options) if store else None
+
+
+def _maintenance_item_attributes(e: IRobotEntity, role: str | None) -> dict[str, Any]:
+    """The maintenance entry's figures for a part sensor (4.5.0): its
+    level, share used, due date, last replacement, wear rate and links.
+    `{}` before the entries exist."""
+    tracker = getattr(e._config_entry.runtime_data, "maintenance", None)
+    if tracker is None or role is None:
+        return {}
+    state = getattr(e, "vacuum_state", None) or {}
+    part = "pad" if role == "main_brush" and is_braava(state) else role
+    item = tracker.item_for_part(part)
+    if not isinstance(item, MaintenanceItem):
+        return {}
+    attrs: dict[str, Any] = {
+        "level": item.level,
+        "used": item.used,
+        "due": item.due,
+        "last_replaced": item.last_done,
+        "wear_rate": item.wear_rate,
+    }
+    if item.guide_url:
+        attrs["guide_url"] = item.guide_url
+    if item.buy_url:
+        attrs["buy_url"] = item.buy_url
+    return attrs
 
 
 def _care_schedule(e: IRobotEntity) -> list[dict[str, Any]]:
@@ -1807,6 +1836,18 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
         ),
     ),
 )
+
+# LEAN ON A NEW INSTALLATION (4.5.0, E2). When a part was last replaced,
+# how fast it wears and how many days are left are attributes of the part
+# sensors and entries of the maintenance status now; their own entities
+# are created disabled. Only a first registration reads this, so an
+# installation from before keeps them as they are -- Configure →
+# Maintenance can hide them there.
+SENSORS = tuple(
+    replace(description, entity_registry_enabled_default=False)
+    if description.key in MAINTENANCE_DIAGNOSTIC_KEYS else description
+    for description in SENSORS
+)
 #: Sensors whose value comes from `mission_store` rather than from the
 #: MQTT delta that triggers their recompute.
 #:
@@ -1835,6 +1876,7 @@ class RoombaSensor(IRobotEntity, SensorEntity):
         super().__init__(roomba, blid, config_entry)
         self.entity_description = description
         self._live_state = description.live_state
+        self._shows_maintenance = description.remaining is True
         self._config_entry = config_entry
         self._attr_unique_id = f"{self.robot_unique_id}_{description.key}"
         self._unsub_tick: Callable[[], None] | None = None
@@ -2021,18 +2063,18 @@ class RoombaSensor(IRobotEntity, SensorEntity):
         # nothing to say.
         role = self.entity_description.role
         if self.entity_description.remaining is True and role is not None:
+            # ONE CALCULATION (4.5.0): the maintenance model's. This took
+            # the hour option or the global default and skipped the
+            # series profile the due check used, so a 980 counted down
+            # from 52 hours and was due at its profile's figure.
+            current_hr = lifetime_hours({"bbrun": self.run_stats})
             if store:
-                cloud_hours = store.cloud_remaining_hours(role)
-                if cloud_hours is not None:
-                    return cloud_hours
+                return store.role_remaining_hours(role, current_hr, options)
             spec = CONSUMABLE_ROLES[role]
             threshold = (
                 options.get(spec.conf_key, spec.default_hours)
                 if spec.conf_key is not None else spec.default_hours
             )
-            current_hr = self.run_stats.get("hr", 0)
-            if store:
-                return store.remaining_hours(role, current_hr, threshold)
             return int(max(0, threshold - current_hr))
 
         if key == "next_clean":
@@ -2093,6 +2135,7 @@ class RoombaSensor(IRobotEntity, SensorEntity):
                 )
                 if guide:
                     attrs["guide_url"] = guide
+            attrs.update(_maintenance_item_attributes(self, role))
             if role and store is not None:
                 # WHERE THE NUMBER COMES FROM, and what iRobot says in
                 # months (4.3.2): the hours count use, the months assume

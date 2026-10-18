@@ -2162,6 +2162,43 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
         _LOGGER.debug("Registered %s.advance_room action", DOMAIN)
 
+    # ── 4.5.0 — maintenance entries: done and snooze, both generations ───────
+    if not hass.services.has_service(DOMAIN, SERVICE_MAINTENANCE_DONE):
+        register_guarded(hass,
+            DOMAIN,
+            SERVICE_MAINTENANCE_DONE,
+            async_handle_maintenance_done,
+            schema=vol.Schema({
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Required("item"): cv.string,
+                vol.Optional("action"): vol.In(["replace", "clean"]),
+            }),
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_MAINTENANCE_SNOOZE):
+        register_guarded(hass,
+            DOMAIN,
+            SERVICE_MAINTENANCE_SNOOZE,
+            async_handle_maintenance_snooze,
+            schema=vol.Schema({
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Required("item"): cv.string,
+                vol.Optional("days", default=1): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.04, max=90)
+                ),
+            }),
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_MAINTENANCE_FORGET_LEARNED):
+        register_guarded(hass,
+            DOMAIN,
+            SERVICE_MAINTENANCE_FORGET_LEARNED,
+            async_handle_maintenance_forget_learned,
+            schema=vol.Schema({
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Optional("item", default=[]): vol.All(cv.ensure_list, [cv.string]),
+            }),
+        )
+
     if not hass.services.has_service(DOMAIN, "run_favorite"):
         register_guarded(hass, 
             DOMAIN,
@@ -2173,6 +2210,56 @@ def async_register_services(hass: HomeAssistant) -> None:
             }),
         )
         _LOGGER.debug("Registered %s.run_favorite action", DOMAIN)
+
+
+SERVICE_MAINTENANCE_DONE = "maintenance_done"
+SERVICE_MAINTENANCE_SNOOZE = "maintenance_snooze"
+SERVICE_MAINTENANCE_FORGET_LEARNED = "maintenance_forget_learned"
+
+
+def _maintenance_trackers(call: ServiceCall) -> list[Any]:
+    """The maintenance tracker of every robot the call names, refusing
+    an entity that is not a robot's."""
+    trackers: list[Any] = []
+    for entity_id in call.data["entity_id"]:
+        config_entry = _resolve_config_entry_from_entity(call.hass, entity_id, call.service)
+        tracker = getattr(getattr(config_entry, "runtime_data", None), "maintenance", None)
+        if config_entry.domain != DOMAIN or tracker is None:
+            raise ServiceValidationError(
+                f"{call.service}: no maintenance entries for {entity_id}",
+                translation_domain=DOMAIN,
+                translation_key="maintenance_store_unavailable",
+                translation_placeholders={"entity_id": str(entity_id)},
+            )
+        if tracker not in trackers:
+            trackers.append(tracker)
+    return trackers
+
+
+async def async_handle_maintenance_done(call: ServiceCall) -> None:
+    """roomba_plus.maintenance_done: an entry replaced or cleaned (4.5.0).
+
+    The same act as the buttons, the list and the reset actions, on
+    Classic and Prime alike -- on Prime the reset goes to iRobot, as
+    the app sends it. `action` reports a part to replace as only
+    cleaned, or a care task's part as replaced."""
+    for tracker in _maintenance_trackers(call):
+        await tracker.async_done(call.data["item"], call.data.get("action"), via="action")
+
+
+async def async_handle_maintenance_snooze(call: ServiceCall) -> None:
+    """roomba_plus.maintenance_snooze: no reminder for an entry for a
+    number of days (4.5.0)."""
+    for tracker in _maintenance_trackers(call):
+        await tracker.async_snooze(call.data["item"], float(call.data["days"]))
+
+
+async def async_handle_maintenance_forget_learned(call: ServiceCall) -> None:
+    """roomba_plus.maintenance_forget_learned: forget a part's learned
+    replacement interval, or every part's (4.5.0, @msva17). The way back
+    from a reset pressed by mistake without editing the storage file."""
+    for tracker in _maintenance_trackers(call):
+        await tracker.async_forget_learned(call.data.get("item") or ())
 
 
 async def async_handle_run_favorite(call: ServiceCall) -> None:

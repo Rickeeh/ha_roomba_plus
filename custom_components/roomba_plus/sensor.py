@@ -69,6 +69,8 @@ from .const import (
     DEFAULT_REGION_SENSORS,
 )
 from .prime_room_map import SIGNAL_PRIME_ROOM_NAMES
+from .entity import IRobotEntity
+from .maintenance_model import LEVEL_DUE, LEVEL_OVERDUE, LEVEL_SOON, LEVELS
 from .models import ConnectionType, RoombaConfigEntry
 from .sensor_prime import (
     PrimeBatterySensor,
@@ -461,6 +463,8 @@ async def async_setup_entry(
                 )
             )
 
+        if data.maintenance is not None:
+            entities.append(RoombaMaintenanceStatusSensor(None, data.blid, config_entry))
         async_add_entities(entities)
 
         # DOCK-DERIVED SENSORS, added as evidence arrives rather than
@@ -616,6 +620,10 @@ async def async_setup_entry(
         entities.append(
             RoombaHealthScoreTrendSensor(roomba, blid, data.cloud_coordinator, config_entry)
         )
+
+    # 4.5.0 -- the maintenance status, one entity for every entry.
+    if data.maintenance is not None:
+        entities.append(RoombaMaintenanceStatusSensor(roomba, blid, config_entry))
 
     # Raw state sensor: opt-in, always created, exposes full MQTT state as attributes.
     entities.append(RawStateSensor(roomba, blid))
@@ -824,3 +832,54 @@ def _add_discovered_parts(
 
     _add_new()
     config_entry.async_on_unload(coordinator.async_add_listener(_add_new))
+
+
+class RoombaMaintenanceStatusSensor(IRobotEntity, SensorEntity):
+    """What maintenance the robot needs, on both generations (4.5.0).
+
+    The worst level of the entries that are not snoozed -- ok, soon,
+    due, overdue -- with every entry in `items`. The one entity a
+    dashboard or an automation needs for maintenance; the part sensors
+    keep their numbers.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "maintenance_status"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(LEVELS)
+    # The entries are the point of the entity, but not of its history:
+    # a list of dicts on every hour run would fill the recorder.
+    _unrecorded_attributes = frozenset({"items"})
+    _shows_maintenance = True
+
+    def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
+        super().__init__(roomba, blid, config_entry)
+        self._config_entry = config_entry
+        self._attr_unique_id = f"{self.robot_unique_id}_maintenance"
+
+    def new_state_filter(self, new_state: dict[str, Any]) -> bool:
+        """Never on a robot message: the entries change on a recompute."""
+        return False
+
+    @property
+    def _tracker(self) -> Any:
+        return getattr(self._config_entry.runtime_data, "maintenance", None)
+
+    @property
+    def native_value(self) -> str | None:
+        tracker = self._tracker
+        return tracker.level if tracker is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        tracker = self._tracker
+        if tracker is None:
+            return {}
+        items = tracker.items
+        return {
+            "items": [item.as_dict() for item in items],
+            **{
+                level: sorted(i.id for i in items if i.level == level)
+                for level in (LEVEL_SOON, LEVEL_DUE, LEVEL_OVERDUE)
+            },
+        }

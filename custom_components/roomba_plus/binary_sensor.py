@@ -574,11 +574,18 @@ class RoombaMapSavingStatus(IRobotEntity, BinarySensorEntity):
         return "cleanMissionStatus" in new_state
 
 class RoombaMaintenanceDue(IRobotEntity, BinarySensorEntity):
-    """ON when any consumable has reached zero remaining hours.
+    """ON when a part to replace is due or overdue.
 
     Provides a single trigger point for maintenance automations instead of
     requiring four separate threshold checks. Attributes expose which
     consumables are due and by how many hours they are overdue.
+
+    FROM THE MAINTENANCE ENTRIES (4.5.0), like every other surface: the
+    sensor kept its own hour check, and could disagree with the status
+    sensor and the list -- a 980 on its series profile, or a part whose
+    cloud counter ran out first. The keys and attributes are the ones it
+    always had. Without the entries (a robot still starting) it falls
+    back to the store's own check.
     """
 
     entity_description = BinarySensorEntityDescription(
@@ -589,15 +596,33 @@ class RoombaMaintenanceDue(IRobotEntity, BinarySensorEntity):
 
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _shows_maintenance = True
+
+    #: An entry's part to the key this sensor has always reported.
+    _DUE_KEYS: dict[str, str] = {
+        **{role: spec.due_key for role, spec in CONSUMABLE_ROLES.items()},
+        "pad": "pad",
+    }
 
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid)
         self._entry = config_entry
         self._attr_unique_id = f"{self.robot_unique_id}_maintenance_due"
 
+    def _due_entries(self) -> list[Any] | None:
+        """The due or overdue parts to replace, or None without entries."""
+        tracker = getattr(self._entry.runtime_data, "maintenance", None)
+        if tracker is None:
+            return None
+        return [
+            item for item in tracker.items
+            if item.action == "replace" and item.level in ("due", "overdue")
+            and item.part in self._DUE_KEYS
+        ]
+
     @property
     def is_on(self) -> bool:
-        """Return True when at least one consumable is at zero remaining hours."""
+        """Return True when at least one part to replace is due."""
         return bool(self._due_items())
 
     @property
@@ -605,37 +630,44 @@ class RoombaMaintenanceDue(IRobotEntity, BinarySensorEntity):
         """Return due consumables, overdue hours, and action slugs."""
         due = self._due_items()
         overdue: dict[str, int] = {}
-        store = self._entry.runtime_data.maintenance_store
-        if store and due:
-            current_hr = lifetime_hours(self.vacuum_state)
-            is_mop_device = is_mop(self.vacuum_state)
-            for role, spec in CONSUMABLE_ROLES.items():
-                part = (
-                    spec.mop_due_key
-                    if spec.mop_due_key and is_mop_device
-                    else spec.due_key
-                )
-                if part in due:
-                    reset_hr = getattr(store, f"{spec.slot}_reset_hr")
-                    threshold = store.threshold_hours(role, self._entry.options)
-                    overdue[part] = max(0, (current_hr - reset_hr) - threshold)
+        entries = self._due_entries()
+        if entries is not None:
+            for item in entries:
+                if item.unit == "hours" and item.used is not None and item.interval:
+                    overdue[self._DUE_KEYS[item.part]] = max(
+                        0, round((item.used - 1) * item.interval),
+                    )
+        else:
+            store = self._entry.runtime_data.maintenance_store
+            if store and due:
+                current_hr = lifetime_hours(self.vacuum_state)
+                is_mop_device = is_mop(self.vacuum_state)
+                for role, spec in CONSUMABLE_ROLES.items():
+                    part = (
+                        spec.mop_due_key
+                        if spec.mop_due_key and is_mop_device
+                        else spec.due_key
+                    )
+                    if part in due:
+                        reset_hr = getattr(store, f"{spec.slot}_reset_hr")
+                        threshold = store.threshold_hours(role, self._entry.options)
+                        overdue[part] = max(0, (current_hr - reset_hr) - threshold)
         return {
             "due": due,
             "overdue_by_hours": overdue,
             "required_actions": {
                 part: MAINTENANCE_ACTION_SLUGS[part]
                 for part in due
+                if part in MAINTENANCE_ACTION_SLUGS
             },
         }
 
     def _due_items(self) -> list[str]:
-        """Return list of consumable keys currently at zero remaining hours.
-
-        v3.4.3 FLEET-1 — delegates to MaintenanceStore.due_items(), which
-        now holds this logic (extracted so the household REST endpoint's
-        fleet-health rollup can share it without duplication). Behaviour
-        unchanged.
-        """
+        """The keys of the parts due: from the entries where they exist,
+        else `MaintenanceStore.due_items()` (v3.4.3 FLEET-1)."""
+        entries = self._due_entries()
+        if entries is not None:
+            return [self._DUE_KEYS[item.part] for item in entries]
         store = self._entry.runtime_data.maintenance_store
         if not store:
             return []
@@ -643,31 +675,6 @@ class RoombaMaintenanceDue(IRobotEntity, BinarySensorEntity):
 
     def new_state_filter(self, new_state: dict[str, Any]) -> bool:
         return "bbrun" in new_state
-
-    def on_message(self, json_data: dict[str, Any]) -> None:
-        """v2.9.0 — also forwards the live due-items list to repairs.py's
-        sustained-duration check, on top of the normal state-write handling.
-
-        Runs on the event loop, not on a separate thread — roombapy 2.x
-        dispatches callbacks there (see callbacks.py). The
-        `call_soon_threadsafe` below therefore no longer bridges anything;
-        it only defers the check to the next loop iteration. Nobody has
-        established that the deferral is needed, and nobody has
-        established that it is safe to drop either: `async_check_maintenance_due`
-        is synchronous and touches the repair registry. Left as it is
-        until someone checks, rather than removed on the assumption that
-        obsolete motivation means obsolete behaviour.
-        """
-        super().on_message(json_data)
-        if not self.enabled:
-            return
-        state = json_data.get("state", {}).get("reported", {})
-        if "bbrun" not in state:
-            return
-        from .repairs import async_check_maintenance_due
-        self.hass.loop.call_soon_threadsafe(
-            async_check_maintenance_due, self.hass, self._entry, self._due_items()
-        )
 
 
 class RoombaStartBlocked(IRobotEntity, BinarySensorEntity):

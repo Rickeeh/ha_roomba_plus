@@ -25,6 +25,9 @@ from typing import Any
 import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+from .const import maintenance_changed_signal
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,11 +54,17 @@ def catalogue_locale(hass: HomeAssistant) -> tuple[str, str]:
 
 
 def parse_catalogue(payload: Any) -> dict[str, dict[str, str]]:
-    """`{part_id: {"guide_url": ..., "part_name": ...}}`, links only.
+    """`{part_id: {"guide_url", "buy_url", "part_name", "part_category"}}`,
+    each only where the catalogue has it.
 
     Both spellings of the keys are read: the app's serializer names
     them in snake case, and its envelope already mixes in camel case
     (`buyPartsUrl`).
+
+    The shop link and the category are kept since 4.5.0: the
+    maintenance entries link the part to buy, and the name decides a
+    Prime part's role (prime_parts.prime_part_role). Images are not --
+    nothing of iRobot's is shown, only linked.
     """
     parts = payload.get("parts") if isinstance(payload, dict) else None
     out: dict[str, dict[str, str]] = {}
@@ -66,12 +75,14 @@ def parse_catalogue(payload: Any) -> dict[str, dict[str, str]]:
         if part_id is None:
             continue
         entry: dict[str, str] = {}
-        guide = part.get("guide_url") or part.get("guideUrl")
-        if isinstance(guide, str) and guide.startswith("https://"):
-            entry["guide_url"] = guide
-        name = part.get("part_name") or part.get("partName")
-        if isinstance(name, str) and name:
-            entry["part_name"] = name
+        for key, camel in (("guide_url", "guideUrl"), ("buy_url", "buyUrl")):
+            link = part.get(key) or part.get(camel)
+            if isinstance(link, str) and link.startswith("https://"):
+                entry[key] = link
+        for key, camel in (("part_name", "partName"), ("part_category", "partCategory")):
+            text = part.get(key) or part.get(camel)
+            if isinstance(text, str) and text:
+                entry[key] = text
         if entry:
             out[str(part_id)] = entry
     return out
@@ -100,8 +111,14 @@ async def async_fetch_catalogue(
 
 
 async def async_load_into(hass: HomeAssistant, runtime_data: Any, sku: str | None) -> None:
-    """Fetch and keep the catalogue on the entry's runtime data."""
+    """Fetch and keep the catalogue on the entry's runtime data.
+
+    The maintenance entries carry its links (4.5.0) and are told when
+    it arrives, which is after they were first built."""
     runtime_data.parts_catalogue = await async_fetch_catalogue(hass, sku)
+    blid = getattr(runtime_data, "blid", None)
+    if runtime_data.parts_catalogue and isinstance(blid, str):
+        async_dispatcher_send(hass, maintenance_changed_signal(blid))
 
 
 def guide_url_for(runtime_data: Any, part_id: Any) -> str | None:
@@ -111,3 +128,4 @@ def guide_url_for(runtime_data: Any, part_id: Any) -> str | None:
     catalogue = getattr(runtime_data, "parts_catalogue", None) or {}
     entry = catalogue.get(str(part_id)) if isinstance(catalogue, dict) else None
     return entry.get("guide_url") if isinstance(entry, dict) else None
+

@@ -57,6 +57,7 @@ from .const import (
     MAP_UPDATING_NOT_READY,
     cleaning_mode_select_unique_id,
     cleaning_modes_for,
+    extract_region_id,
     get_localized_error_entry,
     prime_start_refusal,
 )
@@ -3278,6 +3279,67 @@ def region_names_across_maps(
             if region_id and region_name:
                 names.setdefault(str(region_id), region_name)
     return names
+
+class CommandRegionNames:
+    """Names for a command's regions, each found on the command's own map
+    and by its own type (4.5.0). Build once per command, then ask per
+    region with name() or for the whole list with names().
+
+    region_names_across_maps() answers "what is region 21 called?" and
+    cannot know that a command meant ZONE 21, or region 21 of the map it
+    named: one dict, the room before the zone, the active map before the
+    others. Mission names went wrong both ways -- a zone mission recorded
+    under the room with its number, and a mission on a second map named
+    from the first.
+
+    Order per region: the command's map, the active map, every other map
+    -- within each, the region's type (`rid` a room, `zid` a zone; a
+    region without a type is looked up as a room, then as a zone). Only
+    when no map has it, region_names_across_maps() as before, which also
+    keeps a coordinator without per-type names working.
+    """
+
+    def __init__(self, cloud_coordinator: Any, pmap_id: str | None = None) -> None:
+        self._cc = cloud_coordinator
+        self._pmap_id = pmap_id
+        typed = getattr(cloud_coordinator, "region_names_by_type", None)
+        self._typed: dict[str, dict[str, dict[str, str]]] = (
+            typed if isinstance(typed, dict) else {}
+        )
+        active = getattr(cloud_coordinator, "active_pmap_id", None)
+        order = [p for p in (pmap_id, active) if isinstance(p, str) and p in self._typed]
+        self._order = order + [p for p in self._typed if p not in order]
+        self._fallback: dict[str, str] | None = None
+
+    def name(self, region: Any) -> str | None:
+        """The name of one region of the command, or None."""
+        if self._cc is None:
+            return None
+        region_id = extract_region_id(region)
+        if not region_id:
+            return None
+        kind = region.get("type") if isinstance(region, dict) else None
+        kinds = (kind,) if kind in ("rid", "zid") else ("rid", "zid")
+        for pmap in self._order:
+            for k in kinds:
+                found = (self._typed[pmap].get(k) or {}).get(region_id)
+                if found:
+                    return found
+        if self._fallback is None:
+            self._fallback = region_names_across_maps(self._cc, self._pmap_id)
+        return self._fallback.get(region_id) or None
+
+    def names(self, regions: list[Any]) -> list[str]:
+        """The names of the regions that resolve, in command order."""
+        return [n for n in (self.name(r) for r in regions) if n]
+
+
+def region_names_for_command(
+    cloud_coordinator: Any, regions: list[Any], pmap_id: str | None = None
+) -> list[str]:
+    """CommandRegionNames(...).names(regions) -- see there (4.5.0)."""
+    return CommandRegionNames(cloud_coordinator, pmap_id).names(regions)
+
 
 def smart_rooms_to_name(runtime_data: Any, options: Any) -> list[str]:
     """Rooms on the robot's map that have no name anywhere (4.2.19).

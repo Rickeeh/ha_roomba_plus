@@ -27,6 +27,7 @@ Storage version: 1
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from collections import deque
 from dataclasses import dataclass, field
@@ -35,7 +36,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .room_segmentation import RoomSegmentationResult, segment_rooms
+from .room_layout import AreaInput, DoorInput
+from .room_segmentation import RoomSegmentationResult, find_doors, segment_rooms
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,6 +123,41 @@ DOOR_MERGE_DISTANCE_MM = 800.0
 # history exists (the simulation could only approximate growth, not
 # replace real time), not because a benefit is expected here.
 MAX_BOUNDARY_HISTORY = 15
+
+#: TWO NAMED ROOMS ARE NEVER ONE AREA (4.5.0). When a recompute puts at
+#: least this share of each of two differently named rooms' cells into
+#: one area, the area is divided between them again. On the maintainer's
+#: 980 a mission carried back to the dock smeared the grid, the hall's
+#: area took in the next room, and that room's name was gone: the name
+#: only ever moves to an area that has none (_carry_name_on_absorption).
+NAMED_SPLIT_SHARE = 0.5
+
+#: A DOOR IS WHERE A PATH WENT THROUGH (4.5.0). Two areas touching is
+#: not enough: either side of a wall the robot cleans up to the wall,
+#: and its footprint marks cells a wall's width apart as neighbours. On
+#: the maintainer's 980 four of ten doors found that way were walls --
+#: and not one mission's path crossed any of the four, while each real
+#: door was crossed in at least one. A crossing counts once the robot
+#: was this many cells deep in the area it left and in the one it
+#: entered, so that a path along a boundary does not count.
+PASSAGE_DEPTH_CELLS = 3
+#: How far from a door a crossing of the same two areas may lie and still
+#: be that door's. The crossing is where the path entered the other area;
+#: the door is where the boundary is narrowest, which on a wide opening
+#: or a slanted boundary is a step or two away.
+PASSAGE_TO_DOOR_MM = 1200.0
+#: Mission keys kept per door as evidence it is driven.
+MAX_DRIVEN_BY = 20
+#: Crossings kept per door, for its direction and width (room_layout).
+MAX_CROSSINGS = 40
+#: Points over which the direction of a crossing is taken.
+DIRECTION_POINTS = 6
+
+#: An unmatched door is kept only while it still lies on the boundary of
+#: the two areas it connects (4.5.0), within this many cells of both. The
+#: areas move with every recompute; a door left where they used to touch
+#: is a door into a wall (the maintainer's 980: door_3).
+STALE_DOOR_REACH_CELLS = 2
 
 
 def area_number(room_id: str) -> str:
@@ -213,6 +250,31 @@ class SegDoor:
     #: narrows the floor -- see room_segmentation.segment_rooms.
     opening_mm: float = 0.0
     constriction: float = 0.0
+    #: Keys of the missions whose path went through this door (4.5.0,
+    #: PASSAGE_DEPTH_CELLS). Empty: never driven, possibly a wall.
+    driven_by: list[str] = field(default_factory=list)
+    #: The crossings through it, [x_mm, y_mm, dx, dy] each (4.5.0): which
+    #: way the robot went through says which way the door runs, their
+    #: spread how wide it is (room_layout).
+    crossings: list[list[float]] = field(default_factory=list)
+
+    def note_crossings(self, crossings: list[list[float]]) -> None:
+        self.crossings.extend(crossings)
+        if len(self.crossings) > MAX_CROSSINGS:
+            self.crossings = self.crossings[-MAX_CROSSINGS:]
+
+    @property
+    def driven(self) -> bool:
+        return bool(self.driven_by)
+
+    def note_driven(self, mission_key: str) -> bool:
+        """Record a mission that went through; True if it is new."""
+        if mission_key in self.driven_by:
+            return False
+        self.driven_by.append(mission_key)
+        if len(self.driven_by) > MAX_DRIVEN_BY:
+            self.driven_by = self.driven_by[-MAX_DRIVEN_BY:]
+        return True
 
     def update_position(self, cell: tuple[int, int]) -> None:
         """Record this recompute's door-crossing cell and recompute the
@@ -245,6 +307,8 @@ class SegDoor:
             "observations": self.observations,
             "opening_mm": self.opening_mm,
             "constriction": self.constriction,
+            "driven_by": list(self.driven_by),
+            "crossings": [list(c) for c in self.crossings],
         }
 
     @staticmethod
@@ -260,6 +324,12 @@ class SegDoor:
             observations=[[float(p[0]), float(p[1])] for p in d.get("observations", [])],
             opening_mm=float(d.get("opening_mm", 0.0)),
             constriction=float(d.get("constriction", 0.0)),
+            driven_by=[str(k) for k in d.get("driven_by") or []],
+            crossings=[
+                [float(v) for v in c]
+                for c in d.get("crossings") or []
+                if isinstance(c, list) and len(c) == 4
+            ],
         )
 
 
@@ -295,6 +365,14 @@ class RoomSegStore:
         self._next_room_n: int = 1
         self._next_door_n: int = 1
         self.migrated_from_zonestore: bool = False
+        #: Whether any mission's path has been checked for door passages
+        #: (4.5.0). Until one has, nothing says which doors are walls, and
+        #: every door counts as driven (driven_doors).
+        self.path_evidence: bool = False
+        #: Counts every change to areas, names or doors (4.5.0), so that
+        #: what is derived from them (the room layout) is rebuilt only
+        #: then. Not stored.
+        self.revision: int = 0
         # v3.2.1 BOUNDARY-HISTORY — see MAX_BOUNDARY_HISTORY docstring.
         # Each entry: sorted list of [room_a, room_b] pairs adjacent
         # (connected by a door) at that recompute.
@@ -306,6 +384,7 @@ class RoomSegStore:
         self,
         cells: dict[tuple[int, int], float],
         missions_seen: int | None = None,
+        paths: list[tuple[str, list[list[tuple[float, float]]]]] | None = None,
     ) -> bool:
         """Re-run segmentation if there is enough coverage to justify it.
 
@@ -335,6 +414,16 @@ class RoomSegStore:
 
         `missions_seen=None` keeps the old behaviour for callers that
         cannot count, rather than silently blocking them forever.
+
+        MISSIONS THE GRID LEARNED FROM, not the robot's lifetime (4.5.0).
+        The caller passes GridStore.missions_learned. The mission store's
+        count of completed runs never starts again: after the grid was
+        emptied the maintainer's 980 had hundreds, and its areas were cut
+        from the first mission -- one carried back to the dock.
+
+        `paths`: the recent learned missions' paths, (key, runs of
+        points), checked for door passages against the new areas -- see
+        note_paths().
         """
         if (
             not self.rooms
@@ -348,6 +437,8 @@ class RoomSegStore:
             return False
         self._recompute(cells)
         self.last_cell_count = len(cells)
+        if paths:
+            self.note_paths(paths)
         return True
 
     def _grid_changed(self, cells: dict[tuple[int, int], float]) -> bool:
@@ -373,12 +464,14 @@ class RoomSegStore:
         return len(cells.keys() - held) >= MIN_NEW_CELLS_TO_RECOMPUTE
 
     def _recompute(self, cells: dict[tuple[int, int], float]) -> None:
+        self.revision += 1
         result = segment_rooms(
             cells,
             cell_mm=CELL_MM,
             min_distance_cells=self._min_distance_cells,
             merge_ratio=self._merge_ratio,
         )
+        result = self._keep_named_apart(result)
         label_to_id = self._match_rooms(result)
         self._match_doors(result, label_to_id)
         # v3.2.1 BOUNDARY-HISTORY — snapshot this recompute's room-pair
@@ -386,6 +479,156 @@ class RoomSegStore:
         # window. See MAX_BOUNDARY_HISTORY docstring for status.
         pairs = sorted({_unordered_key(d.room_a, d.room_b) for d in self.doors})
         self._boundary_history.append([[a, b] for a, b in pairs])
+
+    def _keep_named_apart(
+        self, result: RoomSegmentationResult
+    ) -> RoomSegmentationResult:
+        """Divide an area that took in two differently named rooms.
+
+        See NAMED_SPLIT_SHARE. The named rooms' own cells in the area
+        stay theirs; every other cell of it goes to the nearest of them,
+        stepping through the area itself. Several areas with ONE name are
+        one room by the user's choice and are not divided.
+        """
+        named: dict[str, set[tuple[int, int]]] = {}
+        for room in self.rooms.values():
+            if room.confirmed and room.name and room.cells:
+                named.setdefault(room.name, set()).update(room.cells)
+        if len(named) < 2:
+            return result
+        rooms = {label: set(cells) for label, cells in result.rooms.items()}
+        next_label = max(rooms, default=-1) + 1
+        divided = False
+        for label in list(rooms):
+            cells = rooms[label]
+            holders = [
+                name for name, own in named.items()
+                if len(own & cells) >= NAMED_SPLIT_SHARE * len(own)
+            ]
+            if len(holders) < 2:
+                continue
+            parts = _divide_by_seeds(
+                cells, [named[name] & cells for name in holders]
+            )
+            _LOGGER.info(
+                "RoomSegStore: kept %d named rooms apart that one area took in",
+                len(holders),
+            )
+            rooms[label] = parts[0]
+            for part in parts[1:]:
+                rooms[next_label] = part
+                next_label += 1
+            divided = True
+        if not divided:
+            return result
+        field_ = result.dist_smooth or result.dist
+        return RoomSegmentationResult(
+            rooms=rooms,
+            doors=find_doors(rooms, field_, CELL_MM),
+            dist=result.dist,
+            seeds=result.seeds,
+            dist_smooth=result.dist_smooth,
+        )
+
+    # ── Door passages ────────────────────────────────────────────────────────
+
+    @property
+    def driven_doors(self) -> list[SegDoor]:
+        """The doors a mission's path went through (4.5.0).
+
+        Every door until any path has been checked: without evidence, a
+        door is not taken for a wall.
+        """
+        if not self.path_evidence:
+            return list(self.doors)
+        return [d for d in self.doors if d.driven]
+
+    def note_paths(
+        self, paths: list[tuple[str, list[list[tuple[float, float]]]]]
+    ) -> int:
+        """Mark the doors these missions' paths went through.
+
+        `paths`: (mission key, runs of (x_mm, y_mm) points). Each run is
+        one stretch whose positions hang together; nothing is counted
+        across the gap between two. Returns how many door/mission pairs
+        were new.
+        """
+        if not paths:
+            return 0
+        self.path_evidence = True
+        room_of: dict[tuple[int, int], str] = {}
+        for rid, room in self.rooms.items():
+            for c in room.cells:
+                room_of[c] = rid
+        depth = _depth_from_boundaries(room_of)
+        by_pair: dict[tuple[str, str], list[SegDoor]] = {}
+        for door in self.doors:
+            by_pair.setdefault(
+                _unordered_key(door.room_a, door.room_b), []
+            ).append(door)
+        added = 0
+        for key, runs in paths:
+            through: dict[str, tuple[SegDoor, list[list[float]]]] = {}
+            for pair, (gx, gy), vector in _passages(runs, room_of, depth):
+                best, best_d = None, None
+                for door in by_pair.get(pair, []):
+                    d = math.hypot(door.cx - gx * CELL_MM, door.cy - gy * CELL_MM)
+                    if best_d is None or d < best_d:
+                        best, best_d = door, d
+                if best is not None and best_d is not None and best_d <= PASSAGE_TO_DOOR_MM:
+                    through.setdefault(best.id, (best, []))[1].append(vector)
+            for door, vectors in through.values():
+                # Once per mission: a window of missions is checked again
+                # at every recompute.
+                if door.note_driven(key):
+                    door.note_crossings(vectors)
+                    added += 1
+        if added:
+            self.revision += 1
+        return added
+
+    def layout_inputs(self) -> tuple[list[AreaInput], list[DoorInput]]:
+        """The areas and driven doors as room_layout takes them (4.5.0).
+
+        An area is its room by name once it has one: several areas under
+        one name are one room. Hidden areas are no room anyone wants.
+        """
+        key_of: dict[str, str] = {}
+        areas: list[AreaInput] = []
+        for room in self.rooms.values():
+            if room.hidden or not room.cells:
+                continue
+            key = room.name if (room.confirmed and room.name) else room.id
+            key_of[room.id] = key
+            areas.append(AreaInput(key=key, cells=frozenset(room.cells)))
+        doors: list[DoorInput] = []
+        for door in self.driven_doors:
+            a, b = key_of.get(door.room_a), key_of.get(door.room_b)
+            if a is None or b is None or a == b:
+                continue
+            doors.append(DoorInput(
+                room_a=a, room_b=b, cx=door.cx, cy=door.cy,
+                crossings=tuple(
+                    (c[0], c[1], c[2], c[3]) for c in door.crossings
+                ),
+            ))
+        return areas, doors
+
+    def _door_at_boundary(self, door: SegDoor) -> bool:
+        """Whether a door still lies where its two areas meet."""
+        a = self.rooms.get(door.room_a)
+        b = self.rooms.get(door.room_b)
+        if a is None or b is None:
+            return False
+        gx = int(math.floor(door.cx / CELL_MM))
+        gy = int(math.floor(door.cy / CELL_MM))
+        reach = STALE_DOOR_REACH_CELLS
+        near = {
+            (gx + dx, gy + dy)
+            for dx in range(-reach, reach + 1)
+            for dy in range(-reach, reach + 1)
+        }
+        return bool(near & a.cells) and bool(near & b.cells)
 
     def _match_rooms(self, result: RoomSegmentationResult) -> dict[int, str]:
         """Match each new cluster (keyed by its segment_rooms() integer
@@ -642,11 +885,15 @@ class RoomSegStore:
         # _match_rooms above), which is exactly the case this guard
         # exists to cascade into: a door pointing at a just-deleted
         # phantom room is dropped here, no separate cleanup needed.
+        #
+        # AND ONLY WHERE THE TWO AREAS STILL MEET (4.5.0). Both areas
+        # existing was the whole test, so a door stayed where the areas
+        # once touched after the boundary had moved: on the maintainer's
+        # 980, door_3 into what had become a wall.
         for door in self.doors:
             if (
                 door.id not in matched_door_ids
-                and door.room_a in self.rooms
-                and door.room_b in self.rooms
+                and self._door_at_boundary(door)
             ):
                 new_doors.append(door)
 
@@ -723,6 +970,7 @@ class RoomSegStore:
             return False
         room.name = name.strip()
         room.confirmed = True
+        self.revision += 1
         return True
 
     def hide_room(self, room_id: str) -> bool:
@@ -731,6 +979,7 @@ class RoomSegStore:
         if room is None:
             return False
         room.hidden = True
+        self.revision += 1
         return True
 
     def unhide_room(self, room_id: str) -> bool:
@@ -739,6 +988,7 @@ class RoomSegStore:
         if room is None:
             return False
         room.hidden = False
+        self.revision += 1
         return True
 
     def confirm_room(self, room_id: str) -> bool:
@@ -770,6 +1020,8 @@ class RoomSegStore:
         return {
             "room_count": len(self.rooms),
             "door_count": len(self.doors),
+            "driven_door_count": len(self.driven_doors),
+            "path_evidence": self.path_evidence,
             "last_cell_count": self.last_cell_count,
             "rooms": [
                 {
@@ -788,6 +1040,7 @@ class RoomSegStore:
                     "constriction": round(d.constriction, 2),
                     "cx": round(d.cx), "cy": round(d.cy),
                     "observation_count": len(d.observations),
+                    "driven_by_missions": len(d.driven_by),
                 }
                 for d in self.doors
             ],
@@ -816,6 +1069,7 @@ class RoomSegStore:
             self._next_room_n = int(data.get("next_room_n", 1))
             self._next_door_n = int(data.get("next_door_n", 1))
             self.migrated_from_zonestore = bool(data.get("migrated_from_zonestore", False))
+            self.path_evidence = bool(data.get("path_evidence", False))
             # v3.2.1 BOUNDARY-HISTORY — additive field, same no-version-
             # bump precedent as GridStore's FURNITURE/DUAL-GRID fields: a
             # payload saved before this existed simply has no key, which
@@ -860,9 +1114,111 @@ class RoomSegStore:
             "next_room_n": self._next_room_n,
             "next_door_n": self._next_door_n,
             "migrated_from_zonestore": self.migrated_from_zonestore,
+            "path_evidence": self.path_evidence,
             "boundary_history": list(self._boundary_history),
         })
         _LOGGER.debug(
             "RoomSegStore: saved %d rooms, %d doors for %s",
             len(self.rooms), len(self.doors), entry_id,
         )
+
+
+_NEIGHBOURS_8 = (
+    (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1),
+)
+
+
+def _divide_by_seeds(
+    cells: set[tuple[int, int]], seeds: list[set[tuple[int, int]]]
+) -> list[set[tuple[int, int]]]:
+    """Divide `cells` among the seeds: each cell to the seed it is fewest
+    steps from inside `cells`. A cell no seed reaches goes to the
+    largest part, so nothing is lost."""
+    owner: dict[tuple[int, int], int] = {}
+    queue: deque[tuple[int, int]] = deque()
+    for i, seed in enumerate(seeds):
+        for c in seed:
+            if c in cells and c not in owner:
+                owner[c] = i
+                queue.append(c)
+    while queue:
+        c = queue.popleft()
+        for dx, dy in _NEIGHBOURS_8:
+            n = (c[0] + dx, c[1] + dy)
+            if n in cells and n not in owner:
+                owner[n] = owner[c]
+                queue.append(n)
+    parts: list[set[tuple[int, int]]] = [set() for _ in seeds]
+    for c, i in owner.items():
+        parts[i].add(c)
+    rest = cells - owner.keys()
+    if rest:
+        max(parts, key=len).update(rest)
+    return [p for p in parts if p]
+
+
+def _depth_from_boundaries(
+    room_of: dict[tuple[int, int], str],
+) -> dict[tuple[int, int], int]:
+    """Steps from each cell to the nearest cell of another area."""
+    depth: dict[tuple[int, int], int] = {}
+    queue: deque[tuple[int, int]] = deque()
+    for c, rid in room_of.items():
+        for dx, dy in _NEIGHBOURS_8:
+            other = room_of.get((c[0] + dx, c[1] + dy))
+            if other is not None and other != rid:
+                depth[c] = 0
+                queue.append(c)
+                break
+    while queue:
+        c = queue.popleft()
+        for dx, dy in _NEIGHBOURS_8:
+            n = (c[0] + dx, c[1] + dy)
+            if n not in depth and room_of.get(n) == room_of[c]:
+                depth[n] = depth[c] + 1
+                queue.append(n)
+    return depth
+
+
+def _passages(
+    runs: list[list[tuple[float, float]]],
+    room_of: dict[tuple[int, int], str],
+    depth: dict[tuple[int, int], int],
+) -> list[tuple[tuple[str, str], tuple[int, int], list[float]]]:
+    """Where a path went from deep in one area to deep in another.
+
+    Each crossing as (area pair, the cell where the path entered the
+    area it went on to, [x, y, dx, dy] of the step that entered it). An
+    area with no boundary to another has no depth entry and counts as
+    deep throughout.
+    """
+    out: list[tuple[tuple[str, str], tuple[int, int], list[float]]] = []
+    for run in runs:
+        room: str | None = None
+        entered: tuple[tuple[int, int], str, list[float]] | None = None
+        # The way it went, over the last few points: a single step of a
+        # few centimetres says little about the direction.
+        recent: deque[tuple[float, float]] = deque(maxlen=DIRECTION_POINTS)
+        for x, y in run:
+            recent.append((x, y))
+            step = [x, y, x - recent[0][0], y - recent[0][1]]
+            c = (int(math.floor(x / CELL_MM)), int(math.floor(y / CELL_MM)))
+            rid = room_of.get(c)
+            if rid is None:
+                continue
+            if room is not None and rid != room and (
+                entered is None or entered[1] != rid
+            ):
+                entered = (c, rid, step)
+            if depth.get(c, PASSAGE_DEPTH_CELLS) >= PASSAGE_DEPTH_CELLS:
+                if (
+                    room is not None
+                    and rid != room
+                    and entered is not None
+                    and entered[1] == rid
+                ):
+                    out.append((_unordered_key(room, rid), entered[0], entered[2]))
+                room = rid
+                entered = None
+    return out
+

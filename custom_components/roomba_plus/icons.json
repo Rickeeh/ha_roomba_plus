@@ -432,6 +432,15 @@
       },
       "next_care": {
         "default": "mdi:broom"
+      },
+      "maintenance_status": {
+        "default": "mdi:wrench-clock",
+        "state": {
+          "ok": "mdi:wrench-check",
+          "soon": "mdi:wrench-clock",
+          "due": "mdi:wrench",
+          "overdue": "mdi:alert-circle"
+        }
       }
     },
     "button": {
@@ -743,11 +752,19 @@
       },
       "calendar_room_not_found": {
         "default": "mdi:calendar-remove-outline"
+      },
+      "maintenance": {
+        "default": "mdi:wrench-clock"
       }
     },
     "todo": {
       "maintenance": {
         "default": "mdi:clipboard-list-outline"
+      }
+    },
+    "event": {
+      "maintenance": {
+        "default": "mdi:wrench-clock"
       }
     }
   }

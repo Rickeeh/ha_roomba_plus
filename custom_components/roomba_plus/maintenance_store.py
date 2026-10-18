@@ -53,6 +53,9 @@ STORAGE_VERSION    = 1
 #: refuse to load an unknown version and fill again on the next mission.
 PAYLOAD_VERSION    = 1
 
+#: How many "marked done" records the store keeps (4.5.0).
+MAINTENANCE_LOG_SIZE = 30
+
 
 def _parse(value: Any) -> datetime | None:
     """An ISO timestamp from the store as an aware datetime, or None."""
@@ -186,6 +189,21 @@ class MaintenanceStore:
     # late SKU arrives; never persisted, since the SKU decides it anew.
     profile_hours: dict[str, int] = field(default_factory=dict)
 
+    # 4.5.0 -- the robot's hour meter when the cloud counters were last
+    # read. A counter is minutes used AT THAT MOMENT; the hours run
+    # since then are added to it, so the figure stays live between
+    # polls instead of standing still until the next one.
+    cloud_parts_hydrated_hr: int | None = None
+
+    # 4.5.0 -- per maintenance entry (maintenance_model.py), keyed by its
+    # id: `due_since` (when it was first seen due; "overdue" counts from
+    # there), `snoozed_until`, and `notified` (the level last announced,
+    # so a restart does not announce it again).
+    maintenance_state: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # 4.5.0 -- what was marked done, when and from where; newest last,
+    # at most MAINTENANCE_LOG_SIZE entries.
+    maintenance_log: list[dict[str, Any]] = field(default_factory=list)
+
     async def async_load(self, hass: HomeAssistant, entry_id: str) -> None:
         """Load persisted reset values from hass.storage."""
         store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}_{entry_id}")
@@ -265,6 +283,17 @@ class MaintenanceStore:
             self.side_brush_cleaned_at = data.get("side_brush_cleaned_at")
             self.cliff_sensors_cleaned_at = data.get("cliff_sensors_cleaned_at")
             self.care_since = data.get("care_since")
+            raw_hr = data.get("cloud_parts_hydrated_hr")
+            self.cloud_parts_hydrated_hr = int(raw_hr) if raw_hr is not None else None
+            raw_state = data.get("maintenance_state")
+            self.maintenance_state = (
+                {str(k): dict(v) for k, v in raw_state.items() if isinstance(v, Mapping)}
+                if isinstance(raw_state, Mapping) else {}
+            )
+            raw_log = data.get("maintenance_log")
+            self.maintenance_log = [
+                dict(e) for e in raw_log if isinstance(e, Mapping)
+            ][-MAINTENANCE_LOG_SIZE:] if isinstance(raw_log, list) else []
             _LOGGER.debug(
                 "MaintenanceStore: loaded — filter_reset=%dh brush_reset=%dh",
                 self.filter_reset_hr, self.brush_reset_hr,
@@ -308,6 +337,9 @@ class MaintenanceStore:
             "side_brush_cleaned_at": self.side_brush_cleaned_at,
             "cliff_sensors_cleaned_at": self.cliff_sensors_cleaned_at,
             "care_since": self.care_since,
+            "cloud_parts_hydrated_hr": self.cloud_parts_hydrated_hr,
+            "maintenance_state": self.maintenance_state,
+            "maintenance_log": self.maintenance_log,
         })
 
     # ── Reset methods ─────────────────────────────────────────────────────────
@@ -452,6 +484,133 @@ class MaintenanceStore:
         slot = CONSUMABLE_ROLES[role].slot
         return getattr(self, f"{slot}_reset_hr"), getattr(self, f"{slot}_reset_at")
 
+    def _local_reset_is_newer(self, slot: str, cloud_ts: Any) -> bool:
+        """True when this store recorded a reset of `slot` after the
+        cloud's own last reset of the part (`last_updated_ts`, epoch
+        seconds). A minute of slack covers the two clocks."""
+        local = _parse(getattr(self, f"{slot}_reset_at", None))
+        if local is None:
+            return False
+        try:
+            cloud = int(cloud_ts) if cloud_ts is not None else 0
+        except (TypeError, ValueError):
+            cloud = 0
+        return local.timestamp() > cloud + 60
+
+    def _cloud_minutes(self, role: str) -> tuple[int, int] | None:
+        """(used, remaining) minutes of a role's cloud counter, or None
+        without a usable minute counter."""
+        record = self.cloud_part_by_role(role)
+        if record is None or record.get("count_type") != "minutes":
+            return None
+        remaining = record.get("count_remaining")
+        if remaining is None:
+            remaining = record.get("minutes_remaining")
+        used = record.get("count_used")
+        if used is None or remaining is None:
+            return None
+        try:
+            return int(used), int(remaining)
+        except (TypeError, ValueError):
+            return None
+
+    def interval_hours(
+        self, role: str, options: Mapping[str, Any]
+    ) -> tuple[float, str]:
+        """A role's replacement interval in hours, and where it comes from.
+
+        ONE CALCULATION FOR EVERY READER (4.5.0). The remaining-hours
+        sensors took the hour option or the global default, the due
+        check took the option, the series profile or the default, and
+        both ignored what the other knew -- so a 980 on its profile
+        showed one figure and was due at another. The order is
+        `interval_source`'s: the robot's own counter, this household's
+        replacements, an hour option, the series profile, the fallback.
+        """
+        minutes = self._cloud_minutes(role)
+        if minutes is not None and sum(minutes) > 0:
+            return sum(minutes) / 60, "cloud"
+        learned = self.learned_hours(role)
+        if learned is not None:
+            return float(learned), "learned"
+        spec = CONSUMABLE_ROLES[role]
+        if spec.conf_key is not None and spec.conf_key in options:
+            try:
+                return float(int(options[spec.conf_key])), "configured"
+            except (TypeError, ValueError):
+                pass
+        if role in self.profile_hours:
+            return float(self.profile_hours[role]), "profile"
+        return float(spec.default_hours), "irobot_budget"
+
+    def _live_cloud_minutes(
+        self, role: str, current_hr: int,
+    ) -> tuple[float, float] | None:
+        """(used, remaining) minutes of a role's cloud counter NOW, or
+        None when the local baseline decides: no minute counter, no
+        reading of the hour meter at hydration, or a replacement
+        recorded here since the cloud's last reset."""
+        minutes = self._cloud_minutes(role)
+        record = self.cloud_part_by_role(role)
+        if (
+            minutes is None
+            or record is None
+            or self.cloud_parts_hydrated_hr is None
+            or self._local_reset_is_newer(
+                CONSUMABLE_ROLES[role].slot, record.get("last_updated_ts")
+            )
+        ):
+            return None
+        since = max(0, int(current_hr) - self.cloud_parts_hydrated_hr) * 60
+        return float(minutes[0] + since), float(minutes[1] - since)
+
+    def used_hours(self, role: str, current_hr: int) -> float:
+        """Runtime hours a role's part has served, live (4.5.0).
+
+        From the cloud counter where there is one and it is not older
+        than a replacement recorded here, plus the hours the robot ran
+        since the counter was read; otherwise from the local reset
+        baseline.
+        """
+        live = self._live_cloud_minutes(role, current_hr)
+        if live is not None:
+            return max(0.0, live[0]) / 60
+        try:
+            reset_hr = int(getattr(self, f"{CONSUMABLE_ROLES[role].slot}_reset_hr"))
+        except (TypeError, ValueError):
+            reset_hr = 0
+        return float(max(0, int(current_hr) - reset_hr))
+
+    def role_usage(
+        self, role: str, current_hr: int, options: Mapping[str, Any],
+    ) -> tuple[float | None, float, float, str]:
+        """(share used, hours left, interval hours, interval source) --
+        the one answer every sensor, the due check and the maintenance
+        model give for a part (4.5.0).
+
+        A cloud counter decides by what it has LEFT, as the app does:
+        a counter at zero is used up whatever its total says.
+        """
+        interval, source = self.interval_hours(role, options)
+        live = self._live_cloud_minutes(role, current_hr)
+        if live is not None:
+            used_min, left_min = live
+            total = used_min + left_min
+            if left_min <= 0:
+                share: float | None = max(1.0, used_min / total) if total > 0 else 1.0
+            else:
+                share = used_min / total if total > 0 else None
+            return share, max(0.0, left_min) / 60, interval, source
+        used = self.used_hours(role, current_hr)
+        share = used / interval if interval > 0 else None
+        return share, max(0.0, interval - used), interval, source
+
+    def role_remaining_hours(
+        self, role: str, current_hr: int, options: Mapping[str, Any]
+    ) -> int:
+        """Whole hours left on a role's part (role_usage)."""
+        return int(self.role_usage(role, current_hr, options)[1] // 1)
+
     # ── Cloud hydration ───────────────────────────────────────────────────────
 
     def hydrate_from_cloud_parts(
@@ -527,6 +686,17 @@ class MaintenanceStore:
             # left alone rather than silently misread as minutes.
             if entry.get("count_type") != "minutes":
                 continue
+            # A HALF REPORT IS NO REPORT (4.5.0, @msva17). Right after a
+            # reset the cloud answered for a while with the old part's
+            # minutes used and no minutes remaining. Taken as a baseline,
+            # that set the new filter back by its predecessor's whole
+            # life: near zero left, Maintenance due on. The baseline
+            # waits for the first report that carries both.
+            remaining = entry.get("count_remaining")
+            if remaining is None:
+                remaining = entry.get("minutes_remaining")
+            if remaining is None:
+                continue
             try:
                 used_hr = int(int(entry["count_used"]) // 60)
             except (KeyError, TypeError, ValueError):
@@ -534,6 +704,14 @@ class MaintenanceStore:
 
             reset_hr = max(0, int(current_hr) - used_hr)
             reset_at = _iso_from_epoch(entry.get("last_updated_ts"))
+
+            # A REPLACEMENT RECORDED HERE AFTER THE CLOUD'S LAST RESET
+            # STANDS (4.5.0). Hydration ran once per setup until 4.5.0;
+            # it now follows every cloud poll, and a reset whose push to
+            # iRobot failed -- or was not read back yet -- would be undone
+            # by the very next one: the cloud still counts the old part.
+            if self._local_reset_is_newer(slot, entry.get("last_updated_ts")):
+                continue
 
             if getattr(self, f"{slot}_reset_hr") != reset_hr:
                 setattr(self, f"{slot}_reset_hr", reset_hr)
@@ -549,6 +727,9 @@ class MaintenanceStore:
                 setattr(self, f"{slot}_baseline_seeded", True)
                 changed = True
 
+        if parts and self.cloud_parts_hydrated_hr != int(current_hr):
+            self.cloud_parts_hydrated_hr = int(current_hr)
+            changed = True
         if changed:
             self.cloud_parts_hydrated_at = dt_util.now().isoformat()
             _LOGGER.info(
@@ -622,7 +803,9 @@ class MaintenanceStore:
         self.care_since = dt_util.now().isoformat()
         return True
 
-    def care_due(self, task: CareTask, pets: bool) -> datetime | None:
+    def care_due(
+        self, task: CareTask, pets: bool, prime: bool = False,
+    ) -> datetime | None:
         """When this task is next due, or None before reminders started.
 
         Counts from the later of the last recorded cleaning and
@@ -636,7 +819,7 @@ class MaintenanceStore:
             return None
         cleaned = _parse(getattr(self, f"{task.slot}_cleaned_at"))
         start = max(since, cleaned) if cleaned is not None else since
-        return start + timedelta(days=task.days_with_pets if pets else task.days)
+        return start + timedelta(days=task.interval_days(pets, prime))
 
     def care_schedule(
         self, braava: bool, pets: bool, now: datetime | None = None,
@@ -716,6 +899,22 @@ class MaintenanceStore:
         ]
         return statistics.median(intervals) if intervals else None
 
+    def forget_learned(self, role: str) -> bool:
+        """Forget a role's learned replacement interval (4.5.0, @msva17).
+
+        A learned interval can be wrong for reasons the read-side filter
+        cannot see -- a reset pressed by mistake, a part swapped early --
+        and the only way back was editing the storage file. This clears
+        the replacement history the interval is learned from; the current
+        part's baseline stays, so nothing else moves. Learning starts again
+        with the next two replacements. True when there was anything.
+        """
+        history = getattr(self, f"{CONSUMABLE_ROLES[role].slot}_reset_history")
+        if not history:
+            return False
+        history.clear()
+        return True
+
     def learned_hours(self, role: str) -> float | None:
         """Return the learned replacement interval for a consumable role."""
         return self._learned_hours(CONSUMABLE_ROLES[role].slot)
@@ -739,16 +938,7 @@ class MaintenanceStore:
         hand), `profile` (the robot's series in ROBOT_PROFILES) or
         `irobot_budget` (the last fallback, iRobot's budget read off an
         i3+ -- see DEFAULT_FILTER_HOURS)."""
-        if self.cloud_full_life_hours(role) is not None:
-            return "cloud"
-        if self.learned_hours(role) is not None:
-            return "learned"
-        spec = CONSUMABLE_ROLES[role]
-        if spec.conf_key is not None and spec.conf_key in options:
-            return "configured"
-        if role in self.profile_hours:
-            return "profile"
-        return "irobot_budget"
+        return self.interval_hours(role, options)[1]
 
     def threshold_hours(self, role: str, options: Mapping[str, Any]) -> int:
         """A role's local threshold: the hour option, else the robot's
@@ -797,34 +987,18 @@ class MaintenanceStore:
     def _is_due(self, role: str, current_hr: int, threshold: int) -> bool:
         """True when a maintenance role is due for replacement.
 
-        The cloud's own exhausted-counter state wins whenever a usable
-        cloud record exists — the same authoritative signal the official
-        app uses, at minute rather than rounded-hour precision. Only when
-        there is no such record does this fall back to the local
-        threshold-based hour count, for every role alike.
+        The same rule as the maintenance model's (4.5.0): the part has
+        served its interval. With a cloud counter that is the counter
+        run out, at minute precision -- and it follows the hours run
+        since the counter was read, and a replacement recorded here
+        since, where until 4.5.0 a reset button left the robot due
+        until the next restart re-read the cloud. `threshold` is the
+        local threshold for a robot without a counter.
         """
-        exhausted = self._cloud_exhaustion_state(role)
-        if exhausted is not None:
-            return exhausted
+        live = self._live_cloud_minutes(role, current_hr)
+        if live is not None:
+            return live[1] <= 0
         return self.remaining_hours(role, current_hr, threshold) == 0
-
-    def _cloud_exhaustion_state(self, role: str) -> bool | None:
-        """True/False when the cloud's own minute counter answers due-ness
-        for a role, None when there is no usable cloud signal (no record,
-        or a non-minute counter) for _is_due() to fall back from.
-        """
-        record = self.cloud_part_by_role(role)
-        if record is None or record.get("count_type") != "minutes":
-            return None
-        remaining = record.get("count_remaining")
-        if remaining is None:
-            remaining = record.get("minutes_remaining")
-        if remaining is None:
-            return None
-        try:
-            return int(remaining) <= 0
-        except (TypeError, ValueError):
-            return None
 
     def _local_remaining(self, slot: str, current_hr: int, threshold: int) -> int:
         """Hours remaining until replacement per the local reset slot alone,

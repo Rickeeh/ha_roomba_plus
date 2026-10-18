@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "Para que serve",
+    "how": "Como fazer",
+    "note": "Atenção",
+    "irobot": "Guia da iRobot para o seu modelo",
+    "expired_title": "Esta ligação expirou",
+    "expired_text": "As ligações para os guias de cuidados são válidas durante 30 dias. Encontra uma nova no Home Assistant em Definições → Dispositivos e serviços → Roomba+ → Configurar → Manutenção → Guia de cuidados.",
+    "unknown_title": "Não há nenhum guia aqui",
+    "unknown_text": "Este guia não existe. Abra Configurar → Manutenção → Guia de cuidados no Home Assistant.",
+    "when": "Quando"
+  },
+  "clean_filter": {
+    "title": "Limpar o filtro",
+    "why": "O filtro retém o pó fino no depósito. Com as pregas entupidas, a sucção diminui e o robô apanha menos.",
+    "steps": [
+      "Prima o botão de libertação do depósito e retire-o do robô.",
+      "Puxe o filtro pela pega.",
+      "Bata-o contra o interior do caixote do lixo até deixar de sair pó. Não escove as pregas.",
+      "Volte a colocar o filtro com as pregas no mesmo sentido e encaixe o depósito até ouvir um clique."
+    ],
+    "caution": "Nunca lave um filtro de papel nem o deixe molhar: molhado deixa de filtrar.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Prima o botão de libertação do depósito e puxe-o para fora do robô.",
+          "Solte o filtro pressionando-o para baixo e depois levante-o.",
+          "Bata-o contra o interior do caixote do lixo até deixar de sair pó. Não escove as pregas.",
+          "Volte a colocar o filtro e encaixe o depósito até ouvir um clique."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Prima o botão de libertação do depósito, retire-o e esvazie-o.",
+          "Prima a patilha da tampa do filtro e levante a tampa.",
+          "Puxe o filtro pela patilha amarela e bata-o contra o interior do caixote do lixo até deixar de sair pó.",
+          "Volte a colocar o filtro, feche a tampa e encaixe o depósito até ouvir um clique."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Prima o botão de libertação do depósito na traseira do robô e retire o depósito.",
+          "Abra a porta do depósito sobre o caixote do lixo e esvazie-o.",
+          "Segure o filtro pelos lados, puxe-o para a esquerda e bata-o contra o interior do caixote até deixar de sair pó.",
+          "Volte a colocar o filtro e deslize o depósito na guia até ouvir um clique."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Prima o botão da tampa, abra-a e levante o depósito pela pega.",
+          "Segure o depósito sobre o caixote do lixo e prima o botão dele para o esvaziar.",
+          "Abra a tampa do filtro, puxe o filtro pela argola e bata-o contra o interior do caixote.",
+          "Volte a colocar o filtro e feche a tampa: só fecha com o filtro bem colocado. Volte a colocar o depósito."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Limpar as escovas principais",
+    "why": "As escovas principais levantam a sujidade de tapetes e pavimentos duros para o depósito. Cabelos enrolados fazem-nas patinar e apanhar menos.",
+    "steps": [
+      "Vire o robô ao contrário sobre uma superfície macia.",
+      "Abra a estrutura das escovas pelas patilhas e retire as duas escovas.",
+      "Retire as tampas das extremidades e tire cabelos e fios das pontas e dos eixos. Corte os cabelos enrolados ao longo da ranhura.",
+      "Volte a pôr as tampas, coloque cada escova onde o formato encaixa e feche a estrutura."
+    ],
+    "caution": "As escovas são diferentes e só encaixam num sentido. Não as force.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Vire o robô ao contrário sobre uma superfície macia.",
+          "Levante as duas patilhas amarelas da estrutura e retire a escova de cerdas e a escova batedora.",
+          "Retire as tampas das extremidades e tire cabelos e fios das pontas e dos eixos.",
+          "Volte a pôr as tampas, coloque cada escova onde o formato encaixa e feche a estrutura."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Vire o robô ao contrário sobre uma superfície macia.",
+          "Aperte as patilhas amarelas da estrutura das escovas e levante a estrutura.",
+          "Retire os dois rolos de borracha, tire as tampas e retire os cabelos dos pinos quadrado e hexagonal.",
+          "Volte a pôr as tampas, coloque cada rolo onde o pino encaixa e feche a estrutura até ouvir um clique."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Vire o robô ao contrário sobre uma superfície macia.",
+          "Prima o botão de libertação junto às escovas e abra a estrutura.",
+          "Retire os dois rolos de borracha, tire as tampas e retire os cabelos das pontas e dos eixos.",
+          "Volte a pôr as tampas, coloque cada rolo onde o formato encaixa e feche a estrutura."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Vire o robô ao contrário sobre uma superfície macia.",
+          "Prima o botão à direita da cabeça de limpeza: o trinco levanta-se.",
+          "Retire os dois rolos de borracha, tire as tampas e retire os cabelos das pontas e dos eixos.",
+          "Volte a pôr as tampas, coloque os rolos onde o formato encaixa e feche o trinco."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Limpar a escova lateral",
+    "why": "A escova lateral varre a sujidade dos rodapés e cantos para o caminho do robô. Braços emaranhados ou dobrados deixam-na para trás.",
+    "steps": [
+      "Vire o robô ao contrário.",
+      "Desaperte o parafuso no centro da escova ou puxe a escova, se não tiver parafuso.",
+      "Tire os cabelos dos braços e do eixo e endireite as cerdas dobradas.",
+      "Volte a colocar a escova no veio e fixe-a."
+    ],
+    "caution": "Substitua uma escova com os braços deformados: já não chega aos rodapés.",
+    "variants": {
+      "s": {
+        "title": "Limpar a escova de cantos",
+        "why": "A escova de cantos varre a sujidade dos cantos e ao longo dos rodapés para o caminho do robô. Braços emaranhados ou dobrados deixam-na para trás.",
+        "steps": [
+          "Vire o robô ao contrário.",
+          "Desaperte o parafuso com uma chave de fendas pequena e retire a escova de cantos.",
+          "Tire os cabelos dos braços e do pino de acionamento.",
+          "Volte a colocar a escova no pino e aperte novamente o parafuso."
+        ],
+        "caution": "Aperte o parafuso: uma escova de cantos solta cai durante a limpeza."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Limpar as rodas",
+    "why": "A roda dianteira e as rodas motrizes transportam o robô. Cabelos ou areia fazem-no desviar-se ou parar.",
+    "steps": [
+      "Vire o robô ao contrário.",
+      "Puxe a roda dianteira para fora do alojamento e retire a roda do eixo.",
+      "Tire os cabelos e a sujidade da roda, do eixo e do alojamento.",
+      "Rode as rodas motrizes à mão e retire o que prender, depois volte a encaixar a roda dianteira até ouvir um clique."
+    ],
+    "caution": "Não puxe as rodas motrizes: não foram feitas para serem retiradas.",
+    "variants": {
+      "s": {
+        "why": "A roda giratória traseira e as rodas motrizes transportam o robô. Cabelos ou areia fazem-no desviar-se ou parar.",
+        "steps": [
+          "Vire o robô ao contrário.",
+          "Puxe a roda giratória traseira para fora do alojamento e retire a roda do eixo.",
+          "Tire os cabelos e a sujidade da roda, do eixo e do alojamento.",
+          "Rode as rodas motrizes à mão e retire o que prender, depois volte a encaixar a roda giratória até ouvir um clique."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Limpar os sensores de desnível",
+    "why": "Os sensores de desnível olham para baixo à procura de escadas e degraus. Pó nas janelas pode fazer o robô parar ou não ver um degrau.",
+    "steps": [
+      "Vire o robô ao contrário.",
+      "Limpe cada janela de sensor com uma esponja de melamina ou um pano ligeiramente húmido.",
+      "Verifique se nenhuma janela está riscada ou tapada."
+    ],
+    "caution": "Nunca pulverize produtos de limpeza sobre os sensores nem para dentro das aberturas."
+  },
+  "clean_contact": {
+    "title": "Limpar os contactos de carregamento",
+    "why": "Os contactos de carregamento do robô e da base conduzem a corrente de carga. Uma película sobre eles interrompe o carregamento.",
+    "steps": [
+      "Retire o robô da base.",
+      "Esfregue os contactos de carregamento do robô com uma esponja de melamina ou um pano ligeiramente húmido até brilharem.",
+      "Desligue a base da corrente durante 60 segundos e limpe os contactos dela da mesma forma.",
+      "Volte a ligar a base e coloque o robô nela."
+    ],
+    "caution": "Nada abrasivo e nenhuma ferramenta metálica. Contactos verdes, cor de cobre ou afundados estão danificados: contacte o apoio ao cliente da iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Retire o robô da base.",
+          "Esfregue os contactos de carregamento do robô com uma esponja de melamina ou um pano ligeiramente húmido até brilharem.",
+          "Desligue a Home Base da corrente durante 60 segundos e limpe os contactos dela da mesma forma. Limpe a janela do sensor de acoplamento só com um pano seco.",
+          "Volte a ligar a Home Base e coloque o robô nela."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Retire o robô da Clean Base.",
+          "Esfregue os contactos de carregamento do robô com uma esponja de melamina ou um pano ligeiramente húmido até brilharem.",
+          "Desligue a Clean Base da corrente durante 60 segundos e limpe da mesma forma os contactos da rampa.",
+          "Volte a ligar a Clean Base e coloque o robô nela."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Retire o robô da base.",
+          "Esfregue os contactos de carregamento do robô com uma esponja de melamina ou um pano ligeiramente húmido até brilharem.",
+          "Desligue a base da corrente durante 60 segundos. Limpe os contactos, a janela de infravermelhos e a marca de acoplamento só com um pano seco.",
+          "Volte a ligar a base e coloque o robô nela."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Esvaziar e verificar o depósito",
+    "why": "O depósito guarda o que o robô apanha. Um depósito cheio ou mal encaixado não o deixa apanhar mais.",
+    "steps": [
+      "Prima o botão de libertação e retire o depósito.",
+      "Abra a tampa sobre o caixote do lixo e esvazie o depósito.",
+      "Retire o filtro, bata-o e tire o pó do seu alojamento.",
+      "Volte a pôr o filtro e encaixe o depósito até ouvir um clique."
+    ],
+    "caution": "Enxague apenas um depósito feito para isso, sem o filtro, e deixe-o secar completamente antes de o colocar.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Prima o botão de libertação do depósito na traseira do robô e retire o depósito.",
+          "Abra a porta do depósito sobre o caixote do lixo e esvazie-o.",
+          "Retire o filtro e bata-o. Se o depósito estiver sujo, enxague-o à mão com água morna.",
+          "Deixe o depósito secar completamente, volte a colocar o filtro e encaixe o depósito até ouvir um clique."
+        ],
+        "caution": "Enxague só à mão, nunca na máquina de lavar loiça e nunca com o filtro colocado."
+      },
+      "s": {
+        "steps": [
+          "Prima o botão da tampa e levante o depósito pela pega.",
+          "Segure o depósito sobre o caixote do lixo e prima o botão dele para o esvaziar.",
+          "Retire o filtro e bata-o. Se o depósito estiver sujo, enxague-o com água morna.",
+          "Deixe o depósito secar completamente, volte a colocar o filtro e o depósito no robô."
+        ],
+        "caution": "Enxague só à mão, nunca na máquina de lavar loiça e nunca com o filtro colocado."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Limpar a janela da câmara",
+    "why": "A câmara e as janelas dos sensores ajudam o robô a orientar-se. Manchas fazem-no perder a posição.",
+    "steps": [
+      "Encontre a janela da câmara em cima ou à frente do robô.",
+      "Limpe-a suavemente com um pano de microfibra limpo e seco.",
+      "Limpe da mesma forma as outras janelas de sensores à frente."
+    ],
+    "caution": "Nenhum líquido nem produto de limpeza nas janelas."
+  },
+  "clean_wash_dock": {
+    "title": "Limpar a estação de lavagem",
+    "why": "A estação de lavagem enxagua a mopa. Sujidade no tabuleiro ou um depósito de água suja cheio param a lavagem.",
+    "steps": [
+      "Retire o depósito de água suja, esvazie-o e enxague-o.",
+      "Retire o tabuleiro de lavagem e enxague-o em água corrente.",
+      "Seque o fundo da estação e volte a colocar o tabuleiro e o depósito.",
+      "Encha o depósito de água limpa se estiver quase vazio."
+    ],
+    "caution": "Deixe o tabuleiro secar antes de o robô voltar a subir para ele."
+  },
+  "clean_dock_washing_system": {
+    "title": "Limpar o sistema de lavagem da base",
+    "why": "O sistema de lavagem da base tira a sujidade da mopa. Se ficarem resíduos, a mopa sai suja.",
+    "steps": [
+      "Retire a peça de lavagem da base.",
+      "Enxague-a em água corrente e tire cabelos e resíduos das aberturas.",
+      "Limpe o encaixe da peça na base.",
+      "Volte a colocar a peça de modo a ficar plana."
+    ],
+    "caution": "Sem produtos de limpeza, a menos que o manual da base os permita."
+  },
+  "clean_mop_washing_system": {
+    "title": "Limpar o sistema de lavagem da mopa",
+    "why": "O sistema de lavagem da mopa de rolo retira-lhe a água suja. Com as aberturas entupidas, a água suja pode pingar no chão.",
+    "steps": [
+      "Retire a mopa de rolo do robô.",
+      "Enxague o raspador e as aberturas em água corrente e desentupa as aberturas com uma escova macia.",
+      "Enxague a mopa de rolo e deixe-a secar.",
+      "Volte a colocar a mopa de rolo até ouvir um clique."
+    ],
+    "caution": "Nenhuma ferramenta afiada nas aberturas do raspador."
+  },
+  "replace_filter": {
+    "title": "Substituir o filtro",
+    "why": "O filtro perde eficácia com o tempo, mesmo quando é batido regularmente.",
+    "steps": [
+      "Retire o depósito do robô.",
+      "Puxe o filtro velho pela pega.",
+      "Coloque o filtro novo com as pregas no mesmo sentido do velho.",
+      "Encaixe o depósito até ouvir um clique e registe o filtro como substituído."
+    ],
+    "caution": "Use um filtro para este modelo: um filtro que não veda deixa passar pó.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Prima o botão de libertação do depósito e puxe-o para fora.",
+          "Pressione o filtro velho para baixo e levante-o.",
+          "Coloque o filtro novo com as pregas no mesmo sentido do velho.",
+          "Encaixe o depósito até ouvir um clique e registe o filtro como substituído."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Retire o depósito do robô.",
+          "Prima a patilha da tampa do filtro, levante a tampa e puxe o filtro velho pela patilha amarela.",
+          "Coloque o filtro novo com as pregas no mesmo sentido e feche a tampa.",
+          "Encaixe o depósito até ouvir um clique e registe o filtro como substituído."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Prima o botão de libertação do depósito na traseira do robô e retire o depósito.",
+          "Segure o filtro velho pelos lados e puxe-o para a esquerda.",
+          "Coloque o filtro novo com as pregas no mesmo sentido do velho.",
+          "Deslize o depósito na guia até ouvir um clique e registe o filtro como substituído."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Abra a tampa e levante o depósito pela pega.",
+          "Abra a tampa do filtro e puxe o filtro velho pela argola.",
+          "Coloque o filtro novo e feche a tampa do filtro: só fecha com o filtro bem colocado.",
+          "Volte a colocar o depósito e registe o filtro como substituído."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Substituir as escovas principais",
+    "why": "Escovas gastas chegam pior ao chão e apanham menos sujidade.",
+    "steps": [
+      "Vire o robô ao contrário e abra a estrutura das escovas.",
+      "Retire as duas escovas. Guarde as tampas das extremidades se as novas não as trouxerem.",
+      "Coloque as escovas novas onde o formato encaixa e feche a estrutura.",
+      "Registe as escovas como substituídas."
+    ],
+    "caution": "As escovas são diferentes e só encaixam num sentido. Não as force.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Vire o robô ao contrário e levante as duas patilhas amarelas da estrutura.",
+          "Retire a escova de cerdas e a escova batedora. Guarde as tampas se as escovas novas não as trouxerem.",
+          "Coloque as escovas novas onde o formato encaixa e feche a estrutura.",
+          "Registe as escovas como substituídas."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Vire o robô ao contrário, aperte as patilhas amarelas e levante a estrutura.",
+          "Retire os dois rolos. Guarde as tampas se os novos não as trouxerem.",
+          "Coloque os rolos novos onde os pinos encaixam e feche a estrutura até ouvir um clique.",
+          "Registe as escovas como substituídas."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Vire o robô ao contrário e prima o botão de libertação junto às escovas.",
+          "Retire os dois rolos. Guarde as tampas se os novos não as trouxerem.",
+          "Coloque os rolos novos onde o formato encaixa e feche a estrutura.",
+          "Registe as escovas como substituídas."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Vire o robô ao contrário e prima o botão à direita da cabeça de limpeza.",
+          "Retire os dois rolos. Guarde as tampas se os novos não as trouxerem.",
+          "Coloque os rolos novos onde o formato encaixa e feche o trinco.",
+          "Registe as escovas como substituídas."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Substituir a escova lateral",
+    "why": "Uma escova lateral gasta já não chega aos rodapés e cantos.",
+    "steps": [
+      "Vire o robô ao contrário.",
+      "Desaperte o parafuso ou puxe a escova velha do veio.",
+      "Encaixe a escova nova no veio e fixe-a.",
+      "Registe a escova lateral como substituída."
+    ],
+    "caution": "Guarde o parafuso: uma escova solta cai durante a limpeza.",
+    "variants": {
+      "s": {
+        "title": "Substituir a escova de cantos",
+        "why": "Uma escova de cantos gasta já não chega aos cantos.",
+        "steps": [
+          "Vire o robô ao contrário.",
+          "Desaperte o parafuso e retire a escova de cantos velha.",
+          "Coloque a escova de cantos nova no pino e aperte o parafuso.",
+          "Registe a escova de cantos como substituída."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Substituir o saco",
+    "why": "O saco da base recolhe o que o robô lá despeja. Quando está cheio, a base já não consegue esvaziar o robô.",
+    "steps": [
+      "Abra a tampa da base.",
+      "Puxe o saco pela pega: a pega fecha a abertura.",
+      "Coloque um saco novo e deslize o cartão na guia até prender.",
+      "Feche a tampa e registe o saco como substituído."
+    ],
+    "caution": "Não reutilize um saco: o fecho só fecha uma vez."
+  },
+  "replace_battery": {
+    "title": "Substituir a bateria",
+    "why": "A bateria perde capacidade a cada carga. O robô funciona então menos tempo e pode parar antes de terminar.",
+    "steps": [
+      "Desligue o robô e vire-o ao contrário.",
+      "Desaperte os parafusos da tampa da bateria e retire a tampa.",
+      "Puxe a bateria velha pelas pegas e coloque a nova com os contactos do mesmo lado.",
+      "Volte a pôr a tampa, coloque o robô na base e registe a bateria como substituída."
+    ],
+    "caution": "Use uma bateria para este modelo e entregue a velha num ponto de recolha de pilhas e baterias."
+  },
+  "replace_pad": {
+    "title": "Substituir a almofada de limpeza",
+    "why": "Uma almofada gasta deixa marcas e apanha menos sujidade.",
+    "steps": [
+      "Levante o robô ou retire-o da base.",
+      "Retire a almofada velha do suporte.",
+      "Deslize ou pressione a almofada nova no suporte até ficar presa.",
+      "Registe a almofada como substituída."
+    ],
+    "caution": "Lave as almofadas reutilizáveis sem amaciador; use as descartáveis só uma vez."
+  },
+  "replace_roller": {
+    "title": "Substituir a mopa de rolo",
+    "why": "Uma mopa de rolo gasta já não assenta por igual no chão e deixa marcas.",
+    "steps": [
+      "Retire a mopa de rolo do robô.",
+      "Coloque a nova até encaixar dos dois lados.",
+      "Registe a mopa de rolo como substituída."
+    ],
+    "caution": "Deixe uma mopa lavada secar antes de a colocar."
+  },
+  "replace_detergent": {
+    "title": "Substituir o detergente",
+    "why": "A base junta detergente do seu cartucho à água da lavagem. Vazio, o robô limpa só com água.",
+    "steps": [
+      "Abra o compartimento do detergente na base.",
+      "Retire o cartucho vazio.",
+      "Coloque um novo até ficar preso e feche o compartimento.",
+      "Registe o detergente como substituído."
+    ],
+    "caution": "Use apenas detergente para esta base: outros produtos podem fazer espuma ou danificá-la."
+  }
+}

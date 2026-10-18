@@ -187,7 +187,8 @@
           "demand_cleaning": "Limpeza sob demanda",
           "room_schedule": "Frequência de limpeza por divisão",
           "rooms": "Divisões e zonas",
-          "rest980_migrate": "Importar cómodos do roomba_rest980"
+          "rest980_migrate": "Importar cómodos do roomba_rest980",
+          "maintenance": "Manutenção"
         }
       },
       "zones": {
@@ -214,11 +215,10 @@
           "map_clean_zones": "Mostrar zonas de limpeza",
           "map_keepout_zones": "Mostrar zonas proibidas",
           "map_nomop_zones": "Mostrar zonas sem esfregar",
-          "enable_maintenance_list": "Mostrar manutenção como lista de tarefas",
           "region_sensors": "Sensor separado por divisão e zona",
           "map_rotation": "Rodar a imagem do mapa",
-          "care_reminders": "Lembretes de limpeza",
-          "pets_in_household": "Animais em casa"
+          "wall_thickness_cm": "Espessura das paredes (cm)",
+          "door_width_cm": "Largura das portas (cm)"
         },
         "data_description": {
           "map_enabled": "Ativar o mapa de limpeza em tempo real para robôs com deteção de posição (Roomba 900, i, s, j, Braava m).",
@@ -234,11 +234,10 @@
           "map_clean_zones": "Contorna as zonas de limpeza na imagem do mapa.",
           "map_keepout_zones": "Contorna as zonas proibidas na imagem do mapa.",
           "map_nomop_zones": "Contorna as zonas sem lavagem na imagem do mapa.",
-          "enable_maintenance_list": "Mostra a manutenção pendente como lista de tarefas.",
           "region_sensors": "Cria um sensor próprio para cada divisão e zona.",
           "map_rotation": "Roda cada imagem do mapa por inteiro no sentido dos ponteiros do relógio, divisões e percurso juntos, por exemplo para coincidir com a app iRobot. Nunca move o percurso em relação às divisões; para isso existe «Alinhar o percurso com as divisões». O mapa não tem norte: o topo é a direção em que o robô estava virado ao sair da base, por isso depende de como a base está colocada.",
-          "care_reminders": "Lembra de limpar o filtro, as escovas, as rodas, os sensores de queda e os contactos de carga segundo o calendário de cuidados da iRobot. Adiciona um sensor «próxima limpeza» e botões «limpo». Os lembretes de substituição funcionam sem isto.",
-          "pets_in_household": "Lembra de limpar o filtro e as escovas principais duas vezes por semana em vez de uma, como a iRobot recomenda para casas com animais. Apenas com os lembretes de limpeza ativos."
+          "wall_thickness_cm": "Espessura com que as paredes são desenhadas nos mapas. Num robô da série 900 decide também que limites de duas divisões são uma única parede. Predefinição 15.",
+          "door_width_cm": "Largura com que uma porta é desenhada nos mapas; uma abertura claramente mais larga é desenhada como passagem aberta. Um robô com Smart Map procura também portas com cerca desta largura quando alinha o seu percurso com as divisões. Predefinição 80."
         }
       },
       "smart_zones_manual": {
@@ -348,6 +347,90 @@
       "room_schedule": {
         "title": "Frequência de limpeza por divisão",
         "description": "Defina a frequência de limpeza de cada divisão. 'Aprendida' mantém o intervalo autocalibrado do histórico da divisão."
+      },
+      "maintenance": {
+        "title": "Manutenção",
+        "description": "Todas as peças e tarefas de cuidado deste robô: estado, o que falta e de onde vem o intervalo.\n\n{overview}",
+        "menu_options": {
+          "maintenance_settings": "Definições",
+          "maintenance_report": "Indicar uma peça substituída ou uma tarefa feita",
+          "maintenance_forget": "Esquecer intervalos aprendidos",
+          "maintenance_guide": "Guias de cuidados"
+        }
+      },
+      "maintenance_settings": {
+        "title": "Definições de manutenção",
+        "description": "Como o robô lembra a manutenção. Os avisos de reparação e o calendário ficam desligados até os ligar.",
+        "data": {
+          "enable_maintenance_list": "Mostrar manutenção como lista de tarefas",
+          "care_reminders": "Lembretes de limpeza",
+          "pets_in_household": "Animais em casa",
+          "maintenance_soon_at": "Indicar uma peça como «em breve» a partir de",
+          "care_guide_on_error": "Guia quando um erro aponta para uma tarefa de cuidado",
+          "maintenance_overdue_repairs": "Aviso de reparação para peças uma semana atrasadas",
+          "maintenance_calendar": "Calendário de manutenção",
+          "hide_maintenance_diagnostics": "Ocultar as entidades de diagnóstico de manutenção",
+          "filter_threshold_hours": "Intervalo do filtro",
+          "brush_threshold_hours": "Intervalo das escovas principais",
+          "side_brush_threshold_hours": "Intervalo da escova lateral",
+          "clean_base_bag_threshold_hours": "Intervalo do saco da Clean Base"
+        },
+        "data_description": {
+          "enable_maintenance_list": "Mostra a manutenção pendente como lista de tarefas.",
+          "care_reminders": "Lembra de limpar o filtro, as escovas, as rodas, os sensores de queda e os contactos de carga segundo o calendário de cuidados da iRobot. Adiciona um sensor «próxima limpeza» e botões «limpo». Os lembretes de substituição funcionam sem isto.",
+          "pets_in_household": "Lembra de limpar o filtro e as escovas principais duas vezes por semana em vez de uma, como a iRobot recomenda para casas com animais. Apenas com os lembretes de limpeza ativos.",
+          "maintenance_soon_at": "Parte do intervalo a partir da qual uma peça conta como em breve. A app da iRobot avisa aos 80 %.",
+          "care_guide_on_error": "Lista: uma entrada na lista de manutenção enquanto o robô indicar o erro. Reparações: um aviso de reparação em vez disso. Desligado: nenhum. A opção lista precisa da lista de manutenção ligada.",
+          "maintenance_overdue_repairs": "Um aviso por peça, uma semana depois do prazo. Desligado por omissão; a lista de manutenção já o mostra.",
+          "maintenance_calendar": "Um calendário só de leitura com os prazos. Coloca o calendário na barra lateral.",
+          "hide_maintenance_diagnostics": "Desativa «última substituição», «ritmo de desgaste» e «dias até ao prazo» de cada peça; os valores continuam como atributos dos sensores de peça. Painéis e automatizações que as usem deixam de ser atualizados. Desligue para as voltar a mostrar.",
+          "filter_threshold_hours": "Horas de uso entre substituições. Vazio: automático (contador do robô, as suas substituições, a série e depois o valor da iRobot).",
+          "brush_threshold_hours": "Horas de uso entre substituições. Vazio: automático (contador do robô, as suas substituições, a série e depois o valor da iRobot).",
+          "side_brush_threshold_hours": "Horas de uso entre substituições. Vazio: automático (contador do robô, as suas substituições, a série e depois o valor da iRobot).",
+          "clean_base_bag_threshold_hours": "Horas de uso entre substituições. Vazio: automático (contador do robô, as suas substituições, a série e depois o valor da iRobot)."
+        }
+      },
+      "maintenance_report": {
+        "title": "Indicar manutenção feita",
+        "description": "O mesmo que marcar a entrada ou a ação maintenance_done. Num robô Prime, a reposição vai para a iRobot.",
+        "data": {
+          "item": "Entrada",
+          "action": "Ação"
+        },
+        "data_description": {
+          "action": "Vazio: a da própria entrada. Uma peça a substituir pode ser indicada apenas como limpa; o seu contador mantém-se.",
+          "item": "A entrada a marcar como feita; o estado atual está entre parênteses."
+        }
+      },
+      "maintenance_forget": {
+        "title": "Esquecer intervalos aprendidos",
+        "description": "Esquece o intervalo aprendido das suas próprias substituições, após uma reposição premida por engano ou uma peça trocada cedo. O contador da peça atual mantém-se; a aprendizagem recomeça com as duas próximas substituições.",
+        "data": {
+          "item": "Peças"
+        },
+        "data_description": {
+          "item": "Nada marcado: todas as peças. Entre parênteses: de onde vem agora o intervalo."
+        }
+      },
+      "maintenance_guide": {
+        "title": "Guias de cuidados",
+        "description": "Como limpar ou substituir cada peça deste robô, com um desenho que mostra onde fica.",
+        "data": {
+          "guide": "Guia"
+        },
+        "data_description": {
+          "guide": "Os guias para as peças e tarefas de cuidados deste robô, primeiro os pendentes."
+        }
+      },
+      "maintenance_guide_show": {
+        "title": "{title}",
+        "description": "{guide}\n\n[Abrir como página]({link}) – a ligação é válida durante 30 dias.",
+        "data": {
+          "done": "Marcar como feito agora"
+        },
+        "data_description": {
+          "done": "Regista a tarefa como feita, tal como marcá-la na lista de manutenção."
+        }
       }
     },
     "error": {
@@ -368,7 +451,9 @@
       "cloud_rate_limited": "A nuvem da iRobot recebeu demasiados pedidos. Tenta novamente mais tarde.",
       "cloud_server_error": "A nuvem da iRobot tem um problema próprio. O problema é da iRobot e costuma ser temporário; tenta novamente mais tarde.",
       "cloud_response_malformed": "A nuvem da iRobot enviou uma resposta que não foi possível ler. Se persistir, comunica-o com uma transferência de diagnóstico.",
-      "cloud_unknown": "A nuvem da iRobot comunicou um erro sem causa conhecida."
+      "cloud_unknown": "A nuvem da iRobot comunicou um erro sem causa conhecida.",
+      "maintenance_list_needed": "Isto precisa da lista de manutenção ligada.",
+      "maintenance_done_failed": "Não foi possível indicar como feito: {error}"
     },
     "abort": {
       "integration_not_loaded": "A integração não pôde ser carregada. Verifique os registos e recarregue antes de abrir as definições.",
@@ -380,7 +465,8 @@
       "all_rooms_named": "Todas as divisões e áreas deste robô já têm nome. Para mostrar outro nome no Home Assistant, use Configurar → Gestão de zonas.",
       "naming_needs_account": "O Roomba+ só conhece as divisões deste robô pelo número e, sem um mapa, não há forma de saber que número é cada divisão. Adicione a sua conta iRobot a este robô (Configurar → Credenciais cloud iRobot): o Roomba+ passa a usar todos os nomes de divisões e zonas da conta e desenha o mapa de divisões. Se já souber o número de uma divisão, pode introduzi-lo em Configurar → Introduzir zonas Smart Map manualmente.",
       "account_rooms_not_loaded": "O Roomba+ ainda não leu as divisões da sua conta iRobot. Tente novamente dentro de um minuto; se continuar assim, o registo do Home Assistant indica porque não foi possível ler a conta.",
-      "naming_needs_map": "Para nomear é preciso o mapa do robô, para ver que número é cada divisão ou área, e o Roomba+ ainda não tem um mapa para mostrar. Num robô com Smart Map é o Mapa de divisões, obtido da sua conta iRobot. Num robô sem Smart Map é o mapa «Percurso de limpeza»: ative «Ativar mapa em tempo real» em Configurar → Definições de ligação e deixe o robô limpar uma vez. Em ambos os casos, a entidade de imagem do mapa tem de estar ativada."
+      "naming_needs_map": "Para nomear é preciso o mapa do robô, para ver que número é cada divisão ou área, e o Roomba+ ainda não tem um mapa para mostrar. Num robô com Smart Map é o Mapa de divisões, obtido da sua conta iRobot. Num robô sem Smart Map é o mapa «Percurso de limpeza»: ative «Ativar mapa em tempo real» em Configurar → Definições de ligação e deixe o robô limpar uma vez. Em ambos os casos, a entidade de imagem do mapa tem de estar ativada.",
+      "care_guides_unavailable": "Não foi possível carregar os guias de cuidados. O registo indica o motivo."
     }
   },
   "entity": {
@@ -1365,6 +1451,15 @@
       },
       "next_care": {
         "name": "Manutenção – Próxima limpeza prevista"
+      },
+      "maintenance_status": {
+        "name": "Estado da manutenção",
+        "state": {
+          "ok": "OK",
+          "soon": "Em breve",
+          "due": "Pendente",
+          "overdue": "Atrasado"
+        }
       }
     },
     "binary_sensor": {
@@ -1788,6 +1883,9 @@
     "calendar": {
       "schedule": {
         "name": "Agenda"
+      },
+      "maintenance": {
+        "name": "Manutenção"
       }
     },
     "todo": {
@@ -1822,6 +1920,19 @@
           "event_type": {
             "state": {
               "stuck": "Preso"
+            }
+          }
+        }
+      },
+      "maintenance": {
+        "name": "Manutenção",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "due": "Pendente",
+              "overdue": "Atrasado",
+              "done": "Feito",
+              "snoozed": "Adiado"
             }
           }
         }
@@ -1869,10 +1980,6 @@
       "title": "Possível problema de contacto bateria/base",
       "description": "Detetado um possível problema de contacto ou comunicação (causa: {cause}). Picos recentes por ciclo de carga: {recent_peaks}. Um salto súbito implausível ou uma tendência decrescente no máximo atingido geralmente indica um contacto solto ou corroído, não a bateria em si — limpe os contactos antes de suspeitar da bateria. {smberr_context}"
     },
-    "accident_detected": {
-      "title": "Possível acidente no chão",
-      "description": "Alto número de eventos de sujidade em pouco tempo. Verifica a área."
-    },
     "observed_zones_detected": {
       "title": "Obstáculos detetados pelo robô no mapa cloud",
       "description": "O mapa na nuvem da iRobot mostra {zone_count} zona(s) de obstáculos detetadas pelo robô, mas o Roomba+ ainda não tem dados locais que as confirmem. Faça algumas limpezas — este aviso desaparece quando os registos do próprio robô confirmarem os obstáculos. Se um obstáculo deve ser sempre evitado, adicione uma zona proibida na app iRobot."
@@ -1888,10 +1995,6 @@
     "map_retrain_stuck": {
       "title": "Atualização do Mapa Inteligente parece travada",
       "description": "O Mapa Inteligente do robô está sendo atualizado há pelo menos {minutes} minutos sem terminar. Isso é mais do que uma atualização real deveria levar. Tente reiniciar o robô pelo app da iRobot, ou contate o suporte da iRobot se persistir."
-    },
-    "maintenance_due": {
-      "title": "A manutenção está atrasada",
-      "description": "Os seguintes consumíveis estão pendentes de substituição há pelo menos 3 dias: {items}. Veja os atributos do sensor binário maintenance_due para as horas exatas de atraso, e use o botão de reset correspondente ou a ação roomba_plus.reset_* após a substituição."
     },
     "mqtt_watchdog_cloud_connected": {
       "title": "Ligação MQTT do robot perdida durante a missão",
@@ -1916,6 +2019,40 @@
     "core_roomba_conflict": {
       "title": "Duas integrações Roomba instaladas",
       "description": "A integração **Roomba** incorporada no Home Assistant está configurada juntamente com o Roomba+. Ambas usam a mesma biblioteca `roombapy`, e o Home Assistant instala apenas uma versão — uma das duas não conseguirá carregar, normalmente com um `ImportError` no registo.\n\nNenhuma das duas pode resolver isto. Remova a que não precisa."
+    },
+    "maintenance_part_overdue": {
+      "title": "{name}: em atraso – {part}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{part}",
+            "description": "No {name}, esta peça está pendente há uma semana. {interval}\n\n{guide}\n\n**O que fez?** «Substituída» repõe a zero o contador da peça – num robô Prime, na iRobot. «Só limpa» e «Ainda não» voltam a perguntar daqui a sete dias. «Não voltar a perguntar» termina estes avisos para esta peça até desativar e voltar a ativar a opção.",
+            "data": {
+              "choice": "O que fez"
+            }
+          }
+        },
+        "error": {
+          "maintenance_done_failed": "Não foi possível indicar como feito: {error}"
+        }
+      }
+    },
+    "maintenance_error_care": {
+      "title": "{name}: {task}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{task}",
+            "description": "{cause} Isto aponta para esta tarefa de cuidados.\n\n{guide}\n\nEste aviso desaparece quando o robô deixar de o indicar.",
+            "data": {
+              "choice": "O que fez"
+            }
+          }
+        },
+        "error": {
+          "maintenance_done_failed": "Não foi possível indicar como feito: {error}"
+        }
+      }
     }
   },
   "device_automation": {
@@ -2029,6 +2166,44 @@
         "zone_id": {
           "name": "ID da zona",
           "description": "Um ou mais ids numéricos de zona. Use isto ou o nome da zona."
+        }
+      }
+    },
+    "maintenance_done": {
+      "name": "Marcar manutenção como feita",
+      "description": "Marca uma entrada de manutenção como feita: uma peça substituída ou uma tarefa de cuidado realizada. Num robô Prime, a reposição vai para a iRobot, tal como a app a envia.",
+      "fields": {
+        "item": {
+          "name": "Entrada",
+          "description": "O id da entrada, do atributo items do sensor de manutenção, por exemplo replace.filter ou clean.wheel."
+        },
+        "action": {
+          "name": "Ação",
+          "description": "replace ou clean; vazio para a da própria entrada. Uma peça a substituir pode ser indicada apenas como limpa, e o seu contador mantém-se."
+        }
+      }
+    },
+    "maintenance_snooze": {
+      "name": "Adiar lembrete de manutenção",
+      "description": "Nenhum lembrete de uma entrada de manutenção durante alguns dias.",
+      "fields": {
+        "item": {
+          "name": "Entrada",
+          "description": "O id da entrada, do atributo items do sensor de manutenção, por exemplo replace.filter ou clean.wheel."
+        },
+        "days": {
+          "name": "Dias",
+          "description": "Quantos dias; 1 se vazio."
+        }
+      }
+    },
+    "maintenance_forget_learned": {
+      "name": "Esquecer o intervalo de manutenção aprendido",
+      "description": "Esquece o intervalo aprendido das suas próprias substituições, para uma ou todas as peças de um robô Classic. O contador da peça atual mantém-se.",
+      "fields": {
+        "item": {
+          "name": "Entradas",
+          "description": "As peças, por exemplo replace.filter. Vazio: todas as peças."
         }
       }
     }
@@ -2345,6 +2520,18 @@
     },
     "prime_start_blocked": {
       "message": "Não iniciado: {reason}"
+    },
+    "maintenance_item_unknown": {
+      "message": "Este robô não tem a entrada de manutenção {item}. As suas entradas são: {items}."
+    },
+    "maintenance_action_unsupported": {
+      "message": "{item} não pode ser marcado como {action}."
+    },
+    "maintenance_reset_failed": {
+      "message": "A iRobot não aceitou a reposição de {item}: {error}"
+    },
+    "maintenance_reset_not_applied": {
+      "message": "A iRobot aceitou a reposição de {item}, mas não a aplicou a nenhuma peça. O contador não mudou; confirme a peça na app da iRobot."
     }
   },
   "selector": {
@@ -2407,7 +2594,95 @@
         "clean_contact": "Limpar os contactos de carga",
         "every_days": "A cada {days} dias, como a iRobot recomenda.",
         "reconfigure_rooms": "Dar nome às divisões",
-        "reconfigure_rooms_description": "Algumas divisões ainda não têm nome. Abra Configurar → Divisões e zonas: mostra o mapa do robô com os seus números, ou o que falta. Este item desaparece sozinho quando todas as divisões tiverem nome."
+        "reconfigure_rooms_description": "Algumas divisões ainda não têm nome. Abra Configurar → Divisões e zonas: mostra o mapa do robô com os seus números, ou o que falta. Este item desaparece sozinho quando todas as divisões tiverem nome.",
+        "replace_dust_bag": "Substituir o saco do pó",
+        "replace_detergent": "Substituir o detergente",
+        "replace_roller": "Substituir a esfregona de rolo",
+        "replace_battery": "Substituir a bateria",
+        "replace_part": "Substituir: {part}",
+        "clean_mop_washing_system": "Limpar o sistema de lavagem da esfregona",
+        "clean_dock_washing_system": "Limpar o sistema de lavagem da base",
+        "clean_part": "Limpar: {part}",
+        "check_filter": "Verificar o filtro",
+        "check_brushes": "Verificar as escovas principais",
+        "check_side_brush": "Verificar a escova lateral",
+        "check_wheel": "Verificar as rodas",
+        "check_cliff_sensors": "Verificar os sensores de desnível",
+        "check_contact": "Verificar os contactos de carga",
+        "check_bin": "Verificar o depósito",
+        "check_camera": "Verificar a janela da câmara",
+        "check_wash_dock": "Verificar a base de lavagem",
+        "left": "faltam {value} {unit}",
+        "unit_hours": "horas",
+        "unit_days": "dias",
+        "unit_missions": "missões",
+        "unit_evacuations": "esvaziamentos",
+        "unit_pad_washes": "lavagens da esfregona",
+        "unit_charge_cycles": "ciclos de carga",
+        "unit_sqft": "ft²",
+        "error_line": "O robô indica o erro {code}.",
+        "link_guide": "Guia da iRobot",
+        "link_buy": "Comprar a peça",
+        "part_main_brush": "escovas principais",
+        "part_side_brush": "escova lateral",
+        "part_filter": "filtro",
+        "part_bag": "saco do pó",
+        "part_pad": "esfregona",
+        "part_detergent": "detergente",
+        "part_roller": "esfregona de rolo",
+        "part_battery": "bateria",
+        "part_sensor": "sensores de desnível",
+        "part_mop_washing_system": "sistema de lavagem da esfregona",
+        "part_dock_washing_system": "sistema de lavagem da base",
+        "estimate_note": "Estimado a partir do ritmo de desgaste; a data muda a cada limpeza.",
+        "link_care_guide": "Como fazer",
+        "reason_cliff": "O robô não arranca: vê um desnível.",
+        "reason_brush_stall": "O robô não arranca: uma escova está presa.",
+        "reason_no_bin": "O robô não arranca: falta o depósito.",
+        "reason_bin_full": "O depósito está cheio.",
+        "reason_camera": "O robô não arranca: a câmara não responde.",
+        "interval_line": "Intervalo {value} {unit}, {source}",
+        "source_cloud": "segundo o contador do robô",
+        "source_learned": "aprendido das suas substituições",
+        "source_configured": "definido por si",
+        "source_profile": "segundo o perfil da série",
+        "source_irobot_budget": "valor da iRobot",
+        "source_calendar": "segundo o calendário de cuidados",
+        "last_done": "Última vez a {date}"
+      }
+    },
+    "maintenance_soon_at": {
+      "options": {
+        "80": "80 %",
+        "60": "60 %",
+        "due": "Nunca, só no prazo"
+      }
+    },
+    "care_guide_on_error": {
+      "options": {
+        "list": "Lista de manutenção",
+        "repairs": "Reparações",
+        "off": "Desligado"
+      }
+    },
+    "maintenance_action": {
+      "options": {
+        "replace": "Substituída",
+        "clean": "Apenas limpa"
+      }
+    },
+    "maintenance_overdue_choice": {
+      "options": {
+        "replaced": "Substituída",
+        "cleaned": "Só limpa – lembrar daqui a uma semana",
+        "snooze": "Ainda não – lembrar daqui a uma semana",
+        "never": "Não voltar a perguntar por esta peça"
+      }
+    },
+    "maintenance_error_care_choice": {
+      "options": {
+        "cleaned": "Feito – limpo",
+        "close": "Fechar até ao próximo erro"
       }
     }
   }

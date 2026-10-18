@@ -10,6 +10,7 @@ v2.0: __init__.py is now the thin setup/teardown shell. Business logic lives in:
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from collections.abc import Mapping
 
@@ -52,6 +53,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .callbacks import (
+    backfill_and_reassess,
     entry_created_ts,
     make_map_retrain_callback,
     make_map_updating_callback,
@@ -76,6 +78,8 @@ from .const import (
     CONF_CONNECTION_TYPE,
     CONF_CONTINUOUS,
     CONF_ENABLE_MAINTENANCE_LIST,
+    CONF_MAINTENANCE_CALENDAR,
+    DEFAULT_MAINTENANCE_CALENDAR,
     CONF_REGION_SENSORS,
     CONF_ENABLE_SCHEDULE_CALENDAR,
     CONF_FLOOR,
@@ -85,6 +89,8 @@ from .const import (
     CONF_MAP_ENABLED,
     CONF_MAP_ROTATION,
     CONF_MAP_SCALE,
+    CONF_DOOR_WIDTH_CM,
+    DEFAULT_DOOR_WIDTH_CM,
     CONF_MAP_SIZE_PX,
     CONF_PRESENCE_SCHEDULING_ENABLED,
     CONF_DEMAND_CLEANING_ENABLED,
@@ -107,7 +113,7 @@ from .const import (
     has_pose,
     has_smart_map,
 )
-from .api_views import DailyDigestView, MissionHistoryView, HouseholdSummaryView, MissionHistoryImportView, ExplainMissionView, MissionPathView, MissionMapJsonView, MissionMapPngView
+from .api_views import DailyDigestView, MaintenanceView, MissionHistoryView, HouseholdSummaryView, MissionHistoryImportView, ExplainMissionView, MissionPathView, MissionMapJsonView, MissionMapPngView
 from .naming_map import NamingMapView
 from .parts_catalog import async_load_into as _load_parts_catalogue
 from .grid_store import GridStore
@@ -121,6 +127,8 @@ from .dirt_threshold_manager import DirtThresholdManager
 from .outline_store import OutlineStore
 from .mission_trajectory_store import MissionTrajectoryStore
 from .freeze_snapshot_store import FreezeSnapshotStore
+from .care_guides import async_setup_care_guides
+from .maintenance_model import MaintenanceTracker
 from .maintenance_store import MaintenanceStore
 from .robot_profile_store import RobotProfileStore  # v2.6 L4
 from .mission_timer_store import MissionTimerStore  # v2.6 MP1
@@ -130,7 +138,9 @@ from .map_renderer import (
     ROBOT_DIAMETER_MM_900_SERIES,
     ROBOT_DIAMETER_MM_ISJ_SERIES,
     ROBOT_DIAMETER_MM_DEFAULT,
+    find_fallback_fonts,
     quarter_turns,
+    set_fallback_fonts,
 )
 from .migrations import async_migrate_entry  # noqa: F401 -- re-exported for HA's own lookup
 from .structural_failures import record_failure, record_success
@@ -882,8 +892,11 @@ async def _phase_cloud(ctx: _SetupContext) -> None:
                 map_capability.value,
             )
             if cloud_coordinator.raw_records and ctx.mission_store is not None:
-                _bf = ctx.mission_store.backfill_from_cloud(
-                    cloud_coordinator.raw_records
+                # A mission that ended before a restart and the cloud's
+                # numbers for it after: its second verdict comes here.
+                _bf = backfill_and_reassess(
+                    hass, config_entry, ctx.mission_store,
+                    cloud_coordinator.raw_records,
                 )
                 # And the missions that were never recorded here (4.2.13).
                 _adopted = ctx.mission_store.adopt_missing_from_cloud(
@@ -1091,6 +1104,11 @@ async def _phase_cloud(ctx: _SetupContext) -> None:
                 regions=_regions,
                 geometry_store=ctx.geometry_store,
                 pmap_version_id=cloud_coordinator.umf_data.get("version_id", ""),
+                # The door width the user set (4.5.0) bounds the door
+                # gaps the alignment matches.
+                door_mm=10.0 * float(config_entry.options.get(
+                    CONF_DOOR_WIDTH_CM, DEFAULT_DOOR_WIDTH_CM
+                )),
             )
             _conf = await hass.async_add_executor_job(_aligner.align)
             umf_aligner = _aligner
@@ -1253,7 +1271,11 @@ async def _phase_finalize(ctx: _SetupContext) -> None:
         config_entry.async_on_unload(_live_position.stop)
 
     config_entry.runtime_data.loaded_platforms = list(platforms)
+    await async_setup_care_guides(hass)
+    await _async_setup_map_fonts(hass)
+    _attach_maintenance(hass, config_entry)
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
+    _start_maintenance(config_entry)
 
     if _live_position is not None:
         _live_position.start()
@@ -1314,6 +1336,51 @@ async def _phase_finalize(ctx: _SetupContext) -> None:
     )
 
 
+async def _async_setup_map_fonts(hass: HomeAssistant) -> None:
+    """The fonts the maps fall back on for characters DejaVu Sans lacks
+    -- Japanese, Chinese, Korean room names (4.5.0, @kyoheimukaida): the
+    files in `<config>/roomba_plus/fonts/`, then the system's CJK fonts.
+    Once per start; a font added later needs a restart."""
+    if hass.data.get("_roomba_plus_map_fonts"):
+        return
+    hass.data["_roomba_plus_map_fonts"] = True
+    try:
+        paths = await hass.async_add_executor_job(
+            find_fallback_fonts, Path(hass.config.path("roomba_plus", "fonts")),
+        )
+    except Exception:  # noqa: BLE001 -- fonts only draw labels; never stop the setup
+        _LOGGER.debug("Roomba+: no fallback fonts read", exc_info=True)
+        return
+    set_fallback_fonts(paths)
+
+
+def _attach_maintenance(hass: HomeAssistant, config_entry: RoombaConfigEntry) -> None:
+    """The maintenance entries, before the platforms read them (4.5.0).
+
+    Computed once here without side effects, so every entity starts
+    with them; `_start_maintenance` then keeps them current."""
+    data = config_entry.runtime_data
+    if data.maintenance_store is None:
+        return
+    tracker = MaintenanceTracker(hass, config_entry)
+    try:
+        tracker.prime_items_now()
+    except Exception:  # noqa: BLE001 -- the entries fill on the first refresh
+        _LOGGER.debug("Roomba+: maintenance entries not ready at setup", exc_info=True)
+    data.maintenance = tracker
+
+
+def _start_maintenance(config_entry: RoombaConfigEntry) -> None:
+    tracker = getattr(config_entry.runtime_data, "maintenance", None)
+    if tracker is None:
+        return
+    from .repairs import async_remove_maintenance_due_issue  # noqa: PLC0415
+
+    async_remove_maintenance_due_issue(tracker.hass, config_entry)
+    tracker.async_start()
+    config_entry.async_on_unload(tracker.async_stop)
+
+
 def _optional_platforms(config_entry: RoombaConfigEntry) -> list[Platform]:
     """The platforms the user has asked for, calendar and to-do list.
 
@@ -1339,9 +1406,10 @@ def _optional_platforms(config_entry: RoombaConfigEntry) -> list[Platform]:
     function, called from everywhere platforms lists are built, makes
     that whole bug class structurally impossible here."""
     platforms: list[Platform] = []
+    # The maintenance calendar (4.5.0) shares the platform.
     if config_entry.options.get(
         CONF_ENABLE_SCHEDULE_CALENDAR, DEFAULT_ENABLE_SCHEDULE_CALENDAR
-    ):
+    ) or config_entry.options.get(CONF_MAINTENANCE_CALENDAR, DEFAULT_MAINTENANCE_CALENDAR):
         platforms.append(Platform.CALENDAR)
     # THE SAME GATE FOR THE MAINTENANCE LIST, and for the same reason a
     # todo list takes a place in Home Assistant's navigation. That is the
@@ -1393,8 +1461,13 @@ def _remove_switched_off_optional_entities(hass: HomeAssistant, config_entry: Ro
     from homeassistant.helpers import entity_registry as er
 
     switched_off: set[str] = set()
+    # Calendars by unique id (4.5.0): two share the platform, each on its
+    # own option.
+    calendar_suffixes: list[str] = []
     if not config_entry.options.get(CONF_ENABLE_SCHEDULE_CALENDAR, DEFAULT_ENABLE_SCHEDULE_CALENDAR):
-        switched_off.add("calendar")
+        calendar_suffixes += ["_schedule", "_prime_schedule"]
+    if not config_entry.options.get(CONF_MAINTENANCE_CALENDAR, DEFAULT_MAINTENANCE_CALENDAR):
+        calendar_suffixes.append("_maintenance")
     if not config_entry.options.get(CONF_ENABLE_MAINTENANCE_LIST, DEFAULT_ENABLE_MAINTENANCE_LIST):
         switched_off.add("todo")
     # Care reminders (4.3.2) are entities on platforms that stay: matched
@@ -1403,13 +1476,15 @@ def _remove_switched_off_optional_entities(hass: HomeAssistant, config_entry: Ro
         () if care_reminders_enabled(config_entry.options)
         else tuple(f"_{key}" for key in CARE_ENTITY_KEYS)
     )
-    if not switched_off and not care_suffixes:
+    if not switched_off and not care_suffixes and not calendar_suffixes:
         return
     entity_reg = er.async_get(hass)
     for entry in er.async_entries_for_config_entry(entity_reg, config_entry.entry_id):
         unique_id = entry.unique_id if isinstance(entry.unique_id, str) else ""
-        if entry.domain in switched_off or (
-            care_suffixes and unique_id.endswith(care_suffixes)
+        if (
+            entry.domain in switched_off
+            or (care_suffixes and unique_id.endswith(care_suffixes))
+            or (entry.domain == "calendar" and unique_id.endswith(tuple(calendar_suffixes)))
         ):
             entity_reg.async_remove(entry.entity_id)
 
@@ -1808,6 +1883,10 @@ async def _async_setup_entry_prime(hass: HomeAssistant, config_entry: RoombaConf
     prime_maintenance_store = MaintenanceStore()
     try:
         await prime_maintenance_store.async_load(hass, config_entry.entry_id)
+        # CARE REMINDERS ON PRIME TOO (4.5.0), counted from when they
+        # were switched on, as on Classic.
+        if prime_maintenance_store.seed_care(care_reminders_enabled(config_entry.options)):
+            await prime_maintenance_store.async_save(hass, config_entry.entry_id)
     except Exception:  # noqa: BLE001
         _LOGGER.warning(
             "Roomba+ Prime: could not load maintenance store; maintenance dates "
@@ -2039,7 +2118,11 @@ async def _async_setup_entry_prime(hass: HomeAssistant, config_entry: RoombaConf
     platforms.extend(p for p in _optional_platforms(config_entry) if p not in platforms)
     _remove_switched_off_optional_entities(hass, config_entry)
     config_entry.runtime_data.loaded_platforms = list(platforms)
+    await async_setup_care_guides(hass)
+    await _async_setup_map_fonts(hass)
+    _attach_maintenance(hass, config_entry)
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
+    _start_maintenance(config_entry)
 
     # THE FIRST MISSION-HISTORY SYNC BELONGS HERE, not on the parts
     # coordinator's first refresh.
@@ -2310,6 +2393,7 @@ async def _async_reload_on_options_change(
     _RELOAD_TRIGGER_KEYS = {
         CONF_ENABLE_SCHEDULE_CALENDAR,
         CONF_ENABLE_MAINTENANCE_LIST,
+        CONF_MAINTENANCE_CALENDAR,
         CONF_CARE_REMINDERS,
         CONF_REGION_SENSORS,
         CONF_BLOCKING_SENSORS,
@@ -2321,6 +2405,7 @@ async def _async_reload_on_options_change(
     _DEFAULTS: dict[str, Any] = {
         CONF_ENABLE_SCHEDULE_CALENDAR: DEFAULT_ENABLE_SCHEDULE_CALENDAR,
         CONF_ENABLE_MAINTENANCE_LIST: DEFAULT_ENABLE_MAINTENANCE_LIST,
+        CONF_MAINTENANCE_CALENDAR: DEFAULT_MAINTENANCE_CALENDAR,
         CONF_CARE_REMINDERS: DEFAULT_CARE_REMINDERS,
         CONF_REGION_SENSORS: DEFAULT_REGION_SENSORS,
     }
@@ -2426,6 +2511,7 @@ def _async_register_views(hass: HomeAssistant) -> None:
     hass.http.register_view(HouseholdSummaryView())
     hass.http.register_view(MissionHistoryImportView())
     hass.http.register_view(DailyDigestView())
+    hass.http.register_view(MaintenanceView())
     hass.http.register_view(ExplainMissionView())
     hass.http.register_view(MissionPathView())
     # v3.3.0 MISSION-MAP

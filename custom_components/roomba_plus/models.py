@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .grid_store import GridStore                # v2.2.0 F9
     from .room_seg_store import RoomSegStore          # ROOM-SEG
     from .umf_aligner import UmfAligner              # v2.3.0 F8
+    from .maintenance_model import MaintenanceTracker
     from .maintenance_store import MaintenanceStore
     from .mission_store import MissionStore          # v1.8.0 L1
     from .map_renderer import MapRenderer
@@ -316,6 +317,9 @@ class RoombaData:
     position_room: PositionRoomTracker = field(default_factory=PositionRoomTracker)
     geometry_store: GeometryStore | None = None
     maintenance_store: MaintenanceStore | None = None
+    #: The maintenance entries (maintenance_model.py, 4.5.0), on both
+    #: generations; None without a maintenance store.
+    maintenance: "MaintenanceTracker | None" = None
     # Optional cloud coordinator — None when no credentials or non-SMART robot
     cloud_coordinator: IrobotCloudCoordinator | None = None
     # v3.3.0 MISSION-MAP — in-memory TTL cache for per-mission coverage

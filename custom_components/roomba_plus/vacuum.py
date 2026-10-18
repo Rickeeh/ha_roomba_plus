@@ -32,6 +32,7 @@ from homeassistant.util.unit_system import METRIC_SYSTEM
 from . import roomba_reported_state
 from .prime_commands import _send_confirmed
 from .button_prime import _raw_favorite_is_for
+from .care_guides import guide_id, guide_link
 from .const import (
     DOMAIN,
     mission_command,
@@ -667,6 +668,18 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             attrs[ATTR_ERROR] = self.vacuum.error_message
             attrs[ATTR_ERROR_CODE] = self.vacuum.error_code
 
+        # THE CARE TASK AN ERROR POINTS TO (4.5.0, H), on both
+        # generations: "filter" for a clogged filter, with the signed
+        # path of our care guide -- for a notification's link. Only
+        # while the robot reports such an error.
+        tracker = getattr(getattr(self._config_entry, "runtime_data", None), "maintenance", None)
+        care_task = tracker.care_cause_task() if tracker is not None else None
+        if isinstance(care_task, str):
+            attrs["care_task"] = care_task
+            attrs["care_guide"] = guide_link(
+                self.hass, self._config_entry.entry_id, guide_id("check", care_task),
+            )
+
         # Position (models with cap.pose == 1)
         if self._cap_position:
             pos_state = state.get("pose") or {}
@@ -824,9 +837,11 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
             if region_map or umf_regions:
                 _rooms = _store.latest_cleaned_rooms(region_map, umf_regions)
                 _coverage = _store.latest_room_coverage(region_map, umf_regions)
+                _rooms_source = _store.latest_rooms_source() if _rooms is not None else None
                 if _rooms:
                     self._last_resolved_rooms = _rooms
                     self._last_resolved_coverage = _coverage
+                    self._last_resolved_rooms_source = _rooms_source
                 # RE-RENDERED WHEN A MISSION IS RECORDED (4.2.15). This
                 # is computed while HA writes the entity's state, and
                 # until 4.2.15 nothing triggered a write when the mission
@@ -836,6 +851,9 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
                 # `mission_store_changed_signal`, which every entity of
                 # the robot answers with a state write.
                 attrs["last_cleaned_rooms"] = _rooms
+                # `requested` (4.5.0): the rooms it was sent to, nothing
+                # observed them. MissionStore.latest_rooms_source().
+                attrs["last_cleaned_rooms_source"] = _rooms_source
                 attrs["room_coverage"]      = _coverage
             elif (
                 getattr(self, "_last_resolved_rooms", None)
@@ -859,6 +877,9 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
                 # it as a room visit, which is the only reason it did
                 # not become evidence for something else.
                 attrs["last_cleaned_rooms"] = self._last_resolved_rooms
+                attrs["last_cleaned_rooms_source"] = getattr(
+                    self, "_last_resolved_rooms_source", None
+                )
                 attrs["room_coverage"]      = self._last_resolved_coverage
                 # planned_room_order and mission_destination: only update from
                 # MissionStore when not in an active cleaning phase. During a

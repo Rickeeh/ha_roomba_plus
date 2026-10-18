@@ -22,7 +22,7 @@ That classification step is NOT implemented here.
 from __future__ import annotations
 
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .edt import distance_transform_edt
 from .smooth import gaussian_blur
@@ -37,6 +37,10 @@ class RoomSegmentationResult:
     doors: list[dict[str, Any]]
     dist: dict[tuple[int, int], float]
     seeds: list[tuple[int, int]]
+    #: The smoothed field the doors are measured on, kept so that a
+    #: caller that divides an area afterwards (RoomSegStore keeping two
+    #: named rooms apart) measures its doors the same way (4.5.0).
+    dist_smooth: dict[tuple[int, int], float] = field(default_factory=dict)
 
 
 def segment_rooms(
@@ -84,7 +88,32 @@ def segment_rooms(
     for coord, r in merged_labels.items():
         rooms.setdefault(r, set()).add(coord)
 
+    doors = find_doors(rooms, dist_smooth, cell_mm, robot_radius_mm)
+
+    return RoomSegmentationResult(
+        rooms=rooms, doors=doors, dist=dist, seeds=seeds_coords,
+        dist_smooth=dist_smooth,
+    )
+
+
+def find_doors(
+    rooms: dict[int, set[tuple[int, int]]],
+    dist_smooth: dict[tuple[int, int], float],
+    cell_mm: float = 150.0,
+    robot_radius_mm: float = 170.0,
+) -> list[dict[str, Any]]:
+    """Every pair of areas that touch, measured at the narrowest point
+    of their shared boundary.
+
+    TOUCHING IS NOT A DOOR, and this does not claim it is. Two rooms
+    either side of a wall touch on the grid: the robot cleans up to the
+    wall from both sides, and its footprint marks cells a wall's width
+    apart as neighbours. On the maintainer's 980 four of the ten pairs
+    found here were walls (4.5.0). RoomSegStore keeps a door as driven
+    only where a mission's path actually went through it.
+    """
     final_ids = sorted(rooms.keys())
+    merged_labels = {c: r for r, cs in rooms.items() for c in cs}
     # Each area's widest point, for the constriction ratio below.
     peak = {r: max(dist_smooth[c] for c in cs) for r, cs in rooms.items()}
     neighbors8 = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
@@ -171,4 +200,4 @@ def segment_rooms(
                     ),
                 })
 
-    return RoomSegmentationResult(rooms=rooms, doors=doors, dist=dist, seeds=seeds_coords)
+    return doors

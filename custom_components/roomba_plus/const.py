@@ -191,8 +191,17 @@ CONF_MAP_SCALE: Final = "map_scale_mm_per_px"
 #: Turn every map picture clockwise by 0/90/180/270 degrees (4.3.2). The
 #: map has no north: its "up" is how the robot left the dock.
 CONF_MAP_ROTATION: Final = "map_rotation"
+#: The 900-series layout (4.5.0, room_layout): how thick the walls are and
+#: how wide a door is, in cm. The wall decides which two rooms' sides are
+#: one wall; the door how wide its gap is drawn.
+CONF_WALL_THICKNESS_CM: Final = "wall_thickness_cm"
+CONF_DOOR_WIDTH_CM: Final = "door_width_cm"
 CONF_FILTER_HOURS: Final = "filter_threshold_hours"
 CONF_BRUSH_HOURS: Final = "brush_threshold_hours"
+#: 4.5.0 -- the other two parts get an hour option too, set under
+#: Configure → Maintenance; until then they had none.
+CONF_SIDE_BRUSH_HOURS: Final = "side_brush_threshold_hours"
+CONF_CLEAN_BASE_BAG_HOURS: Final = "clean_base_bag_threshold_hours"
 
 # NEW: opt-OUT toggle for the schedule calendar entity (Platform.CALENDAR).
 # Default True is deliberate -- CALENDAR is the only platform that's always
@@ -268,6 +277,9 @@ EVENT_ERROR_RECURRENCE: Final = f"{DOMAIN}_error_recurrence"
 EVENT_CANCELLATION_RECURRENCE: Final = f"{DOMAIN}_cancellation_recurrence"
 EVENT_STUCK_PATTERN: Final = f"{DOMAIN}_stuck_pattern"
 EVENT_MISSION_ANOMALY: Final = f"{DOMAIN}_mission_anomaly"
+# A Classic mission the cloud's numbers (dirt count, area) show as unusual
+# once they arrive, after the mission-end event said otherwise (4.5.0).
+EVENT_MISSION_REASSESSED: Final = f"{DOMAIN}_mission_reassessed"
 EVENT_MIXED_SCHEDULE: Final = f"{DOMAIN}_mixed_schedule"
 EVENT_SCHEDULE_SUBOPTIMAL: Final = f"{DOMAIN}_schedule_suboptimal"
 EVENT_MAP_DRIFT_DETECTED: Final = f"{DOMAIN}_map_drift_detected"
@@ -296,6 +308,8 @@ DEFAULT_ENABLE_SCHEDULE_CALENDAR: Final = True
 DEFAULT_MAP_SIZE_PX: Final = 600
 DEFAULT_MAP_SCALE: Final = 10.0  # mm per pixel → 600px = 6 m × 6 m
 DEFAULT_MAP_ROTATION: Final = "0"
+DEFAULT_WALL_THICKNESS_CM: Final = 15
+DEFAULT_DOOR_WIDTH_CM: Final = 80
 
 # ── Replacement intervals when the cloud gives none (4.3.2) ─────────────────
 #
@@ -416,15 +430,83 @@ class CareTask:
     days: float
     days_with_pets: float
     braava: bool = False
+    #: The interval on a Prime robot where it differs (4.5.0). iRobot's
+    #: care articles for the 2025 lines -- the Prime robots -- give the
+    #: side brush, the cliff sensors and the charging contacts every two
+    #: weeks, where the earlier series' say once a month.
+    days_prime: float | None = None
+
+    def interval_days(self, pets: bool, prime: bool = False) -> float:
+        """Days between cleanings for this household and generation."""
+        if prime and self.days_prime is not None:
+            return self.days_prime
+        return self.days_with_pets if pets else self.days
 
 
 CARE_TASKS: Final[tuple[CareTask, ...]] = (
     CareTask("filter", 7, 3.5),
     CareTask("brushes", 7, 3.5),
-    CareTask("side_brush", 30, 30),
+    CareTask("side_brush", 30, 30, days_prime=14),
     CareTask("wheel", 14, 14),
-    CareTask("cliff_sensors", 30, 30, braava=True),
-    CareTask("contact", 30, 30, braava=True),
+    CareTask("cliff_sensors", 30, 30, braava=True, days_prime=14),
+    CareTask("contact", 30, 30, braava=True, days_prime=14),
+)
+
+# ── Maintenance model (4.5.0) ────────────────────────────────────────────────
+
+#: Option: when a part counts as "soon" -- at 80 % of its interval
+#: (iRobot's Prime app warns there), at 60 %, or never ("due": only
+#: due and overdue are reported).
+CONF_MAINTENANCE_SOON: Final = "maintenance_soon_at"
+DEFAULT_MAINTENANCE_SOON: Final = "80"
+MAINTENANCE_SOON_SHARES: Final[dict[str, float | None]] = {
+    "80": 0.8,
+    "60": 0.6,
+    "due": None,
+}
+
+#: Option: where a robot error's care guide appears (E12). The list by
+#: default; "repairs" a repair issue instead, "off" neither.
+CONF_CARE_GUIDE_ON_ERROR: Final = "care_guide_on_error"
+DEFAULT_CARE_GUIDE_ON_ERROR: Final = "list"
+CARE_GUIDE_ON_ERROR_CHOICES: Final[tuple[str, ...]] = ("list", "repairs", "off")
+
+#: Option: a repair issue for a part a week overdue (E3, D1). Off by
+#: default: repair issues count on the settings icon, and the list
+#: shows what is overdue anyway.
+CONF_MAINTENANCE_OVERDUE_REPAIRS: Final = "maintenance_overdue_repairs"
+DEFAULT_MAINTENANCE_OVERDUE_REPAIRS: Final = False
+
+#: Option: a read-only maintenance calendar (E13, K). Off by default:
+#: a calendar entity puts the calendar in the sidebar, and the due dates
+#: are in the list and the sensors already.
+CONF_MAINTENANCE_CALENDAR: Final = "maintenance_calendar"
+DEFAULT_MAINTENANCE_CALENDAR: Final = False
+
+#: Option: hide the maintenance diagnostic entities (E2). The way for an
+#: installation from before 4.5.0 to the lean set a new one starts with.
+CONF_HIDE_MAINTENANCE_DIAGNOSTICS: Final = "hide_maintenance_diagnostics"
+
+#: Unique-id suffixes of the maintenance diagnostic entities: when a part
+#: was last replaced, how fast it wears, how many days are left. Their
+#: figures are attributes of the part sensors and the status sensor's
+#: entries since 4.5.0; created disabled on a new installation, and
+#: hidden on request on an existing one.
+MAINTENANCE_DIAGNOSTIC_KEYS: Final[tuple[str, ...]] = (
+    "filter_last_replaced",
+    "brush_last_replaced",
+    "pad_last_replaced",
+    "battery_last_replaced",
+    "filter_wear_rate",
+    "brush_wear_rate",
+    "pad_wear_rate",
+    "side_brush_wear_rate",
+    "clean_base_bag_wear_rate",
+    "filter_days_until_due",
+    "brush_days_until_due",
+    "pad_days_until_due",
+    "side_brush_days_until_due",
+    "clean_base_bag_days_until_due",
 )
 
 # ── Cloud consumable parts (/v1/robots/{blid}/parts) ─────────────────────────
@@ -464,7 +546,8 @@ CARE_TASKS: Final[tuple[CareTask, ...]] = (
 # LEFT" with 6720 minutes remaining, 46 the filter tile, red and empty,
 # with 0 remaining. 47 and 139 were both freshly reset, so 47 is the
 # side brush by elimination -- the one assignment here not read off a
-# screen. Unmapped, these surfaced as generic part sensors only, with
+# screen. A j7+ reports the same four ids (@msva17, 4.5.0 cycle), and
+# its part sensors read `interval_source: cloud` as the j9+ does. Unmapped, these surfaced as generic part sensors only, with
 # no role: no remaining hours on the maintenance sensors and no reset
 # sent to iRobot.
 #
@@ -544,7 +627,7 @@ CONSUMABLE_ROLES: Final[dict[str, ConsumableRole]] = {
     IROBOT_PART_ROLE_SIDE_BRUSH: ConsumableRole(
         slot="side_brush",
         due_key="side_brush",
-        conf_key=None,
+        conf_key=CONF_SIDE_BRUSH_HOURS,
         default_hours=DEFAULT_SIDE_BRUSH_HOURS,
         action_slug="replace_side_brush",
     ),
@@ -552,7 +635,7 @@ CONSUMABLE_ROLES: Final[dict[str, ConsumableRole]] = {
         absent_when=lambda state: not has_clean_base(state),
         slot="clean_base_bag",
         due_key="clean_base_bag",
-        conf_key=None,
+        conf_key=CONF_CLEAN_BASE_BAG_HOURS,
         default_hours=DEFAULT_CLEAN_BASE_BAG_HOURS,
         action_slug="replace_clean_base_bag",
     ),
@@ -1492,6 +1575,12 @@ ROOMS_AWAITING_CLOUD: Final[str] = "awaiting_cloud"
 ROOMS_FROM_CLOUD: Final[str] = "cloud"
 #: The cloud reported the mission without room events: the guess stands.
 ROOMS_TRACKED: Final[str] = "tracked"
+#: Nothing observed the rooms -- no room tracking, no cloud room events
+#: yet -- so `last_cleaned_rooms` holds the rooms the mission was SENT to
+#: (4.5.0). Shown as such (`last_cleaned_rooms_source`,
+#: `cleaned_rooms_source`); a later cloud answer replaces it with
+#: ROOMS_FROM_CLOUD.
+ROOMS_REQUESTED: Final[str] = "requested"
 
 #: How long a guessed record waits for the cloud before its guess is used
 #: after all -- a mission the cloud never reports keeps some answer.
@@ -1995,13 +2084,6 @@ READINESS_WIRE_TO_INDEX: Final[dict[int, int]] = {
 # longer threshold (genuinely stuck, not just slow).
 MAP_RETRAIN_WARN_MINUTES: Final[int] = 15
 MAP_RETRAIN_STUCK_MINUTES: Final[int] = 45
-# v2.9.0 — maintenance_due Repair Issue grace period. Unlike health_change
-# (a noisy signal needing a sustained-duration gate to reject jitter),
-# hours-since-reset is monotonic and never flickers once "due" — the grace
-# period here is purely about not nagging the user for a marginal overage
-# (filter hours are a heuristic threshold, not safety-critical), not about
-# rejecting noise.
-MAINTENANCE_DUE_GRACE_DAYS: Final[int] = 3
 
 # Human-readable phase labels (from rest980 — extended)
 
@@ -3566,6 +3648,17 @@ def map_options_changed_signal(blid: str) -> str:
     picture is drawn anew for options read at render time.
     """
     return f"{DOMAIN}_map_options_changed_{blid}"
+
+
+def maintenance_items_signal(blid: str) -> str:
+    """The maintenance model recomputed its entries (4.5.0)."""
+    return f"{DOMAIN}_maintenance_items_{blid}"
+
+
+def maintenance_event_signal(blid: str) -> str:
+    """A maintenance entry became due or overdue, or was done or
+    snoozed (4.5.0). Sent with the event type and the entry."""
+    return f"{DOMAIN}_maintenance_event_{blid}"
 
 
 def maintenance_changed_signal(blid: str) -> str:

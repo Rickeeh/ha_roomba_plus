@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "A cosa serve",
+    "how": "Come fare",
+    "note": "Attenzione",
+    "irobot": "La guida di iRobot per il tuo modello",
+    "expired_title": "Questo link è scaduto",
+    "expired_text": "I link alle guide di cura valgono 30 giorni. Per averne uno nuovo apri in Home Assistant Impostazioni → Dispositivi e servizi → Roomba+ → Configura → Manutenzione → Guida alla cura.",
+    "unknown_title": "Qui non c'è nessuna guida",
+    "unknown_text": "Questa guida non esiste. Apri Configura → Manutenzione → Guida alla cura in Home Assistant.",
+    "when": "Quando"
+  },
+  "clean_filter": {
+    "title": "Pulisci il filtro",
+    "why": "Il filtro trattiene la polvere fine nel contenitore. Quando le sue pieghe sono intasate, l'aspirazione cala e il robot raccoglie meno.",
+    "steps": [
+      "Premi lo sgancio del contenitore ed estrailo dal robot.",
+      "Sfila il filtro tirando la sua linguetta.",
+      "Battilo contro l'interno di un cestino finché non cade più polvere. Non spazzolare le pieghe.",
+      "Rimetti il filtro con le pieghe nello stesso verso e inserisci il contenitore finché non scatta."
+    ],
+    "caution": "Non lavare mai un filtro di carta e non bagnarlo: una volta bagnato non filtra più.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Premi lo sgancio del contenitore ed estrailo dal robot.",
+          "Sblocca il filtro premendolo verso il basso, poi sollevalo.",
+          "Battilo contro l'interno di un cestino finché non esce più polvere. Non spazzolare le pieghe.",
+          "Rimetti il filtro e inserisci il contenitore fino allo scatto."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Premi lo sgancio del contenitore, estrailo e svuotalo.",
+          "Premi la linguetta dello sportello del filtro e sollevalo.",
+          "Estrai il filtro dalla linguetta gialla e battilo contro l'interno di un cestino finché non esce più polvere.",
+          "Rimetti il filtro, chiudi lo sportello e inserisci il contenitore fino allo scatto."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Premi lo sgancio del contenitore sul retro del robot ed estrai il contenitore.",
+          "Apri lo sportello del contenitore sopra un cestino e svuotalo.",
+          "Afferra il filtro ai lati, estrailo verso sinistra e battilo contro l'interno del cestino finché non esce più polvere.",
+          "Rimetti il filtro e fai scorrere il contenitore nella sua guida fino allo scatto."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Premi lo sgancio sul coperchio, aprilo ed estrai il contenitore dalla maniglia.",
+          "Tieni il contenitore sopra un cestino e premi il suo sgancio per svuotarlo.",
+          "Apri lo sportello del filtro, estrai il filtro dall'anello e battilo contro l'interno del cestino.",
+          "Rimetti il filtro e chiudi lo sportello: si chiude solo con il filtro ben inserito. Rimetti il contenitore."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Pulisci le spazzole principali",
+    "why": "Le spazzole principali sollevano lo sporco da tappeti e pavimenti duri verso il contenitore. I capelli avvolti le fanno slittare e raccolgono meno.",
+    "steps": [
+      "Capovolgi il robot su una superficie morbida.",
+      "Apri il telaio delle spazzole con le sue linguette ed estrai entrambe le spazzole.",
+      "Togli i tappi alle estremità e rimuovi capelli e fili da estremità e assi. Taglia i capelli avvolti lungo la scanalatura.",
+      "Rimetti i tappi, inserisci ogni spazzola dove la sua forma combacia e chiudi il telaio."
+    ],
+    "caution": "Le due spazzole sono diverse e si montano in un solo verso. Non forzarle.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Capovolgi il robot su una superficie morbida.",
+          "Solleva le due linguette gialle del telaio ed estrai la spazzola a setole e la spazzola battitrice.",
+          "Togli i tappi alle estremità e rimuovi capelli e fili da estremità e assi.",
+          "Rimetti i tappi, inserisci ogni spazzola dove la sua forma combacia e chiudi il telaio."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Capovolgi il robot su una superficie morbida.",
+          "Stringi le linguette gialle del telaio delle spazzole e sollevalo.",
+          "Estrai i due rulli in gomma, togli i tappi e rimuovi i capelli dai perni quadrato ed esagonale.",
+          "Rimetti i tappi, inserisci ogni rullo dove il suo perno combacia e chiudi il telaio fino allo scatto."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Capovolgi il robot su una superficie morbida.",
+          "Premi il pulsante di sgancio accanto alle spazzole e apri il telaio.",
+          "Estrai i due rulli in gomma, togli i tappi e rimuovi i capelli da estremità e assi.",
+          "Rimetti i tappi, inserisci ogni rullo dove la sua forma combacia e chiudi il telaio."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Capovolgi il robot su una superficie morbida.",
+          "Premi il pulsante a destra della testina di pulizia: il fermo si solleva.",
+          "Estrai i due rulli in gomma, togli i tappi e rimuovi i capelli da estremità e assi.",
+          "Rimetti i tappi, inserisci i rulli dove la loro forma combacia e chiudi il fermo."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Pulisci la spazzola laterale",
+    "why": "La spazzola laterale spinge lo sporco da bordi e angoli sul percorso del robot. Bracci aggrovigliati o piegati lo lasciano indietro.",
+    "steps": [
+      "Capovolgi il robot.",
+      "Svita la vite al centro della spazzola, oppure sfilala se non ha vite.",
+      "Togli i capelli da bracci e mozzo e raddrizza le setole piegate.",
+      "Rimetti la spazzola sul suo albero e fissala."
+    ],
+    "caution": "Sostituisci una spazzola con i bracci deformati: non arriva più al bordo.",
+    "variants": {
+      "s": {
+        "title": "Pulisci la spazzola angolare",
+        "why": "La spazzola angolare spinge lo sporco fuori dagli angoli e lungo i bordi verso il percorso del robot. Bracci aggrovigliati o piegati lo lasciano indietro.",
+        "steps": [
+          "Capovolgi il robot.",
+          "Svita la vite con un piccolo cacciavite e togli la spazzola angolare.",
+          "Rimuovi i capelli dai bracci e dal perno di trascinamento.",
+          "Rimetti la spazzola sul perno e stringi di nuovo la vite."
+        ],
+        "caution": "Stringi la vite: una spazzola angolare allentata si stacca durante la pulizia."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Pulisci le ruote",
+    "why": "La ruota anteriore e le ruote motrici sostengono il robot. Capelli o sabbia lo fanno deviare o fermare.",
+    "steps": [
+      "Capovolgi il robot.",
+      "Estrai la ruota anteriore dalla sua sede e sfila la ruota dal perno.",
+      "Togli capelli e sporco da ruota, perno e sede.",
+      "Gira a mano le ruote motrici e togli ciò che si impiglia, poi rimetti la ruota anteriore finché non scatta."
+    ],
+    "caution": "Non estrarre le ruote motrici: non sono fatte per essere smontate.",
+    "variants": {
+      "s": {
+        "why": "La ruota piroettante posteriore e le ruote motrici sostengono il robot. Capelli o sabbia lo fanno deviare o fermare.",
+        "steps": [
+          "Capovolgi il robot.",
+          "Estrai la ruota piroettante posteriore dalla sua sede e togli la ruota dall'asse.",
+          "Rimuovi capelli e sporco da ruota, asse e sede.",
+          "Gira a mano le ruote motrici e togli ciò che si impiglia, poi reinserisci la ruota piroettante fino allo scatto."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Pulisci i sensori di dislivello",
+    "why": "I sensori di dislivello guardano verso il basso per scale e bordi. La polvere sulle loro finestre può fermare il robot o fargli mancare un bordo.",
+    "steps": [
+      "Capovolgi il robot.",
+      "Pulisci ogni finestra dei sensori con una spugna melaminica o un panno leggermente umido.",
+      "Controlla che nessuna finestra sia graffiata o coperta."
+    ],
+    "caution": "Non spruzzare mai detergenti sui sensori o nelle loro aperture."
+  },
+  "clean_contact": {
+    "title": "Pulisci i contatti di ricarica",
+    "why": "I contatti di ricarica del robot e della base portano la corrente di ricarica. Uno strato su di essi interrompe la ricarica.",
+    "steps": [
+      "Togli il robot dalla base.",
+      "Strofina i contatti di ricarica del robot con una spugna melaminica o un panno leggermente umido finché brillano.",
+      "Scollega la base per 60 secondi e pulisci i suoi contatti allo stesso modo.",
+      "Ricollega la base e appoggiaci il robot."
+    ],
+    "caution": "Niente di abrasivo e nessun attrezzo metallico. Contatti verdi, color rame o infossati sono danneggiati: rivolgiti all'assistenza iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Togli il robot dalla base.",
+          "Strofina i contatti di ricarica del robot con una spugna melaminica o un panno leggermente umido finché brillano.",
+          "Scollega la Home Base per 60 secondi e pulisci i suoi contatti allo stesso modo. Pulisci la finestra del suo sensore di aggancio solo con un panno asciutto.",
+          "Ricollega la Home Base e appoggiaci il robot."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Togli il robot dalla Clean Base.",
+          "Strofina i contatti di ricarica del robot con una spugna melaminica o un panno leggermente umido finché brillano.",
+          "Scollega la Clean Base per 60 secondi e pulisci allo stesso modo i contatti sulla sua rampa.",
+          "Ricollega la Clean Base e appoggiaci il robot."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Togli il robot dalla base.",
+          "Strofina i contatti di ricarica del robot con una spugna melaminica o un panno leggermente umido finché brillano.",
+          "Scollega la base per 60 secondi. Pulisci i suoi contatti, la finestra a infrarossi e il segno di aggancio solo con un panno asciutto.",
+          "Ricollega la base e appoggiaci il robot."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Svuota e controlla il contenitore",
+    "why": "Il contenitore raccoglie ciò che il robot aspira. Un contenitore pieno o mal inserito gli impedisce di raccogliere altro.",
+    "steps": [
+      "Premi lo sgancio ed estrai il contenitore.",
+      "Apri lo sportello sopra un cestino e svuotalo.",
+      "Estrai il filtro, battilo e togli la polvere dalla sua sede.",
+      "Rimetti il filtro e inserisci il contenitore finché non scatta."
+    ],
+    "caution": "Sciacqua solo un contenitore fatto per questo, senza filtro, e lascialo asciugare del tutto prima di rimetterlo.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Premi lo sgancio del contenitore sul retro del robot ed estrai il contenitore.",
+          "Apri lo sportello del contenitore sopra un cestino e svuotalo.",
+          "Estrai il filtro e battilo. Sciacqua il contenitore a mano con acqua tiepida se è sporco.",
+          "Lascia asciugare completamente il contenitore, rimetti il filtro e inserisci il contenitore fino allo scatto."
+        ],
+        "caution": "Sciacqua solo a mano, mai in lavastoviglie e mai con il filtro inserito."
+      },
+      "s": {
+        "steps": [
+          "Premi lo sgancio sul coperchio ed estrai il contenitore dalla maniglia.",
+          "Tieni il contenitore sopra un cestino e premi il suo sgancio per svuotarlo.",
+          "Estrai il filtro e battilo. Sciacqua il contenitore con acqua tiepida se è sporco.",
+          "Lascia asciugare completamente il contenitore, rimetti il filtro e il contenitore nel robot."
+        ],
+        "caution": "Sciacqua solo a mano, mai in lavastoviglie e mai con il filtro inserito."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Pulisci la finestra della telecamera",
+    "why": "La telecamera e le finestre dei sensori aiutano il robot a orientarsi. Le macchie gli fanno perdere la posizione.",
+    "steps": [
+      "Trova la finestra della telecamera sopra o davanti al robot.",
+      "Puliscila delicatamente con un panno in microfibra pulito e asciutto.",
+      "Pulisci allo stesso modo le altre finestre dei sensori sul davanti."
+    ],
+    "caution": "Nessun liquido né detergente sulle finestre."
+  },
+  "clean_wash_dock": {
+    "title": "Pulisci la base di lavaggio",
+    "why": "La base di lavaggio risciacqua il mop. Lo sporco nella vaschetta o un serbatoio dell'acqua sporca pieno ferma il lavaggio.",
+    "steps": [
+      "Estrai il serbatoio dell'acqua sporca, svuotalo e sciacqualo.",
+      "Estrai la vaschetta di lavaggio e sciacquala sotto l'acqua corrente.",
+      "Asciuga il fondo della base e rimetti vaschetta e serbatoio.",
+      "Riempi il serbatoio dell'acqua pulita se è quasi vuoto."
+    ],
+    "caution": "Lascia asciugare la vaschetta prima che il robot ci risalga."
+  },
+  "clean_dock_washing_system": {
+    "title": "Pulisci il sistema di lavaggio della base",
+    "why": "Il sistema di lavaggio della base elimina lo sporco dal mop. Se restano residui, il mop esce sporco.",
+    "steps": [
+      "Estrai l'inserto di lavaggio dalla base.",
+      "Sciacqualo sotto l'acqua corrente e togli capelli e detriti dalle aperture.",
+      "Pulisci la sede dell'inserto nella base.",
+      "Rimetti l'inserto in modo che appoggi piatto."
+    ],
+    "caution": "Nessun detergente, a meno che il manuale della base non lo consenta."
+  },
+  "clean_mop_washing_system": {
+    "title": "Pulisci il sistema di lavaggio del mop",
+    "why": "Il sistema di lavaggio del mop a rullo raschia via l'acqua sporca. Quando le sue aperture si intasano, l'acqua sporca può gocciolare sul pavimento.",
+    "steps": [
+      "Togli il mop a rullo dal robot.",
+      "Sciacqua il raschietto e le sue aperture sotto l'acqua corrente e libera i fori ostruiti con una spazzola morbida.",
+      "Sciacqua il mop a rullo e lascialo asciugare.",
+      "Rimetti il mop a rullo finché non scatta."
+    ],
+    "caution": "Nessun attrezzo appuntito sulle aperture del raschietto."
+  },
+  "replace_filter": {
+    "title": "Sostituisci il filtro",
+    "why": "Un filtro perde efficacia col tempo, anche se viene battuto regolarmente.",
+    "steps": [
+      "Estrai il contenitore dal robot.",
+      "Sfila il vecchio filtro tirando la linguetta.",
+      "Inserisci il nuovo filtro con le pieghe nello stesso verso del vecchio.",
+      "Reinserisci il contenitore finché non scatta e segnala il filtro come sostituito."
+    ],
+    "caution": "Usa un filtro per questo modello: uno che non sigilla lascia passare la polvere.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Premi lo sgancio del contenitore ed estrailo.",
+          "Premi il vecchio filtro verso il basso e sollevalo.",
+          "Inserisci il nuovo filtro con le pieghe nello stesso verso del vecchio.",
+          "Inserisci il contenitore fino allo scatto e segnala il filtro come sostituito."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Estrai il contenitore dal robot.",
+          "Premi la linguetta dello sportello del filtro, sollevalo ed estrai il vecchio filtro dalla linguetta gialla.",
+          "Inserisci il nuovo filtro con le pieghe nello stesso verso e chiudi lo sportello.",
+          "Inserisci il contenitore fino allo scatto e segnala il filtro come sostituito."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Premi lo sgancio del contenitore sul retro del robot ed estrai il contenitore.",
+          "Afferra il vecchio filtro ai lati ed estrailo verso sinistra.",
+          "Inserisci il nuovo filtro con le pieghe nello stesso verso del vecchio.",
+          "Fai scorrere il contenitore nella sua guida fino allo scatto e segnala il filtro come sostituito."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Apri il coperchio ed estrai il contenitore dalla maniglia.",
+          "Apri lo sportello del filtro ed estrai il vecchio filtro dall'anello.",
+          "Inserisci il nuovo filtro e chiudi lo sportello: si chiude solo con il filtro ben inserito.",
+          "Rimetti il contenitore e segnala il filtro come sostituito."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Sostituisci le spazzole principali",
+    "why": "Le spazzole consumate raggiungono peggio il pavimento e raccolgono meno sporco.",
+    "steps": [
+      "Capovolgi il robot e apri il telaio delle spazzole.",
+      "Estrai entrambe le spazzole. Tieni i tappi se le nuove ne sono prive.",
+      "Inserisci le spazzole nuove dove la forma combacia e chiudi il telaio.",
+      "Segnala le spazzole come sostituite."
+    ],
+    "caution": "Le due spazzole sono diverse e si montano in un solo verso. Non forzarle.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Capovolgi il robot e solleva le due linguette gialle del telaio.",
+          "Estrai la spazzola a setole e la spazzola battitrice. Conserva i tappi se le nuove spazzole non li hanno.",
+          "Inserisci le nuove spazzole dove la loro forma combacia e chiudi il telaio.",
+          "Segnala le spazzole come sostituite."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Capovolgi il robot, stringi le linguette gialle e solleva il telaio.",
+          "Estrai i due rulli. Conserva i tappi se i nuovi non li hanno.",
+          "Inserisci i nuovi rulli dove i loro perni combaciano e chiudi il telaio fino allo scatto.",
+          "Segnala le spazzole come sostituite."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Capovolgi il robot e premi il pulsante di sgancio accanto alle spazzole.",
+          "Estrai i due rulli. Conserva i tappi se i nuovi non li hanno.",
+          "Inserisci i nuovi rulli dove la loro forma combacia e chiudi il telaio.",
+          "Segnala le spazzole come sostituite."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Capovolgi il robot e premi il pulsante a destra della testina di pulizia.",
+          "Estrai i due rulli. Conserva i tappi se i nuovi non li hanno.",
+          "Inserisci i nuovi rulli dove la loro forma combacia e chiudi il fermo.",
+          "Segnala le spazzole come sostituite."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Sostituisci la spazzola laterale",
+    "why": "Una spazzola laterale consumata non arriva più nei bordi e negli angoli.",
+    "steps": [
+      "Capovolgi il robot.",
+      "Svita la vite o sfila la vecchia spazzola dall'albero.",
+      "Spingi la spazzola nuova sull'albero e fissala.",
+      "Segnala la spazzola laterale come sostituita."
+    ],
+    "caution": "Conserva la vite: una spazzola allentata cade durante la pulizia.",
+    "variants": {
+      "s": {
+        "title": "Sostituisci la spazzola angolare",
+        "why": "Una spazzola angolare consumata non arriva più negli angoli.",
+        "steps": [
+          "Capovolgi il robot.",
+          "Svita la vite e togli la vecchia spazzola angolare.",
+          "Metti la nuova spazzola angolare sul perno e stringi la vite.",
+          "Segnala la spazzola angolare come sostituita."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Sostituisci il sacchetto",
+    "why": "Il sacchetto della base raccoglie ciò che il robot vi svuota. Quando è pieno, la base non può più svuotare il robot.",
+    "steps": [
+      "Apri il coperchio della base.",
+      "Estrai il sacchetto tirando la linguetta: la linguetta chiude l'apertura.",
+      "Inserisci il sacchetto nuovo e spingi il suo cartoncino nella guida finché non è fermo.",
+      "Chiudi il coperchio e segnala il sacchetto come sostituito."
+    ],
+    "caution": "Non riutilizzare un sacchetto: la sua chiusura si chiude una volta sola."
+  },
+  "replace_battery": {
+    "title": "Sostituisci la batteria",
+    "why": "Una batteria perde capacità a ogni ricarica. Il robot lavora allora per meno tempo e può fermarsi prima di aver finito.",
+    "steps": [
+      "Spegni il robot e capovolgilo.",
+      "Svita le viti del coperchio della batteria e toglilo.",
+      "Estrai la vecchia batteria per le linguette e inserisci la nuova con i contatti nello stesso verso.",
+      "Rimetti il coperchio, appoggia il robot sulla base e segnala la batteria come sostituita."
+    ],
+    "caution": "Usa una batteria per questo modello e porta la vecchia in un punto di raccolta delle pile."
+  },
+  "replace_pad": {
+    "title": "Sostituisci il panno",
+    "why": "Un panno consumato lascia aloni e raccoglie meno sporco.",
+    "steps": [
+      "Solleva il robot o toglilo dalla base.",
+      "Sfila il vecchio panno dal supporto.",
+      "Fai scorrere o premi il panno nuovo sul supporto finché non è fermo.",
+      "Segnala il panno come sostituito."
+    ],
+    "caution": "Lava i panni lavabili senza ammorbidente; usa quelli monouso una volta sola."
+  },
+  "replace_roller": {
+    "title": "Sostituisci il mop a rullo",
+    "why": "Un mop a rullo consumato non preme più in modo uniforme sul pavimento e lascia aloni.",
+    "steps": [
+      "Togli il mop a rullo dal robot.",
+      "Inserisci quello nuovo finché non scatta da entrambi i lati.",
+      "Segnala il mop a rullo come sostituito."
+    ],
+    "caution": "Lascia asciugare un mop lavato prima di rimetterlo."
+  },
+  "replace_detergent": {
+    "title": "Sostituisci il detergente",
+    "why": "La base aggiunge il detergente della sua cartuccia all'acqua di lavaggio. Quando è vuota, il robot lava solo con acqua.",
+    "steps": [
+      "Apri il vano del detergente della base.",
+      "Estrai la cartuccia vuota.",
+      "Inserisci quella nuova finché non è ferma e chiudi il vano.",
+      "Segnala il detergente come sostituito."
+    ],
+    "caution": "Usa solo detergente per questa base: altri prodotti possono fare schiuma o danneggiarla."
+  }
+}

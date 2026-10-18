@@ -56,6 +56,8 @@ from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfTime
 from roombapy_prime.models.mission_history import FaultScene
 
 from .parts_catalog import guide_url_for
+from .prime_parts import part_count_in_display_unit
+from .maintenance_model import MaintenanceItem
 from .prime_dirt import unfinished_missions
 from .const import (
     PHASE_LABELS,
@@ -1797,34 +1799,6 @@ _PART_COUNT_UNITS: dict[str, str | None] = {
 }
 
 
-def part_count_in_display_unit(part: Any, count: int | None) -> int | None:
-    """A part count expressed in the unit the label above names.
-
-    THE TABLE RENAMES A UNIT AND THE VALUE HAS TO FOLLOW. `minutes` is
-    displayed as hours, so a count in minutes has to be divided before
-    it is shown beside that word. Every other count type is displayed in
-    the unit the robot already counts in and passes through untouched.
-
-    Shared because it was not. The sensor divided; the maintenance list
-    looked up the same table for the same part and printed the raw
-    number beside the renamed unit, so one robot showed `179 h` on
-    `sensor.*_prime_part_69` and "10740 hours remaining" on its
-    maintenance list at the same moment -- the same value, one of them
-    sixty times too large (@utkjmitch, part 69, confirmed against the
-    iRobot app's "Multi-surface brush 179 hrs").
-
-    A number and the word it is labelled with cannot drift apart if
-    both come from here.
-    """
-    if count is None:
-        return None
-    if (getattr(part, "count_type", "") or "").lower() == "minutes":
-        # Minutes on the wire, hours in the app -- 5100 -> 85 h,
-        # confirmed on two accounts and then by count_type itself.
-        return round(count / 60)
-    return count
-
-
 class PrimeConsumablePartSensor(IRobotEntity, SensorEntity):
     """One V4/Prime consumable: filter, a brush, mop pads, dirt bag.
 
@@ -1848,6 +1822,7 @@ class PrimeConsumablePartSensor(IRobotEntity, SensorEntity):
     """
 
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _shows_maintenance = True
 
     def __init__(self, blid: str, part_id: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(None, blid, config_entry)
@@ -1922,6 +1897,10 @@ class PrimeConsumablePartSensor(IRobotEntity, SensorEntity):
             # match them against their own app.
             "raw_count_remaining": part.count_remaining,
             "category": part.counter_category,
+            # 4.5.0: what the robot says besides the count -- percent
+            # used, when it was last reset and by whom.
+            "counter": getattr(part, "counter", None),
+            "reset_by": getattr(part, "reset_by", None),
             # The manufacturer's guide for this part, from iRobot's parts
             # catalogue (4.2.19). Absent where the catalogue has none.
             **(
@@ -1929,7 +1908,26 @@ class PrimeConsumablePartSensor(IRobotEntity, SensorEntity):
                 if (guide := guide_url_for(self._config_entry.runtime_data, part.part_id))
                 else {}
             ),
+            **self._maintenance_attributes(),
         }
+
+    def _maintenance_attributes(self) -> dict[str, Any]:
+        """The maintenance entry's figures for this part (4.5.0)."""
+        tracker = getattr(self._config_entry.runtime_data, "maintenance", None)
+        item = tracker.item_for_part(self._part_id) if tracker is not None else None
+        if not isinstance(item, MaintenanceItem):
+            return {}
+        attrs: dict[str, Any] = {
+            "level": item.level,
+            "used": item.used,
+            "due": item.due,
+            "interval_source": item.interval_source,
+            "last_replaced": item.last_done,
+            "wear_rate": item.wear_rate,
+        }
+        if item.buy_url:
+            attrs["buy_url"] = item.buy_url
+        return attrs
 
 
 class PrimePhaseSensor(_PrimeCurrentStateSensorBase):

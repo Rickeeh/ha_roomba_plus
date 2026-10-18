@@ -323,6 +323,89 @@ restore_backup:
       selector:
         text:
 
+maintenance_done:
+  name: Mark maintenance done
+  description: >-
+    Marks a maintenance entry as done: a part replaced or a care task
+    carried out. The entries are in the maintenance sensor's `items`
+    attribute. On a Prime robot the reset goes to iRobot, as the app
+    sends it; if iRobot applies it to no part, the action fails.
+  target:
+    entity:
+      integration: roomba_plus
+      domain: vacuum
+  fields:
+    item:
+      name: Entry
+      description: >-
+        The entry's id, for example replace.filter or clean.wheel.
+      required: true
+      example: "replace.filter"
+      selector:
+        text:
+    action:
+      name: Action
+      description: >-
+        replace or clean; empty for the entry's own. A part to replace
+        can be reported as only cleaned, and its counter stays.
+      required: false
+      selector:
+        select:
+          options:
+            - "replace"
+            - "clean"
+
+maintenance_snooze:
+  name: Snooze maintenance reminder
+  description: >-
+    No reminder for a maintenance entry for a number of days. The entry
+    keeps its level; the event entity stays quiet until then.
+  target:
+    entity:
+      integration: roomba_plus
+      domain: vacuum
+  fields:
+    item:
+      name: Entry
+      description: The entry's id, for example replace.filter.
+      required: true
+      example: "replace.filter"
+      selector:
+        text:
+    days:
+      name: Days
+      description: How many days.
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 90
+          step: 1
+          unit_of_measurement: days
+
+maintenance_forget_learned:
+  name: Forget learned maintenance interval
+  description: >-
+    Forgets the replacement interval learned from your own replacements,
+    for one part or every part of a Classic robot -- the way back from a
+    reset pressed by mistake or a part swapped early. The current part's
+    count stays; learning starts again with the next two replacements.
+  target:
+    entity:
+      integration: roomba_plus
+      domain: vacuum
+  fields:
+    item:
+      name: Entries
+      description: >-
+        The parts, for example replace.filter. Empty: every part.
+      required: false
+      example: "replace.filter"
+      selector:
+        text:
+          multiple: true
+
 run_favorite:
   name: Run favorite
   description: >-

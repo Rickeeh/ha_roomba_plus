@@ -354,12 +354,22 @@ async def async_setup_entry(
         # to reset these, and `services.yaml` advertised a service for
         # each -- none of which was ever registered. So the documented
         # route returned "service not found" and there was no button.
-        PadResetButton(roomba, blid, config_entry),
+        # The pad's only where there is one (below).
         WheelCleaningResetButton(roomba, blid, config_entry),
         ContactCleaningResetButton(roomba, blid, config_entry),
         BinCleaningResetButton(roomba, blid, config_entry),
         *_cloud_part_reset_buttons(roomba, blid, config_entry),
     ])
+    # "PAD REPLACED" ONLY ON A BRAAVA (4.5.0). It was on every Classic
+    # robot, a 980 included, and wrote the main-brush counter: the pad
+    # shares that slot on a Braava, which has no brushes. A Combo has
+    # both and no slot of its own for the pad, so it gets none either.
+    # The button a robot without a pad already has goes from the
+    # registry rather than staying behind as "unavailable".
+    if is_braava(state):
+        entities.append(PadResetButton(roomba, blid, config_entry))
+    else:
+        _remove_pad_button(hass, config_entry, blid)
     # Care reminders (4.3.2), opt-in: the "cleaned" buttons feed sensor
     # next_care and exist only with it. The parts a Braava does not have
     # get no button there.
@@ -631,6 +641,10 @@ class WheelCleaningResetButton(_CleaningTaskResetButton):
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid, config_entry)
         self._attr_unique_id = f"{self.robot_unique_id}_reset_wheel_cleaning"
+        # Created disabled on a new installation (4.5.0, E2): done rarely,
+        # and reachable through Configure → Maintenance and the
+        # maintenance_done action. An existing one stays as it is.
+        self._attr_entity_registry_enabled_default = False
 
 
 class ContactCleaningResetButton(_CleaningTaskResetButton):
@@ -642,6 +656,10 @@ class ContactCleaningResetButton(_CleaningTaskResetButton):
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid, config_entry)
         self._attr_unique_id = f"{self.robot_unique_id}_reset_contact_cleaning"
+        # Created disabled on a new installation (4.5.0, E2): done rarely,
+        # and reachable through Configure → Maintenance and the
+        # maintenance_done action. An existing one stays as it is.
+        self._attr_entity_registry_enabled_default = False
 
 
 class BinCleaningResetButton(_CleaningTaskResetButton):
@@ -653,6 +671,10 @@ class BinCleaningResetButton(_CleaningTaskResetButton):
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid, config_entry)
         self._attr_unique_id = f"{self.robot_unique_id}_reset_bin_cleaning"
+        # Created disabled on a new installation (4.5.0, E2): done rarely,
+        # and reachable through Configure → Maintenance and the
+        # maintenance_done action. An existing one stays as it is.
+        self._attr_entity_registry_enabled_default = False
 
 
 class FilterCleaningResetButton(_CleaningTaskResetButton):
@@ -843,6 +865,10 @@ class BatteryResetButton(_MaintenanceResetButton):
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid, config_entry)
         self._attr_unique_id = f"{self.robot_unique_id}_reset_battery"
+        # Created disabled on a new installation (4.5.0, E2): done rarely,
+        # and reachable through Configure → Maintenance and the
+        # maintenance_done action. An existing one stays as it is.
+        self._attr_entity_registry_enabled_default = False
 
     async def async_press(self) -> None:
         hr = self._current_hr()
@@ -1401,3 +1427,15 @@ class FavoriteButton(IRobotEntity, ButtonEntity):
             self._attr_name, command, params or "(none)",
         )
         await self.vacuum.send_command(command, params)
+
+
+def _remove_pad_button(hass: HomeAssistant, config_entry: RoombaConfigEntry, blid: str) -> None:
+    """Drop the "pad replaced" button of a robot without a pad (4.5.0)."""
+    from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "button", DOMAIN, f"roomba_plus_{blid}_reset_pad"
+    )
+    if entity_id is not None:
+        registry.async_remove(entity_id)

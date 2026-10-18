@@ -15,7 +15,12 @@ from homeassistant.helpers.entity import Entity
 
 from . import roomba_reported_state
 from .availability import is_locally_available, local_availability_signal
-from .const import DOMAIN, maintenance_changed_signal, mission_store_changed_signal
+from .const import (
+    DOMAIN,
+    maintenance_changed_signal,
+    maintenance_items_signal,
+    mission_store_changed_signal,
+)
 
 if TYPE_CHECKING:
     from .models import RoombaConfigEntry
@@ -71,6 +76,8 @@ class IRobotEntity(Entity):
     #: for three and a half hours. Set on the class, or per instance
     #: (RoombaSensor takes it from its description).
     _live_state: bool = False
+    #: Re-render when the maintenance entries are recomputed (4.5.0).
+    _shows_maintenance: bool = False
 
     def __init__(
         self,
@@ -376,6 +383,16 @@ class IRobotEntity(Entity):
                 self._on_maintenance_changed,
             )
         )
+        # THE MAINTENANCE ENTRIES WERE RECOMPUTED (4.5.0) -- only for the
+        # entities that show them; they change with every hour run.
+        if self._shows_maintenance:
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    maintenance_items_signal(self._blid),
+                    self._on_maintenance_changed,
+                )
+            )
         # MISSION RECORDS CHANGED OUTSIDE A ROBOT MESSAGE (4.2.14): the
         # cloud's room events and results merged in after a mission. Same
         # reasoning as maintenance: every entity re-renders from its

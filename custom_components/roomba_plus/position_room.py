@@ -71,6 +71,10 @@ class PositionRoomTracker:
         self.last_in_room: float | None = None
         #: Confirmed changes this mission (diagnostics).
         self.changes = 0
+        #: Every room confirmed since the reset, in order, each once
+        #: (4.5.0): the rooms a 900-series mission that cleaned the whole
+        #: floor actually went into.
+        self.visited: list[str] = []
         #: Positions this mission per room, None for those in no room
         #: (4.4.1, diagnostics): a turn that puts the path beside the
         #: floor plan shows as positions in no room, without a
@@ -119,6 +123,8 @@ class PositionRoomTracker:
             previous, self.current = self.current, room
             self._candidate = None
             self.changes += 1
+            if room not in self.visited:
+                self.visited.append(room)
             for listener in list(self._listeners):
                 listener(previous, room)
 

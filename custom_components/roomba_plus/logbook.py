@@ -34,6 +34,7 @@ from .const import (
     EVENT_MAP_RETRAIN_IN_PROGRESS,
     EVENT_MISSION_ANOMALY,
     EVENT_MISSION_COMPLETED,
+    EVENT_MISSION_REASSESSED,
     EVENT_MIXED_SCHEDULE,
     EVENT_SCHEDULE_SUBOPTIMAL,
     EVENT_STUCK,
@@ -189,6 +190,18 @@ def async_describe_events(
         }
 
     @callback
+    def describe_mission_reassessed(event: Event) -> dict[str, str]:
+        data = event.data
+        action = data.get("recommended_action")
+        return {
+            LOGBOOK_ENTRY_NAME: data.get("name") or "Roomba+",
+            LOGBOOK_ENTRY_MESSAGE: (
+                "the cloud's numbers show the last mission as unusual"
+                + (f": {action}" if action else "")
+            ),
+        }
+
+    @callback
     def describe_mixed_schedule(event: Event) -> dict[str, str]:
         data = event.data
         return {
@@ -261,6 +274,9 @@ def async_describe_events(
     )
     async_describe_event(
         DOMAIN, EVENT_MISSION_ANOMALY, describe_mission_anomaly
+    )
+    async_describe_event(
+        DOMAIN, EVENT_MISSION_REASSESSED, describe_mission_reassessed
     )
     async_describe_event(
         DOMAIN, EVENT_MIXED_SCHEDULE, describe_mixed_schedule

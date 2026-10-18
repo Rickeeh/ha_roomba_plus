@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 from homeassistant.config_entries import SOURCE_IGNORE
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
@@ -48,11 +49,19 @@ from .const import (
     EVENT_MIXED_SCHEDULE,
     EVENT_SCHEDULE_SUBOPTIMAL,
     EVENT_STUCK_PATTERN,
-    MAINTENANCE_DUE_GRACE_DAYS,
     MAP_RETRAIN_STUCK_MINUTES,
     MAP_RETRAIN_WARN_MINUTES,
     get_localized_error_entry,
 )
+from .care_guides import (
+    async_wording,
+    context_for,
+    get_care_guides,
+    guide_link,
+    interval_text,
+    language_for,
+)
+from .care_guides import guide_id as care_guide_id
 from .geometry_utils import raw_pose_mm_to_map
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,6 +111,9 @@ async def async_create_fix_flow(
             entries = hass.config_entries.async_entries(DOMAIN)
             entry = entries[0] if entries else None
         return SmartZoneNamingRepairFlow(entry)
+
+    if issue_id.startswith((MAINTENANCE_OVERDUE_PREFIX, ERROR_CARE_PREFIX)):
+        return MaintenanceRepairFlow(hass, issue_id, data or {})
 
     if issue_id == "smart_zones_need_naming":
         # Legacy issue ID created before v2.6.4 — fall back to first entry
@@ -722,65 +734,6 @@ async def async_check_mixed_schedule(
         )
     else:
         _disarm(entry.entry_id, "mixed_schedule")
-
-
-async def async_check_accident_detection(
-    hass: HomeAssistant,
-    entry: Any,
-    records: list[Any],
-) -> None:
-    """F6f — fire alert when cloud records show a floor accident signature.
-
-    Signature: dirt_events/sqft > 3× the 90-day 95th-percentile AND
-    duration_min < 20 (robot stopped early).  No pet mode config required.
-    """
-    if not records or len(records) < 5:
-        return
-
-    # Compute 95th-percentile density baseline from 90-day window
-    densities = []
-    for r in records:
-        dirt = r.get("dirt")
-        sqft = r.get("sqft")
-        if dirt is not None and sqft and float(sqft) > 0:
-            densities.append(float(dirt) / float(sqft))
-
-    if len(densities) < 5:
-        return
-
-    densities_sorted = sorted(densities)
-    p95_idx = int(len(densities_sorted) * 0.95)
-    p95 = densities_sorted[p95_idx]
-
-    # Check the most recent record only
-    recent = records[0]
-    recent_dirt = recent.get("dirt")
-    recent_sqft = recent.get("sqft")
-    recent_dur = recent.get("durationM") or recent.get("duration_min", 60)
-
-    if recent_dirt is None or not recent_sqft or float(recent_sqft) == 0:
-        return
-
-    recent_density = float(recent_dirt) / float(recent_sqft)
-    if recent_density > 3 * p95 and float(recent_dur) < 20:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            "accident_detected",
-            is_fixable=False,
-            is_persistent=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="accident_detected",
-        )
-        _LOGGER.warning(
-            "Roomba+: possible floor accident detected — "
-            "dirt density %.2f × baseline (%.2f), mission duration %s min",
-            recent_density / p95 if p95 > 0 else 0,
-            p95,
-            recent_dur,
-        )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, "accident_detected")
 
 
 async def async_enrich_drift_issue(
@@ -1566,66 +1519,214 @@ def async_check_map_retrain_workflow(
     # else: stage 1 (just started) — no signal yet, by design.
 
 
-# v2.9.0 — wall-clock timestamp of when at least one consumable was FIRST
-# observed continuously due for this entry. Not persisted — same in-memory
-# pattern as _health_low_since / _map_updating_since.
-_maintenance_due_since: dict[str, float] = {}
+def async_remove_maintenance_due_issue(
+    hass: HomeAssistant, config_entry: "RoombaConfigEntry",
+) -> None:
+    """The collective "Maintenance is overdue" issue is gone (4.5.0, E3).
+
+    It could not be fixed from the issue and sent people to an
+    attribute; the maintenance list, the status sensor and its event say
+    the same thing where it can be acted on, and a repair issue per
+    overdue part comes back only for whoever switches it on (Configure →
+    Maintenance). An issue left from an earlier version is removed at
+    setup.
+    """
+    ir.async_delete_issue(hass, DOMAIN, f"maintenance_due_{config_entry.entry_id}")
 
 
-def async_check_maintenance_due(
+# ── Maintenance repair issues (4.5.0, D1 and D2) ─────────────────────────────
+#
+# Both off by default; the maintenance list says the same. D1, option
+# "Repair issue for a part a week overdue": one issue per part to
+# replace once it is overdue. D2, "Guide when an error points to a care
+# task" set to Repairs: one issue while the robot reports such an error.
+# The tracker (maintenance_model.py) decides which should exist after
+# every recompute and calls `async_sync_maintenance_issues`; the issues
+# it does not name for this robot go.
+
+MAINTENANCE_OVERDUE_PREFIX = "maintenance_overdue_"
+ERROR_CARE_PREFIX = "maintenance_error_care_"
+#: What a fix flow can answer, by issue kind.
+OVERDUE_CHOICES: tuple[str, ...] = ("replaced", "cleaned", "snooze", "never")
+ERROR_CARE_CHOICES: tuple[str, ...] = ("cleaned", "close")
+
+
+def _guide_markdown(hass: HomeAssistant, entry_id: str, guide: str | None, fallback: str) -> tuple[str, str]:
+    """The guide's title and a Markdown link to it (just the title
+    without a guide)."""
+    guides = get_care_guides(hass)
+    if guides is None or guide is None:
+        return fallback, fallback
+    title = guides.title(guide, language_for(hass.config.language))
+    link = guide_link(hass, entry_id, guide)
+    return title, (f"[{title}]({link})" if link else title)
+
+
+def async_sync_maintenance_issues(
     hass: HomeAssistant,
     config_entry: "RoombaConfigEntry",
-    due_items: list[str],
+    overdue: list[Any],
+    error_care: tuple[str, int | str] | None,
 ) -> None:
-    """maintenance_due Repair Issue (v2.9.0) — backstop for users without
-    automations wired to the maintenance_due device trigger / binary_sensor.
-
-    Unlike integration_health's sustained-duration gate (which exists to
-    reject a noisy, fluctuating signal), hours-since-reset is monotonic —
-    once a consumable is due it STAYS due until reset, it never flickers.
-    The MAINTENANCE_DUE_GRACE_DAYS delay here is purely about not nagging
-    the user in the Repairs UI for a marginal, just-crossed-the-threshold
-    overage (the hour thresholds are heuristics, not safety-critical) — the
-    binary_sensor and device trigger already give instant awareness to
-    anyone who wants it via automation; this is the UI-visible backstop for
-    everyone else.
-
-    due_items is the live list from RoombaMaintenanceDue._due_items() (e.g.
-    ["filter", "brush"]) — passed in directly rather than recomputed here,
-    since the binary sensor entity already has vacuum_state/options/store
-    wired and recomputing the same logic a second time would risk the two
-    silently diverging.
-
-    Note: the "since" timestamp tracks since ANY item first became due, not
-    per-component — if the user resets one overdue consumable while another
-    remains due, the timer does not restart. Coarser than ideal, but matches
-    the same simplicity tradeoff already accepted for _health_low_since.
-    """
-    issue_id = f"maintenance_due_{config_entry.entry_id}"
+    """Make this robot's maintenance issues the ones named here:
+    `overdue` entries (D1), the care task of the current error (D2)."""
     entry_id = config_entry.entry_id
-    now = dt_util.utcnow().timestamp()
-
-    if not due_items:
-        _maintenance_due_since.pop(entry_id, None)
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
-        return
-
-    due_since = _maintenance_due_since.setdefault(entry_id, now)
-    days = (now - due_since) / 86400.0
-
-    if days >= MAINTENANCE_DUE_GRACE_DAYS:
+    wanted: set[str] = set()
+    for item in overdue:
+        issue_id = f"{MAINTENANCE_OVERDUE_PREFIX}{entry_id}_{item.id}"
+        wanted.add(issue_id)
+        title, guide = _guide_markdown(hass, entry_id, item.guide_id, item.id)
         ir.async_create_issue(
-            hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
+            hass, DOMAIN, issue_id,
+            is_fixable=True,
             is_persistent=False,
             severity=ir.IssueSeverity.WARNING,
-            translation_key="maintenance_due",
-            translation_placeholders={"items": ", ".join(due_items)},
+            translation_key="maintenance_part_overdue",
+            translation_placeholders={"name": config_entry.title, "part": title, "guide": guide},
+            data={"entry_id": entry_id, "item_id": item.id},
         )
-    # else: within the grace period — no issue yet, by design.
+    if error_care is not None:
+        task, cause = error_care
+        issue_id = f"{ERROR_CARE_PREFIX}{entry_id}_{task}"
+        wanted.add(issue_id)
+        title, guide = _guide_markdown(hass, entry_id, care_guide_id("check", task), task)
+        ir.async_create_issue(
+            hass, DOMAIN, issue_id,
+            is_fixable=True,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="maintenance_error_care",
+            translation_placeholders={
+                "name": config_entry.title, "task": title, "guide": guide,
+                "code": str(cause) if isinstance(cause, int) else "",
+                "reason": cause if isinstance(cause, str) else "",
+            },
+            data={"entry_id": entry_id, "task": task},
+        )
+    mine = (f"{MAINTENANCE_OVERDUE_PREFIX}{entry_id}_", f"{ERROR_CARE_PREFIX}{entry_id}_")
+    stale = [
+        issue_id
+        for (domain, issue_id) in ir.async_get(hass).issues
+        if domain == DOMAIN and issue_id.startswith(mine) and issue_id not in wanted
+    ]
+    for issue_id in stale:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
 
+
+class MaintenanceRepairFlow(RepairsFlow):
+    """Fix flow for both maintenance issues: one choice, then done.
+
+    Overdue part: replaced, only cleaned (and asked again in a week),
+    asked again in a week, or never again for this part. Error: cleaned,
+    or closed until the robot reports another error. Finishing the flow
+    removes the issue; the tracker brings it back only if it still
+    applies.
+    """
+
+    def __init__(self, hass: HomeAssistant, issue_id: str, data: dict[str, Any]) -> None:
+        self.hass = hass
+        self._issue_id = issue_id
+        self._overdue = issue_id.startswith(MAINTENANCE_OVERDUE_PREFIX)
+        self._data = data
+
+    def _tracker(self) -> Any:
+        entry = self.hass.config_entries.async_get_entry(str(self._data.get("entry_id", "")))
+        return getattr(getattr(entry, "runtime_data", None), "maintenance", None)
+
+    async def _placeholders(self, tracker: Any) -> dict[str, str]:
+        """The issue's own placeholders, and the whole guide -- drawing,
+        why, how, what not to do -- where the issue shows only its link;
+        an overdue part's interval and its source, an error's cause."""
+        issue = ir.async_get(self.hass).async_get_issue(DOMAIN, self._issue_id)
+        placeholders = {
+            "name": "", "part": "", "task": "", "guide": "", "code": "", "reason": "",
+            **dict((issue.translation_placeholders or {}) if issue else {}),
+            "error": "", "interval": "", "cause": "",
+        }
+        wording = await async_wording(self.hass)
+        entry_id = str(self._data.get("entry_id", ""))
+        if self._overdue:
+            item = tracker.item(str(self._data.get("item_id", "")))
+            guide = getattr(item, "guide_id", None)
+            placeholders["interval"] = interval_text(item, wording) or ""
+        else:
+            guide = care_guide_id("check", str(self._data.get("task", "")))
+            if placeholders["code"]:
+                placeholders["cause"] = wording.get("error_line", "").replace(
+                    "{code}", placeholders["code"],
+                )
+            elif placeholders["reason"]:
+                placeholders["cause"] = wording.get(f"reason_{placeholders['reason']}", "")
+        guides = get_care_guides(self.hass)
+        if guides is not None and guide is not None:
+            entry = self.hass.config_entries.async_get_entry(entry_id)
+            ctx = context_for(getattr(entry, "runtime_data", None))
+            lang = language_for(self.hass.config.language)
+            placeholders["guide"] = guides.markdown(
+                guide, lang, guides.pictures_markdown(entry_id, guide, ctx, lang), ctx,
+            )
+        return placeholders
+
+    def _choices(self, tracker: Any) -> list[str]:
+        if not self._overdue:
+            return list(ERROR_CARE_CHOICES)
+        item = tracker.item(str(self._data.get("item_id", "")))
+        can_clean = item is not None and tracker.can_mark_cleaned(item)
+        return [c for c in OVERDUE_CHOICES if c != "cleaned" or can_clean]
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> data_entry_flow.FlowResult:
+        tracker = self._tracker()
+        if tracker is None:
+            return self.async_create_entry(data={})
+        errors: dict[str, str] = {}
+        placeholders = await self._placeholders(tracker)
+        if user_input is not None:
+            try:
+                await self._apply(tracker, str(user_input.get("choice", "")))
+            except HomeAssistantError as err:
+                errors["base"] = "maintenance_done_failed"
+                placeholders["error"] = str(err)
+            else:
+                return self.async_create_entry(data={})
+        choices = self._choices(tracker)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Required("choice", default=choices[0]): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=choices,
+                        translation_key=(
+                            "maintenance_overdue_choice" if self._overdue
+                            else "maintenance_error_care_choice"
+                        ),
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                ),
+            }),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def _apply(self, tracker: Any, choice: str) -> None:
+        if not self._overdue:
+            task = str(self._data.get("task", ""))
+            if choice == "cleaned" and tracker.item(f"clean.{task}") is not None:
+                await tracker.async_done(f"clean.{task}", via="repairs")
+            else:
+                await tracker.async_close_error_issue(task)
+            return
+        item_id = str(self._data.get("item_id", ""))
+        if choice == "replaced":
+            await tracker.async_done(item_id, "replace", via="repairs")
+        elif choice == "cleaned":
+            await tracker.async_done(item_id, "clean", via="repairs")
+            await tracker.async_snooze(item_id, 7)
+        elif choice == "snooze":
+            await tracker.async_snooze(item_id, 7)
+        elif choice == "never":
+            await tracker.async_never_repair(item_id)
 
 
 # ── FAVORITE-FIX — multi-commanddef Favorites ─────────────────────────────────
@@ -1703,11 +1804,16 @@ _REMOVED_REPAIR_TRANSLATION_KEYS = frozenset({
     "cloud_stale",
     # Stufe 5 — merged into battery_contact_suspect / dock_contact_health
     "smberr_high",
+    # 4.5.0 — never raised: nothing called the check, and it read field
+    # names the stored missions do not have. The dirt_spike anomaly of the
+    # mission history covers the case.
+    "accident_detected",
 })
 
 
 async def async_cleanup_removed_repairs(hass: HomeAssistant) -> int:
-    """One-time cleanup of stale Repair Issues from v3.5.0's Repairs redesign.
+    """One-time cleanup of stale Repair Issues from v3.5.0's Repairs
+    redesign, and of the ones later versions dropped.
 
     Safe to call on every startup — it's a no-op once the affected issues
     are gone, and matching by translation_key means it can never touch an

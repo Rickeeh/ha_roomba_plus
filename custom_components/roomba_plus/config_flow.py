@@ -55,6 +55,7 @@ from homeassistant.helpers import discovery_flow
 from homeassistant.helpers.typing import DiscoveryInfoType
 from homeassistant.const import CONF_DELAY, CONF_HOST, CONF_NAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
@@ -62,7 +63,26 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 from . import CannotConnect, async_connect_or_timeout, async_disconnect_or_timeout, roomba_reported_state
 from . import cloud_errors
 from .cloud_account import async_login, async_offer, async_peek
+from .entity_cleanup import (
+    async_remove_prime_only_entities,
+    async_set_maintenance_diagnostics_hidden,
+)
 from .const import (
+    CARE_GUIDE_ON_ERROR_CHOICES,
+    CONF_BRUSH_HOURS,
+    CONF_CARE_GUIDE_ON_ERROR,
+    CONF_CLEAN_BASE_BAG_HOURS,
+    CONF_FILTER_HOURS,
+    CONF_HIDE_MAINTENANCE_DIAGNOSTICS,
+    CONF_MAINTENANCE_CALENDAR,
+    CONF_MAINTENANCE_OVERDUE_REPAIRS,
+    CONF_MAINTENANCE_SOON,
+    CONF_SIDE_BRUSH_HOURS,
+    DEFAULT_CARE_GUIDE_ON_ERROR,
+    DEFAULT_MAINTENANCE_CALENDAR,
+    DEFAULT_MAINTENANCE_OVERDUE_REPAIRS,
+    DEFAULT_MAINTENANCE_SOON,
+    MAINTENANCE_SOON_SHARES,
     reports_local_pose,
     CONF_CORRELATION_ENTITIES,
     CONF_ROOM_SCHEDULE,
@@ -93,6 +113,8 @@ from .const import (
     LIVE_PATH_TURN_CHOICES,
     CONF_MAP_ENABLED,
     CONF_MAP_ROTATION,
+    CONF_DOOR_WIDTH_CM,
+    CONF_WALL_THICKNESS_CM,
     CONF_MAP_SCALE,
     CONF_MAP_SIZE_PX,
     CONF_PRIME_FAVORITE_BUTTONS,
@@ -118,6 +140,8 @@ from .const import (
     DEFAULT_LIVE_POSITION_REQUESTS,
     DEFAULT_MAP_ENABLED,
     DEFAULT_MAP_ROTATION,
+    DEFAULT_DOOR_WIDTH_CM,
+    DEFAULT_WALL_THICKNESS_CM,
     DEFAULT_MAP_SCALE,
     DEFAULT_MAP_SIZE_PX,
     DEFAULT_PRIME_FAVORITE_BUTTONS,
@@ -129,12 +153,37 @@ from .const import (
     has_smart_map,
 )
 from .dirt_threshold_manager import TRIGGER_MULTIPLIER_DEFAULT
+from .care_guides import (
+    GUIDES,
+    async_wording,
+    context_for,
+    get_care_guides,
+    guide_id,
+    language_for,
+    when_text,
+)
+from .maintenance_model import LEVELS
 from .models import ConnectionType, MapCapability, RoombaConfigEntry
 from .naming_map import naming_map_markdown
 from .room_cleaning import smart_rooms_to_name
 from .room_seg_store import RoomSegStore, area_number
 
 _LOGGER = logging.getLogger(__name__)
+
+#: Options a robot added from 4.5.0 on starts with, unlike one set up
+#: before (E1 of the maintenance plan): the maintenance list is on. It
+#: is empty while nothing is due, so it costs a sidebar entry and no
+#: noise; an existing robot keeps the setting it has. In `data` too, so
+#: the first options save does not read it as a change and reload.
+_NEW_INSTALL_OPTIONS: dict[str, Any] = {CONF_ENABLE_MAINTENANCE_LIST: True}
+
+#: The hour interval per part (Configure → Maintenance, Classic only).
+_MAINTENANCE_HOUR_OPTIONS: tuple[str, ...] = (
+    CONF_FILTER_HOURS,
+    CONF_BRUSH_HOURS,
+    CONF_SIDE_BRUSH_HOURS,
+    CONF_CLEAN_BASE_BAG_HOURS,
+)
 
 
 async def _async_check_cloud_login(
@@ -1291,7 +1340,10 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
             if account is not None:
                 async_offer(self.hass, account, username, password)
                 self._announce_other_robots(account, username, str(config.get(CONF_BLID, "")))
-        return self.async_create_entry(title=self.name or "Roomba+", data=config)
+        config.update(_NEW_INSTALL_OPTIONS)
+        return self.async_create_entry(
+            title=self.name or "Roomba+", data=config, options=dict(_NEW_INSTALL_OPTIONS),
+        )
 
     @callback
     def _offer_account(self) -> None:
@@ -1327,7 +1379,9 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_BLID: blid,
                 CONF_IROBOT_USERNAME: self._prime_account_username,
                 CONF_IROBOT_PASSWORD: self._prime_account_password,
+                **_NEW_INSTALL_OPTIONS,
             },
+            options=dict(_NEW_INSTALL_OPTIONS),
         )
 
     async def async_step_prime_classic_ip(
@@ -1561,9 +1615,11 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
                 # has no local connection and never gets this far.
                 if current.data.get(CONF_CONNECTION_TYPE) == ConnectionType.CLOUD_ONLY.value:
                     data[CONF_CONNECTION_TYPE] = ConnectionType.LOCAL_PUSH.value
+                    removed = async_remove_prime_only_entities(self.hass, current)
                     _LOGGER.info(
                         "Roomba+: the local connection works, this robot now "
-                        "uses it instead of the cloud-only path"
+                        "uses it instead of the cloud-only path (%d Prime-only "
+                        "entities removed)", removed,
                     )
                 self.hass.config_entries.async_update_entry(current, data=data)
                 await self.hass.config_entries.async_reload(current.entry_id)
@@ -1685,6 +1741,20 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
+def _wall_and_door_fields(options: Mapping[str, Any]) -> dict[Any, Any]:
+    """Wall thickness and door width (4.5.0), in whole centimetres."""
+    return {
+        vol.Optional(
+            CONF_WALL_THICKNESS_CM,
+            default=int(options.get(CONF_WALL_THICKNESS_CM, DEFAULT_WALL_THICKNESS_CM)),
+        ): vol.All(vol.Coerce(int), vol.Range(min=5, max=50)),
+        vol.Optional(
+            CONF_DOOR_WIDTH_CM,
+            default=int(options.get(CONF_DOOR_WIDTH_CM, DEFAULT_DOOR_WIDTH_CM)),
+        ): vol.All(vol.Coerce(int), vol.Range(min=50, max=250)),
+    }
+
+
 class RoombaPlusOptionsFlow(OptionsFlow):
     """Handle Roomba+ options (connection settings)."""
 
@@ -1705,6 +1775,9 @@ class RoombaPlusOptionsFlow(OptionsFlow):
 
         # ── ⚙  Connection ──────────────────────────────────────────────────
         menu: list[str] = ["settings"]
+        # ── 🔧  Maintenance (4.5.0): every maintenance setting in one place
+        if getattr(data, "maintenance", None) is not None:
+            menu.append("maintenance")
         if data.map_capability in (MapCapability.EPHEMERAL, MapCapability.SMART):
             menu.append("cloud_credentials")
 
@@ -1876,13 +1949,6 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                             ),
                         ): bool,
                         vol.Optional(
-                            CONF_ENABLE_MAINTENANCE_LIST,
-                            default=options.get(
-                                CONF_ENABLE_MAINTENANCE_LIST,
-                                DEFAULT_ENABLE_MAINTENANCE_LIST,
-                            ),
-                        ): bool,
-                        vol.Optional(
                             CONF_REGION_SENSORS,
                             default=options.get(
                                 CONF_REGION_SENSORS, DEFAULT_REGION_SENSORS
@@ -1920,6 +1986,8 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                                 CONF_MAP_NOMOP_ZONES, DEFAULT_MAP_ZONES
                             ),
                         ): bool,
+                        # Walls and doors on the rooms map (4.5.0).
+                        **_wall_and_door_fields(options),
                     }
                 ),
             )
@@ -2049,31 +2117,25 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                         CONF_ENABLE_SCHEDULE_CALENDAR, DEFAULT_ENABLE_SCHEDULE_CALENDAR
                     ),
                 ): bool,
-                # THE MAINTENANCE LIST FOR CLASSIC TOO. It became opt-in
-                # on both generations in 4.0.0a30, with the toggle added
-                # to the Prime form only -- so a Classic robot's list
-                # could not be switched back on at all (@ScenicSystemsLLC,
-                # 4.3.0b4: gone after removing and re-adding a robot).
-                vol.Optional(
-                    CONF_ENABLE_MAINTENANCE_LIST,
-                    default=options.get(
-                        CONF_ENABLE_MAINTENANCE_LIST, DEFAULT_ENABLE_MAINTENANCE_LIST
-                    ),
-                ): bool,
-                # Care reminders (4.3.2), opt-in; the pets option only
-                # changes them: filter and brushes twice a week instead
-                # of once, as iRobot's care articles say for homes with
-                # pets.
-                vol.Optional(
-                    CONF_CARE_REMINDERS,
-                    default=options.get(CONF_CARE_REMINDERS, DEFAULT_CARE_REMINDERS),
-                ): bool,
-                vol.Optional(
-                    CONF_PETS,
-                    default=options.get(CONF_PETS, DEFAULT_PETS),
-                ): bool,
+                # The maintenance list, care reminders and pets moved to
+                # Configure → Maintenance (4.5.0), on both generations.
             }
         )
+        # THE 900-SERIES LAYOUT (4.5.0): straight walls drawn from the
+        # areas. How thick a wall is decides which two rooms' sides are
+        # one wall; how wide a door is, its gap. Right after the map
+        # rotation, with the other map settings.
+        # A Smart Map robot's rooms map draws them too (4.5.0).
+        if getattr(self.config_entry.runtime_data, "map_capability", None) in (
+            MapCapability.EPHEMERAL, MapCapability.SMART,
+        ):
+            layout_fields = _wall_and_door_fields(options)
+            ordered: dict[Any, Any] = {}
+            for key, value in schema.items():
+                ordered[key] = value
+                if key == CONF_MAP_ROTATION:
+                    ordered.update(layout_fields)
+            schema = ordered
         return self.async_show_form(
             step_id="settings", data_schema=vol.Schema(schema)
         )
@@ -2090,6 +2152,282 @@ class RoombaPlusOptionsFlow(OptionsFlow):
         return not reports_local_pose(state if isinstance(state, dict) else {})
 
     # ── v1.7.0 L5 — Blocking sensors configuration ───────────────────────────
+
+    # ── 🔧 Maintenance (4.5.0) ──────────────────────────────────────────────
+
+    async def async_step_maintenance(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The robot's maintenance at a glance, and where to change it.
+
+        The overview is a table in the menu's description: each entry with
+        its level, what is left and where the interval comes from."""
+        tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
+        rows = ["| | | | |", "|---|---|---|---|"]
+        for item in tracker.items if tracker is not None else []:
+            left = (
+                f"{item.remaining:g} {item.unit}"
+                if item.remaining is not None and item.unit else "–"
+            )
+            rows.append(f"| `{item.id}` | {item.level} | {left} | {item.interval_source or '–'} |")
+        menu = ["maintenance_settings", "maintenance_report"]
+        if get_care_guides(self.hass) is not None:
+            menu.append("maintenance_guide")
+        if self.config_entry.runtime_data.connection_type != ConnectionType.CLOUD_ONLY:
+            menu.append("maintenance_forget")
+        return self.async_show_menu(
+            step_id="maintenance",
+            menu_options=menu,
+            description_placeholders={"overview": "\n".join(rows)},
+        )
+
+    async def async_step_maintenance_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Every maintenance setting in one place (4.5.0, E).
+
+        The list, care reminders and pets moved here from Settings. A
+        Classic robot also gets an hour interval per part -- empty means
+        automatic -- since the robot reports none; a Prime robot's own
+        counters are its intervals."""
+        from homeassistant.helpers import selector  # noqa: PLC0415
+
+        options = self.config_entry.options
+        classic = self.config_entry.runtime_data.connection_type != ConnectionType.CLOUD_ONLY
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if (
+                user_input.get(CONF_CARE_GUIDE_ON_ERROR) == "list"
+                and not user_input.get(CONF_ENABLE_MAINTENANCE_LIST)
+            ):
+                errors[CONF_CARE_GUIDE_ON_ERROR] = "maintenance_list_needed"
+            else:
+                updated = dict(options)
+                for key in _MAINTENANCE_HOUR_OPTIONS:
+                    updated.pop(key, None)
+                updated.update({k: v for k, v in user_input.items() if v not in (None, "")})
+                hide = bool(updated.get(CONF_HIDE_MAINTENANCE_DIAGNOSTICS, False))
+                if hide != bool(options.get(CONF_HIDE_MAINTENANCE_DIAGNOSTICS, False)):
+                    async_set_maintenance_diagnostics_hidden(self.hass, self.config_entry, hide)
+                return self.async_create_entry(title="", data=updated)
+
+        def _choice(key: str, choices: Any, default: str) -> Any:
+            return selector.SelectSelector(selector.SelectSelectorConfig(
+                options=list(choices),
+                translation_key=key,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )), str(options.get(key, default))
+
+        soon_selector, soon_default = _choice(
+            CONF_MAINTENANCE_SOON, MAINTENANCE_SOON_SHARES, DEFAULT_MAINTENANCE_SOON,
+        )
+        guide_selector, guide_default = _choice(
+            CONF_CARE_GUIDE_ON_ERROR, CARE_GUIDE_ON_ERROR_CHOICES, DEFAULT_CARE_GUIDE_ON_ERROR,
+        )
+        schema: dict[Any, Any] = {
+            vol.Optional(
+                CONF_ENABLE_MAINTENANCE_LIST,
+                default=options.get(CONF_ENABLE_MAINTENANCE_LIST, DEFAULT_ENABLE_MAINTENANCE_LIST),
+            ): bool,
+            vol.Optional(
+                CONF_CARE_REMINDERS,
+                default=options.get(CONF_CARE_REMINDERS, DEFAULT_CARE_REMINDERS),
+            ): bool,
+            vol.Optional(CONF_PETS, default=options.get(CONF_PETS, DEFAULT_PETS)): bool,
+            vol.Optional(CONF_MAINTENANCE_SOON, default=soon_default): soon_selector,
+            vol.Optional(CONF_CARE_GUIDE_ON_ERROR, default=guide_default): guide_selector,
+            vol.Optional(
+                CONF_MAINTENANCE_OVERDUE_REPAIRS,
+                default=options.get(
+                    CONF_MAINTENANCE_OVERDUE_REPAIRS, DEFAULT_MAINTENANCE_OVERDUE_REPAIRS
+                ),
+            ): bool,
+            vol.Optional(
+                CONF_MAINTENANCE_CALENDAR,
+                default=options.get(CONF_MAINTENANCE_CALENDAR, DEFAULT_MAINTENANCE_CALENDAR),
+            ): bool,
+            vol.Optional(
+                CONF_HIDE_MAINTENANCE_DIAGNOSTICS,
+                default=options.get(CONF_HIDE_MAINTENANCE_DIAGNOSTICS, False),
+            ): bool,
+        }
+        if classic:
+            hours = selector.NumberSelector(selector.NumberSelectorConfig(
+                min=1, max=2000, step=1, mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="h",
+            ))
+            for key in _MAINTENANCE_HOUR_OPTIONS:
+                schema[vol.Optional(
+                    key, description={"suggested_value": options.get(key)},
+                )] = hours
+        return self.async_show_form(
+            step_id="maintenance_settings",
+            data_schema=vol.Schema(schema),
+            errors=errors,
+        )
+
+    async def async_step_maintenance_report(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report a part replaced or a task done, without the list or a
+        button on a dashboard -- the same act as maintenance_done."""
+        from homeassistant.helpers import selector  # noqa: PLC0415
+
+        tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
+        items = [i for i in (tracker.items if tracker is not None else [])]
+        errors: dict[str, str] = {}
+        placeholders = {"error": ""}
+        if user_input is not None and tracker is not None:
+            action = user_input.get("action") or None
+            try:
+                await tracker.async_done(user_input["item"], action, via="settings")
+            except HomeAssistantError as err:
+                errors["base"] = "maintenance_done_failed"
+                placeholders["error"] = str(err)
+            else:
+                return self.async_create_entry(title="", data=dict(self.config_entry.options))
+        return self.async_show_form(
+            step_id="maintenance_report",
+            data_schema=vol.Schema({
+                vol.Required("item"): selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=i.id, label=f"{i.id} ({i.level})")
+                        for i in items
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )),
+                vol.Optional("action"): selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=["replace", "clean"],
+                    translation_key="maintenance_action",
+                    mode=selector.SelectSelectorMode.LIST,
+                )),
+            }),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    def _robot_guides(self) -> list[str]:
+        """The care guides for this robot: its entries' first, the most
+        urgent first, then the cleaning it has whether or not care
+        reminders are on."""
+        tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
+        entries = sorted(
+            tracker.items if tracker is not None else [],
+            key=lambda i: -LEVELS.index(i.level) if i.level in LEVELS else 0,
+        )
+        found = [i.guide_id for i in entries if i.guide_id]
+        braava = context_for(self.config_entry.runtime_data).series == "braava"
+        tasks = ("cliff_sensors", "contact") if braava else (
+            "filter", "brushes", "side_brush", "wheel", "cliff_sensors", "contact", "bin",
+        )
+        found.extend(g for task in tasks if (g := guide_id("clean", task)))
+        return [g for n, g in enumerate(found) if g in GUIDES and g not in found[:n]]
+
+    async def async_step_maintenance_guide(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """A care guide, chosen from this robot's (4.5.0, G)."""
+        from homeassistant.helpers import selector  # noqa: PLC0415
+
+        guides = get_care_guides(self.hass)
+        if guides is None:
+            return self.async_abort(reason="care_guides_unavailable")
+        if user_input is not None:
+            self._care_guide = user_input["guide"]
+            return await self.async_step_maintenance_guide_show()
+        lang = language_for(self.hass.config.language)
+        ctx = context_for(self.config_entry.runtime_data)
+        return self.async_show_form(
+            step_id="maintenance_guide",
+            data_schema=vol.Schema({
+                vol.Required("guide"): selector.SelectSelector(selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value=g, label=guides.title(g, lang, ctx))
+                        for g in self._robot_guides()
+                    ],
+                    mode=selector.SelectSelectorMode.LIST,
+                )),
+            }),
+        )
+
+    async def async_step_maintenance_guide_show(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The guide itself: the drawing, why, how, and what not to do --
+        and the entry marked done from here, where it has one."""
+        guides = get_care_guides(self.hass)
+        guide = getattr(self, "_care_guide", None)
+        if guides is None or guide not in GUIDES:
+            return self.async_abort(reason="care_guides_unavailable")
+        tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
+        items = tracker.items if tracker is not None else []
+        entry = next(
+            (i for i in items if i.guide_id == guide and i.action != "replace"), None,
+        ) or next((i for i in items if i.guide_id == guide), None)
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
+        if user_input is not None:
+            if user_input.get("done") and entry is not None and tracker is not None:
+                try:
+                    await tracker.async_done(entry.id, via="settings")
+                except HomeAssistantError as err:
+                    errors["base"] = "maintenance_done_failed"
+                    placeholders["error"] = str(err)
+            if not errors:
+                return self.async_create_entry(title="", data=dict(self.config_entry.options))
+        lang = language_for(self.hass.config.language)
+        entry_id = self.config_entry.entry_id
+        ctx = context_for(self.config_entry.runtime_data)
+        when = when_text(entry, await async_wording(self.hass))
+        placeholders.update({
+            "title": guides.title(guide, lang, ctx),
+            "guide": guides.markdown(
+                guide, lang, guides.pictures_markdown(entry_id, guide, ctx, lang), ctx, when,
+            ),
+            "link": guides.page_path(entry_id, guide, lang) or "",
+        })
+        schema: dict[Any, Any] = {}
+        if entry is not None:
+            schema[vol.Optional("done", default=False)] = bool
+        return self.async_show_form(
+            step_id="maintenance_guide_show",
+            data_schema=vol.Schema(schema),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_maintenance_forget(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Forget learned replacement intervals (Classic, 4.5.0) -- the
+        same as maintenance_forget_learned. Nothing ticked: every part."""
+        from homeassistant.helpers import selector  # noqa: PLC0415
+
+        tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
+        if user_input is not None and tracker is not None:
+            await tracker.async_forget_learned(user_input.get("item") or ())
+            return self.async_create_entry(title="", data=dict(self.config_entry.options))
+        parts = [
+            i for i in (tracker.items if tracker is not None else [])
+            if i.action == "replace" and i.part != "battery" and i.done != "cloud"
+        ]
+        return self.async_show_form(
+            step_id="maintenance_forget",
+            data_schema=vol.Schema({
+                vol.Optional("item", default=[]): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(
+                                value=i.id, label=f"{i.id} ({i.interval_source})",
+                            )
+                            for i in parts
+                        ],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                ),
+            }),
+        )
 
     async def async_step_blocking_sensors(
         self, user_input: dict[str, Any] | None = None

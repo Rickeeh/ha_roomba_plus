@@ -187,7 +187,8 @@
           "demand_cleaning": "Reinigen op aanvraag",
           "room_schedule": "Schoonmaakfrequentie per kamer",
           "rooms": "Kamers en zones",
-          "rest980_migrate": "Kamers importeren uit roomba_rest980"
+          "rest980_migrate": "Kamers importeren uit roomba_rest980",
+          "maintenance": "Onderhoud"
         }
       },
       "zones": {
@@ -214,11 +215,10 @@
           "map_clean_zones": "Reinigingszones tonen",
           "map_keepout_zones": "Verboden zones tonen",
           "map_nomop_zones": "Zones zonder dweilen tonen",
-          "enable_maintenance_list": "Onderhoud als takenlijst tonen",
           "region_sensors": "Aparte sensor per kamer en zone",
           "map_rotation": "Kaartafbeelding draaien",
-          "care_reminders": "Reinigingsherinneringen",
-          "pets_in_household": "Huisdieren in huis"
+          "wall_thickness_cm": "Wanddikte (cm)",
+          "door_width_cm": "Deurbreedte (cm)"
         },
         "data_description": {
           "map_enabled": "De live reinigingskaart inschakelen voor robots met positiebepaling (Roomba 900, i, s, j, Braava m).",
@@ -234,11 +234,10 @@
           "map_clean_zones": "Tekent de reinigingszones op de kaartafbeelding.",
           "map_keepout_zones": "Tekent de verboden zones op de kaartafbeelding.",
           "map_nomop_zones": "Tekent de zones zonder dweilen op de kaartafbeelding.",
-          "enable_maintenance_list": "Toont onderhoud dat eraan komt als takenlijst.",
           "region_sensors": "Maakt een aparte sensor voor elke kamer en zone.",
           "map_rotation": "Draait elke kaartafbeelding als geheel met de klok mee, kamers en pad samen, bijvoorbeeld zodat ze overeenkomt met de iRobot-app. Het pad verschuift nooit ten opzichte van de kamers; daarvoor is ‘Pad uitlijnen op de kamers’. De kaart heeft geen noorden: boven is de richting waarin de robot keek toen hij het dock verliet, dus het hangt af van hoe het dock staat.",
-          "care_reminders": "Herinnert je volgens het onderhoudsschema van iRobot aan het reinigen van filter, borstels, wielen, valsensoren en laadcontacten. Voegt een sensor „volgende reiniging“ en „gereinigd“-knoppen toe. Vervangingsherinneringen werken ook zonder.",
-          "pets_in_household": "Herinnert je twee keer per week in plaats van één keer aan het reinigen van het filter en de hoofdborstels, zoals iRobot aanraadt voor huishoudens met huisdieren. Alleen met reinigingsherinneringen aan."
+          "wall_thickness_cm": "Hoe dik wanden op de kaarten worden getekend. Bij een robot uit de 900-serie bepaalt dit ook welke randen van twee ruimtes één wand zijn. Standaard 15.",
+          "door_width_cm": "Hoe breed een deur op de kaarten wordt getekend; een duidelijk bredere opening wordt als open doorgang getekend. Een robot met Smart Map zoekt bovendien naar deuren van ongeveer deze breedte wanneer hij zijn route op zijn ruimtes uitlijnt. Standaard 80."
         }
       },
       "smart_zones_manual": {
@@ -348,6 +347,90 @@
       "room_schedule": {
         "title": "Schoonmaakfrequentie per kamer",
         "description": "Stel in hoe vaak elke kamer moet worden schoongemaakt. 'Geleerd' behoudt het zelfgekalibreerde interval uit de schoonmaakhistorie van de kamer."
+      },
+      "maintenance": {
+        "title": "Onderhoud",
+        "description": "Alle onderdelen en verzorgingstaken van deze robot: stand, wat er nog over is en waar het interval vandaan komt.\n\n{overview}",
+        "menu_options": {
+          "maintenance_settings": "Instellingen",
+          "maintenance_report": "Onderdeel vervangen of taak gedaan melden",
+          "maintenance_forget": "Geleerde intervallen vergeten",
+          "maintenance_guide": "Onderhoudsgidsen"
+        }
+      },
+      "maintenance_settings": {
+        "title": "Onderhoudsinstellingen",
+        "description": "Hoe de robot je aan onderhoud herinnert. Reparatiemeldingen en de kalender blijven uit tot je ze inschakelt.",
+        "data": {
+          "enable_maintenance_list": "Onderhoud als takenlijst tonen",
+          "care_reminders": "Reinigingsherinneringen",
+          "pets_in_household": "Huisdieren in huis",
+          "maintenance_soon_at": "Onderdeel als „binnenkort” melden vanaf",
+          "care_guide_on_error": "Handleiding als een fout op een verzorgingstaak wijst",
+          "maintenance_overdue_repairs": "Reparatiemelding voor onderdelen een week te laat",
+          "maintenance_calendar": "Onderhoudskalender",
+          "hide_maintenance_diagnostics": "Diagnose-entiteiten van onderhoud verbergen",
+          "filter_threshold_hours": "Interval filter",
+          "brush_threshold_hours": "Interval hoofdborstels",
+          "side_brush_threshold_hours": "Interval zijborstel",
+          "clean_base_bag_threshold_hours": "Interval Clean Base-zak"
+        },
+        "data_description": {
+          "enable_maintenance_list": "Toont onderhoud dat eraan komt als takenlijst.",
+          "care_reminders": "Herinnert je volgens het onderhoudsschema van iRobot aan het reinigen van filter, borstels, wielen, valsensoren en laadcontacten. Voegt een sensor „volgende reiniging“ en „gereinigd“-knoppen toe. Vervangingsherinneringen werken ook zonder.",
+          "pets_in_household": "Herinnert je twee keer per week in plaats van één keer aan het reinigen van het filter en de hoofdborstels, zoals iRobot aanraadt voor huishoudens met huisdieren. Alleen met reinigingsherinneringen aan.",
+          "maintenance_soon_at": "Deel van het interval vanaf wanneer een onderdeel als binnenkort telt. De iRobot-app waarschuwt bij 80 %.",
+          "care_guide_on_error": "Lijst: een item in de onderhoudslijst zolang de robot de fout meldt. Reparaties: in plaats daarvan een reparatiemelding. Uit: geen van beide. De keuze lijst vraagt een ingeschakelde onderhoudslijst.",
+          "maintenance_overdue_repairs": "Eén melding per onderdeel, een week na de vervaldatum. Standaard uit; de onderhoudslijst toont het toch.",
+          "maintenance_calendar": "Een alleen-lezen kalender met de vervaldata. Hij zet de kalender in de zijbalk.",
+          "hide_maintenance_diagnostics": "Schakelt „laatst vervangen”, „slijtagesnelheid” en „dagen tot vervaldatum” voor elk onderdeel uit; de waarden blijven als attributen van de onderdeelsensoren. Dashboards en automatiseringen die ze gebruiken worden niet meer bijgewerkt. Uitschakelen toont ze weer.",
+          "filter_threshold_hours": "Gebruiksuren tussen twee vervangingen. Leeg: automatisch (teller van de robot, je eigen vervangingen, de serie, dan de waarde van iRobot).",
+          "brush_threshold_hours": "Gebruiksuren tussen twee vervangingen. Leeg: automatisch (teller van de robot, je eigen vervangingen, de serie, dan de waarde van iRobot).",
+          "side_brush_threshold_hours": "Gebruiksuren tussen twee vervangingen. Leeg: automatisch (teller van de robot, je eigen vervangingen, de serie, dan de waarde van iRobot).",
+          "clean_base_bag_threshold_hours": "Gebruiksuren tussen twee vervangingen. Leeg: automatisch (teller van de robot, je eigen vervangingen, de serie, dan de waarde van iRobot)."
+        }
+      },
+      "maintenance_report": {
+        "title": "Onderhoud gedaan melden",
+        "description": "Hetzelfde als het item afvinken of de actie maintenance_done. Bij een Prime-robot gaat de reset naar iRobot.",
+        "data": {
+          "item": "Item",
+          "action": "Handeling"
+        },
+        "data_description": {
+          "action": "Leeg: die van het item. Een te vervangen onderdeel kan als alleen gereinigd worden gemeld; de teller blijft dan staan.",
+          "item": "Het item dat als gedaan geldt; de huidige stand staat tussen haakjes."
+        }
+      },
+      "maintenance_forget": {
+        "title": "Geleerde intervallen vergeten",
+        "description": "Vergeet het interval dat uit je eigen vervangingen is geleerd, na een per ongeluk ingedrukte reset of een te vroeg vervangen onderdeel. De teller van het huidige onderdeel blijft; het leren begint opnieuw bij de volgende twee vervangingen.",
+        "data": {
+          "item": "Onderdelen"
+        },
+        "data_description": {
+          "item": "Niets aangevinkt: alle onderdelen. Tussen haakjes: waar het interval nu vandaan komt."
+        }
+      },
+      "maintenance_guide": {
+        "title": "Onderhoudsgidsen",
+        "description": "Hoe je elk onderdeel van deze robot schoonmaakt of vervangt, met een tekening van waar het zit.",
+        "data": {
+          "guide": "Gids"
+        },
+        "data_description": {
+          "guide": "De gidsen voor de onderdelen en onderhoudstaken van deze robot, eerst wat aan de beurt is."
+        }
+      },
+      "maintenance_guide_show": {
+        "title": "{title}",
+        "description": "{guide}\n\n[Openen als pagina]({link}) – de link is 30 dagen geldig.",
+        "data": {
+          "done": "Nu als gedaan melden"
+        },
+        "data_description": {
+          "done": "Meldt de taak als gedaan, net als afvinken in de onderhoudslijst."
+        }
       }
     },
     "error": {
@@ -368,7 +451,9 @@
       "cloud_rate_limited": "De iRobot-cloud heeft te veel verzoeken ontvangen. Probeer het later opnieuw.",
       "cloud_server_error": "De iRobot-cloud heeft zelf een probleem. Dit ligt aan iRobot en is meestal tijdelijk; probeer het later opnieuw.",
       "cloud_response_malformed": "De iRobot-cloud stuurde een antwoord dat niet kon worden gelezen. Als dit blijft, meld het dan met een diagnostische download.",
-      "cloud_unknown": "De iRobot-cloud meldde een fout zonder bekende oorzaak."
+      "cloud_unknown": "De iRobot-cloud meldde een fout zonder bekende oorzaak.",
+      "maintenance_list_needed": "Hiervoor moet de onderhoudslijst aan staan.",
+      "maintenance_done_failed": "Kon niet als gedaan worden gemeld: {error}"
     },
     "abort": {
       "integration_not_loaded": "De integratie kon niet worden geladen. Controleer de logboeken en herlaad voordat je de instellingen opent.",
@@ -380,7 +465,8 @@
       "all_rooms_named": "Alle kamers en gebieden van deze robot hebben al een naam. Om in Home Assistant een andere naam te tonen, gebruikt u Configureren → Zonebeheer.",
       "naming_needs_account": "Roomba+ kent de kamers van deze robot alleen als nummer, en zonder kaart is niet te zien welk nummer welke kamer is. Voeg uw iRobot-account toe aan deze robot (Configureren → iRobot cloud-inloggegevens): Roomba+ neemt dan alle kamer- en zonenamen uit het account over en tekent de kamerkaart. Kent u het nummer van een kamer al, dan kunt u het invoeren onder Configureren → Smart Map-zones handmatig invoeren.",
       "account_rooms_not_loaded": "Roomba+ heeft de kamers uit uw iRobot-account nog niet gelezen. Probeer het over een minuut opnieuw; blijft dit zo, dan staat in het Home Assistant-logboek waarom het account niet gelezen kon worden.",
-      "naming_needs_map": "Voor het benoemen is de kaart van de robot nodig, zodat u ziet welk nummer welke kamer of welk gebied is, en Roomba+ heeft nog geen kaart om te tonen. Bij een robot met Smart Map is dat de Kamerkaart uit uw iRobot-account. Bij een robot zonder Smart Map is het de kaart ‘Schoonmaakroute’: zet ‘Live kaart inschakelen’ aan onder Configureren → Verbindingsinstellingen en laat de robot één keer schoonmaken. In beide gevallen moet de afbeeldingsentiteit van de kaart ingeschakeld zijn."
+      "naming_needs_map": "Voor het benoemen is de kaart van de robot nodig, zodat u ziet welk nummer welke kamer of welk gebied is, en Roomba+ heeft nog geen kaart om te tonen. Bij een robot met Smart Map is dat de Kamerkaart uit uw iRobot-account. Bij een robot zonder Smart Map is het de kaart ‘Schoonmaakroute’: zet ‘Live kaart inschakelen’ aan onder Configureren → Verbindingsinstellingen en laat de robot één keer schoonmaken. In beide gevallen moet de afbeeldingsentiteit van de kaart ingeschakeld zijn.",
+      "care_guides_unavailable": "De onderhoudsgidsen konden niet worden geladen. Het logboek zegt waarom."
     }
   },
   "entity": {
@@ -1365,6 +1451,15 @@
       },
       "next_care": {
         "name": "Onderhoud – Volgende reiniging gepland"
+      },
+      "maintenance_status": {
+        "name": "Onderhoudsstatus",
+        "state": {
+          "ok": "OK",
+          "soon": "Binnenkort",
+          "due": "Nodig",
+          "overdue": "Te laat"
+        }
       }
     },
     "binary_sensor": {
@@ -1788,6 +1883,9 @@
     "calendar": {
       "schedule": {
         "name": "Schema"
+      },
+      "maintenance": {
+        "name": "Onderhoud"
       }
     },
     "todo": {
@@ -1822,6 +1920,19 @@
           "event_type": {
             "state": {
               "stuck": "Vastgelopen"
+            }
+          }
+        }
+      },
+      "maintenance": {
+        "name": "Onderhoud",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "due": "Nodig",
+              "overdue": "Te laat",
+              "done": "Gedaan",
+              "snoozed": "Uitgesteld"
             }
           }
         }
@@ -1869,10 +1980,6 @@
       "title": "Mogelijk contactprobleem accu/dock",
       "description": "Mogelijk contact- of communicatieprobleem gedetecteerd (oorzaak: {cause}). Recente piekwaarden per laadcyclus: {recent_peaks}. Een plotselinge onwaarschijnlijke sprong of een dalende trend in het bereikte maximum wijst meestal op een los of gecorrodeerd contact, niet op de accu zelf — reinig de contacten voordat je de accu verdenkt. {smberr_context}"
     },
-    "accident_detected": {
-      "title": "Mogelijk vloerongeluk",
-      "description": "Hoog aantal vuildetecties in korte tijd. Controleer het gebied."
-    },
     "observed_zones_detected": {
       "title": "Door robot gedetecteerde obstakels in cloudkaart",
       "description": "De iRobot-cloudkaart toont {zone_count} door de robot gedetecteerde obstakelzone(s), maar Roomba+ heeft nog geen eigen gegevens die ze bevestigen. Laat de robot een paar keer reinigen — deze melding verdwijnt zodra de eigen gegevens van de robot de obstakels bevestigen. Moet een obstakel altijd worden vermeden, voeg dan in de iRobot-app een verboden zone toe."
@@ -1888,10 +1995,6 @@
     "map_retrain_stuck": {
       "title": "Smart Map-update lijkt vast te lopen",
       "description": "De Smart Map van de robot wordt al minstens {minutes} minuten bijgewerkt zonder te voltooien. Dit duurt langer dan een echte update zou moeten duren. Probeer de robot opnieuw te starten via de iRobot-app, of neem contact op met iRobot-support als dit aanhoudt."
-    },
-    "maintenance_due": {
-      "title": "Onderhoud is achterstallig",
-      "description": "De volgende verbruiksonderdelen moeten al minstens 3 dagen vervangen worden: {items}. Bekijk de attributen van de maintenance_due-binaire sensor voor de exacte achterstallige uren, en gebruik na vervanging de bijbehorende reset-knop of de roomba_plus.reset_*-actie."
     },
     "mqtt_watchdog_cloud_connected": {
       "title": "MQTT-verbinding van robot verloren tijdens missie",
@@ -1916,6 +2019,40 @@
     "core_roomba_conflict": {
       "title": "Twee Roomba-integraties geïnstalleerd",
       "description": "De ingebouwde **Roomba**-integratie van Home Assistant is naast Roomba+ ingesteld. Beide gebruiken dezelfde `roombapy`-bibliotheek, en Home Assistant installeert daarvan één versie — een van beide zal dus niet laden, meestal met een `ImportError` in het logboek.\n\nGeen van beide kan dit oplossen. Verwijder degene die u niet nodig hebt."
+    },
+    "maintenance_part_overdue": {
+      "title": "{name}: te laat – {part}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{part}",
+            "description": "Bij {name} is dit onderdeel al een week aan de beurt. {interval}\n\n{guide}\n\n**Wat heb je gedaan?** 'Vervangen' zet de teller van het onderdeel op nul – bij een Prime-robot bij iRobot. 'Alleen schoongemaakt' en 'Nog niet' vragen het over zeven dagen opnieuw. 'Nooit meer vragen' stopt deze meldingen voor dit onderdeel tot je de optie uit- en weer inschakelt.",
+            "data": {
+              "choice": "Wat je hebt gedaan"
+            }
+          }
+        },
+        "error": {
+          "maintenance_done_failed": "Kon niet als gedaan worden gemeld: {error}"
+        }
+      }
+    },
+    "maintenance_error_care": {
+      "title": "{name}: {task}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{task}",
+            "description": "{cause} Dat wijst naar deze onderhoudstaak.\n\n{guide}\n\nDeze melding verdwijnt zodra de robot het niet meer meldt.",
+            "data": {
+              "choice": "Wat je hebt gedaan"
+            }
+          }
+        },
+        "error": {
+          "maintenance_done_failed": "Kon niet als gedaan worden gemeld: {error}"
+        }
+      }
     }
   },
   "device_automation": {
@@ -2029,6 +2166,44 @@
         "zone_id": {
           "name": "Zone-id",
           "description": "Een of meer numerieke zone-ids. Gebruik dit of zonenaam."
+        }
+      }
+    },
+    "maintenance_done": {
+      "name": "Onderhoud gedaan melden",
+      "description": "Meldt een onderhoudsitem als gedaan: een onderdeel vervangen of een verzorgingstaak uitgevoerd. Bij een Prime-robot gaat de reset naar iRobot, zoals de app hem stuurt.",
+      "fields": {
+        "item": {
+          "name": "Item",
+          "description": "Het id van het item, uit het attribuut items van de onderhoudssensor, bijvoorbeeld replace.filter of clean.wheel."
+        },
+        "action": {
+          "name": "Handeling",
+          "description": "replace of clean; leeg voor die van het item. Een te vervangen onderdeel kan als alleen gereinigd worden gemeld; de teller blijft dan staan."
+        }
+      }
+    },
+    "maintenance_snooze": {
+      "name": "Onderhoudsherinnering uitstellen",
+      "description": "Een aantal dagen geen herinnering voor een onderhoudsitem.",
+      "fields": {
+        "item": {
+          "name": "Item",
+          "description": "Het id van het item, uit het attribuut items van de onderhoudssensor, bijvoorbeeld replace.filter of clean.wheel."
+        },
+        "days": {
+          "name": "Dagen",
+          "description": "Hoeveel dagen; leeg is 1."
+        }
+      }
+    },
+    "maintenance_forget_learned": {
+      "name": "Geleerd onderhoudsinterval vergeten",
+      "description": "Vergeet het interval dat uit je eigen vervangingen is geleerd, voor één of alle onderdelen van een Classic-robot. De teller van het huidige onderdeel blijft.",
+      "fields": {
+        "item": {
+          "name": "Items",
+          "description": "De onderdelen, bijvoorbeeld replace.filter. Leeg: alle onderdelen."
         }
       }
     }
@@ -2345,6 +2520,18 @@
     },
     "prime_start_blocked": {
       "message": "Niet gestart: {reason}"
+    },
+    "maintenance_item_unknown": {
+      "message": "Deze robot heeft geen onderhoudsitem {item}. Zijn items zijn: {items}."
+    },
+    "maintenance_action_unsupported": {
+      "message": "{item} kan niet als {action} worden gemeld."
+    },
+    "maintenance_reset_failed": {
+      "message": "iRobot heeft het resetten van {item} niet aangenomen: {error}"
+    },
+    "maintenance_reset_not_applied": {
+      "message": "iRobot heeft het resetten van {item} aangenomen, maar op geen onderdeel toegepast. De teller is ongewijzigd; bevestig het onderdeel in plaats daarvan in de iRobot-app."
     }
   },
   "selector": {
@@ -2407,7 +2594,95 @@
         "clean_contact": "Laadcontacten reinigen",
         "every_days": "Elke {days} dagen, zoals iRobot aanraadt.",
         "reconfigure_rooms": "Kamers een naam geven",
-        "reconfigure_rooms_description": "Sommige kamers hebben nog geen naam. Open Configureren → Kamers en zones: daar zie je de kaart van de robot met hun nummers, of wat er ontbreekt. Dit item verdwijnt vanzelf zodra elke kamer een naam heeft."
+        "reconfigure_rooms_description": "Sommige kamers hebben nog geen naam. Open Configureren → Kamers en zones: daar zie je de kaart van de robot met hun nummers, of wat er ontbreekt. Dit item verdwijnt vanzelf zodra elke kamer een naam heeft.",
+        "replace_dust_bag": "Stofzak vervangen",
+        "replace_detergent": "Reinigingsmiddel vervangen",
+        "replace_roller": "Roldweil vervangen",
+        "replace_battery": "Accu vervangen",
+        "replace_part": "Vervangen: {part}",
+        "clean_mop_washing_system": "Waswerk van de dweil reinigen",
+        "clean_dock_washing_system": "Waswerk van het station reinigen",
+        "clean_part": "Reinigen: {part}",
+        "check_filter": "Filter controleren",
+        "check_brushes": "Hoofdborstels controleren",
+        "check_side_brush": "Zijborstel controleren",
+        "check_wheel": "Wielen controleren",
+        "check_cliff_sensors": "Valsensoren controleren",
+        "check_contact": "Laadcontacten controleren",
+        "check_bin": "Opvangbak controleren",
+        "check_camera": "Cameravenster controleren",
+        "check_wash_dock": "Wasstation controleren",
+        "left": "nog {value} {unit}",
+        "unit_hours": "uur",
+        "unit_days": "dagen",
+        "unit_missions": "missies",
+        "unit_evacuations": "ledigingen",
+        "unit_pad_washes": "dweilwasbeurten",
+        "unit_charge_cycles": "laadcycli",
+        "unit_sqft": "ft²",
+        "error_line": "De robot meldt fout {code}.",
+        "link_guide": "Handleiding van iRobot",
+        "link_buy": "Onderdeel kopen",
+        "part_main_brush": "hoofdborstels",
+        "part_side_brush": "zijborstel",
+        "part_filter": "filter",
+        "part_bag": "stofzak",
+        "part_pad": "dweilpad",
+        "part_detergent": "reinigingsmiddel",
+        "part_roller": "roldweil",
+        "part_battery": "accu",
+        "part_sensor": "valsensoren",
+        "part_mop_washing_system": "waswerk van de dweil",
+        "part_dock_washing_system": "waswerk van het station",
+        "estimate_note": "Geschat uit de slijtagesnelheid; de datum verschuift bij elke beurt.",
+        "link_care_guide": "Zo doe je het",
+        "reason_cliff": "De robot start niet: hij ziet een afgrond.",
+        "reason_brush_stall": "De robot start niet: een borstel zit vast.",
+        "reason_no_bin": "De robot start niet: de opvangbak ontbreekt.",
+        "reason_bin_full": "De opvangbak is vol.",
+        "reason_camera": "De robot start niet: zijn camera reageert niet.",
+        "interval_line": "Elke {value} {unit}, {source}",
+        "source_cloud": "volgens de teller van de robot",
+        "source_learned": "geleerd uit je vervangingen",
+        "source_configured": "door jou ingesteld",
+        "source_profile": "volgens het serieprofiel",
+        "source_irobot_budget": "waarde van iRobot",
+        "source_calendar": "volgens de onderhoudskalender",
+        "last_done": "Laatst op {date}"
+      }
+    },
+    "maintenance_soon_at": {
+      "options": {
+        "80": "80 %",
+        "60": "60 %",
+        "due": "Nooit, pas bij vervaldatum"
+      }
+    },
+    "care_guide_on_error": {
+      "options": {
+        "list": "Onderhoudslijst",
+        "repairs": "Reparaties",
+        "off": "Uit"
+      }
+    },
+    "maintenance_action": {
+      "options": {
+        "replace": "Vervangen",
+        "clean": "Alleen gereinigd"
+      }
+    },
+    "maintenance_overdue_choice": {
+      "options": {
+        "replaced": "Vervangen",
+        "cleaned": "Alleen schoongemaakt – herinner me over een week",
+        "snooze": "Nog niet – herinner me over een week",
+        "never": "Nooit meer vragen voor dit onderdeel"
+      }
+    },
+    "maintenance_error_care_choice": {
+      "options": {
+        "cleaned": "Gedaan – schoongemaakt",
+        "close": "Sluiten tot de volgende fout"
       }
     }
   }

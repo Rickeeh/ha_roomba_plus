@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "À quoi ça sert",
+    "how": "Comment faire",
+    "note": "Attention",
+    "irobot": "Le guide d'iRobot pour votre modèle",
+    "expired_title": "Ce lien a expiré",
+    "expired_text": "Les liens vers les guides d'entretien sont valables 30 jours. Pour en obtenir un nouveau, ouvrez dans Home Assistant Paramètres → Appareils et services → Roomba+ → Configurer → Entretien → Guide d'entretien.",
+    "unknown_title": "Aucun guide ici",
+    "unknown_text": "Ce guide n'existe pas. Ouvrez Configurer → Entretien → Guide d'entretien dans Home Assistant.",
+    "when": "Quand"
+  },
+  "clean_filter": {
+    "title": "Nettoyer le filtre",
+    "why": "Le filtre retient la poussière fine dans le bac. Quand ses plis sont colmatés, l'aspiration baisse et le robot ramasse moins.",
+    "steps": [
+      "Appuyez sur le bouton de déverrouillage du bac et sortez le bac du robot.",
+      "Retirez le filtre par sa languette.",
+      "Tapotez-le contre l'intérieur d'une poubelle jusqu'à ce qu'il ne tombe plus de poussière. Ne brossez pas les plis.",
+      "Remettez le filtre avec les plis dans le même sens et glissez le bac jusqu'au déclic."
+    ],
+    "caution": "Ne lavez jamais un filtre en papier et ne le laissez pas se mouiller : une fois mouillé, il ne filtre plus.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac et sortez le bac du robot.",
+          "Libérez le filtre en appuyant dessus, puis soulevez-le.",
+          "Tapotez-le contre l'intérieur d'une poubelle jusqu'à ce qu'il ne tombe plus de poussière. Ne brossez pas les plis.",
+          "Remettez le filtre et insérez le bac jusqu'au déclic."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac, sortez le bac et videz-le.",
+          "Appuyez sur la languette de la trappe du filtre et soulevez la trappe.",
+          "Tirez le filtre par sa languette jaune et tapotez-le contre l'intérieur d'une poubelle jusqu'à ce qu'il ne tombe plus de poussière.",
+          "Remettez le filtre, fermez la trappe et insérez le bac jusqu'au déclic."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac à l'arrière du robot et sortez le bac.",
+          "Ouvrez la porte du bac au-dessus d'une poubelle et videz-le.",
+          "Saisissez le filtre par les côtés, tirez-le vers la gauche et tapotez-le contre l'intérieur de la poubelle jusqu'à ce qu'il ne tombe plus de poussière.",
+          "Remettez le filtre et glissez le bac dans son guide jusqu'au déclic."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Appuyez sur le bouton du couvercle, ouvrez-le et sortez le bac par sa poignée.",
+          "Tenez le bac au-dessus d'une poubelle et appuyez sur son bouton pour le vider.",
+          "Ouvrez la trappe du filtre, tirez le filtre par sa boucle et tapotez-le contre l'intérieur de la poubelle.",
+          "Remettez le filtre et fermez la trappe : elle ne ferme qu'avec un filtre bien en place. Remettez le bac."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Nettoyer les brosses principales",
+    "why": "Les brosses principales soulèvent la saleté des tapis et des sols durs vers le bac. Des cheveux enroulés les font patiner et elles ramassent moins.",
+    "steps": [
+      "Retournez le robot sur une surface douce.",
+      "Ouvrez le cadre des brosses par ses languettes et sortez les deux brosses.",
+      "Retirez les embouts et enlevez cheveux et fils des extrémités et des axes. Coupez les cheveux enroulés le long de la rainure.",
+      "Remettez les embouts, insérez chaque brosse là où sa forme s'adapte et refermez le cadre."
+    ],
+    "caution": "Les deux brosses sont différentes et ne se montent que dans un sens. Ne forcez pas.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Retournez le robot sur une surface douce.",
+          "Soulevez les deux languettes jaunes du cadre et sortez la brosse à poils et la brosse batteuse.",
+          "Retirez les embouts et enlevez cheveux et fils des extrémités et des axes.",
+          "Remettez les embouts, replacez chaque brosse là où sa forme s'adapte et fermez le cadre."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Retournez le robot sur une surface douce.",
+          "Pincez les languettes jaunes du cadre des brosses et relevez le cadre.",
+          "Sortez les deux rouleaux en caoutchouc, retirez les embouts et enlevez les cheveux des tiges carrée et hexagonale.",
+          "Remettez les embouts, replacez chaque rouleau là où sa tige s'adapte et fermez le cadre jusqu'au déclic."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Retournez le robot sur une surface douce.",
+          "Appuyez sur le bouton de déverrouillage à côté des brosses et ouvrez le cadre.",
+          "Sortez les deux rouleaux en caoutchouc, retirez les embouts et enlevez les cheveux des extrémités et des axes.",
+          "Remettez les embouts, replacez chaque rouleau là où sa forme s'adapte et fermez le cadre."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Retournez le robot sur une surface douce.",
+          "Appuyez sur le bouton à droite de la tête de nettoyage : le loquet se soulève.",
+          "Sortez les deux rouleaux en caoutchouc, retirez les embouts et enlevez les cheveux des extrémités et des axes.",
+          "Remettez les embouts, replacez les rouleaux là où leur forme s'adapte et fermez le loquet."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Nettoyer la brosse latérale",
+    "why": "La brosse latérale balaie la saleté des bords et des coins vers le passage du robot. Des bras emmêlés ou tordus la laissent sur place.",
+    "steps": [
+      "Retournez le robot.",
+      "Dévissez la vis au centre de la brosse, ou retirez la brosse si elle n'a pas de vis.",
+      "Enlevez les cheveux des bras et du moyeu et redressez les poils tordus.",
+      "Remettez la brosse sur son axe et fixez-la."
+    ],
+    "caution": "Remplacez une brosse aux bras déformés : elle n'atteint plus le bord.",
+    "variants": {
+      "s": {
+        "title": "Nettoyer la brosse d'angle",
+        "why": "La brosse d'angle balaie la saleté des coins et le long des bords vers le chemin du robot. Des bras emmêlés ou tordus la laissent sur place.",
+        "steps": [
+          "Retournez le robot.",
+          "Dévissez la vis avec un petit tournevis et retirez la brosse d'angle.",
+          "Enlevez les cheveux des bras et de l'axe d'entraînement.",
+          "Remettez la brosse sur l'axe et resserrez la vis."
+        ],
+        "caution": "Resserrez la vis : une brosse d'angle desserrée se détache pendant le nettoyage."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Nettoyer les roues",
+    "why": "La roulette avant et les roues motrices portent le robot. Des cheveux ou du sable les font dévier ou s'arrêter.",
+    "steps": [
+      "Retournez le robot.",
+      "Sortez la roulette avant de son logement et retirez la roue de son axe.",
+      "Enlevez cheveux et saleté de la roue, de l'axe et du logement.",
+      "Faites tourner les roues motrices à la main et retirez ce qui accroche, puis remettez la roulette jusqu'au déclic."
+    ],
+    "caution": "Ne retirez pas les roues motrices : elles ne sont pas faites pour être démontées.",
+    "variants": {
+      "s": {
+        "why": "La roulette arrière et les roues motrices portent le robot. Des cheveux ou du sable le font dévier ou s'arrêter.",
+        "steps": [
+          "Retournez le robot.",
+          "Sortez la roulette arrière de son logement et retirez la roue de son axe.",
+          "Enlevez cheveux et saleté de la roue, de l'axe et du logement.",
+          "Tournez les roues motrices à la main et retirez ce qui accroche, puis remettez la roulette jusqu'au déclic."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Nettoyer les capteurs de vide",
+    "why": "Les capteurs de vide regardent vers le bas pour détecter escaliers et rebords. De la poussière sur leurs fenêtres peut arrêter le robot ou lui faire manquer un rebord.",
+    "steps": [
+      "Retournez le robot.",
+      "Essuyez chaque fenêtre de capteur avec une éponge mélamine ou un chiffon légèrement humide.",
+      "Vérifiez qu'aucune fenêtre n'est rayée ni couverte."
+    ],
+    "caution": "Ne pulvérisez jamais de produit de nettoyage sur les capteurs ni dans leurs ouvertures."
+  },
+  "clean_contact": {
+    "title": "Nettoyer les contacts de charge",
+    "why": "Les contacts de charge du robot et de la station transmettent le courant de charge. Un dépôt sur eux interrompt la charge.",
+    "steps": [
+      "Retirez le robot de la station.",
+      "Frottez les contacts de charge du robot avec une éponge mélamine ou un chiffon légèrement humide jusqu'à ce qu'ils brillent.",
+      "Débranchez la station pendant 60 secondes et nettoyez ses contacts de la même façon.",
+      "Rebranchez la station et posez-y le robot."
+    ],
+    "caution": "Rien d'abrasif ni d'outil métallique. Des contacts verts, cuivrés ou enfoncés sont endommagés : contactez le service client iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Retirez le robot de la station.",
+          "Frottez les contacts de charge du robot avec une éponge mélamine ou un chiffon légèrement humide jusqu'à ce qu'ils brillent.",
+          "Débranchez la Home Base pendant 60 secondes et nettoyez ses contacts de la même façon. Essuyez la fenêtre de son capteur d'accueil uniquement avec un chiffon sec.",
+          "Rebranchez la Home Base et posez-y le robot."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Retirez le robot de la Clean Base.",
+          "Frottez les contacts de charge du robot avec une éponge mélamine ou un chiffon légèrement humide jusqu'à ce qu'ils brillent.",
+          "Débranchez la Clean Base pendant 60 secondes et nettoyez de la même façon les contacts sur sa rampe.",
+          "Rebranchez la Clean Base et posez-y le robot."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Retirez le robot de la station.",
+          "Frottez les contacts de charge du robot avec une éponge mélamine ou un chiffon légèrement humide jusqu'à ce qu'ils brillent.",
+          "Débranchez la station pendant 60 secondes. Essuyez ses contacts, la fenêtre infrarouge et le repère d'accueil uniquement avec un chiffon sec.",
+          "Rebranchez la station et posez-y le robot."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Vider et vérifier le bac",
+    "why": "Le bac reçoit ce que le robot ramasse. Un bac plein ou mal en place l'empêche d'en ramasser davantage.",
+    "steps": [
+      "Appuyez sur le bouton de déverrouillage et sortez le bac.",
+      "Ouvrez la trappe au-dessus d'une poubelle et videz le bac.",
+      "Sortez le filtre, tapotez-le et enlevez la poussière de son logement.",
+      "Remettez le filtre et glissez le bac jusqu'au déclic."
+    ],
+    "caution": "Ne rincez qu'un bac prévu pour cela, filtre retiré, et laissez-le sécher complètement avant de le remettre.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac à l'arrière du robot et sortez le bac.",
+          "Ouvrez la porte du bac au-dessus d'une poubelle et videz-le.",
+          "Sortez le filtre et tapotez-le. Rincez le bac à la main à l'eau tiède s'il est sale.",
+          "Laissez le bac sécher complètement, remettez le filtre et insérez le bac jusqu'au déclic."
+        ],
+        "caution": "Rincez à la main uniquement, jamais au lave-vaisselle et jamais avec le filtre."
+      },
+      "s": {
+        "steps": [
+          "Appuyez sur le bouton du couvercle et sortez le bac par sa poignée.",
+          "Tenez le bac au-dessus d'une poubelle et appuyez sur son bouton pour le vider.",
+          "Sortez le filtre et tapotez-le. Rincez le bac à l'eau tiède s'il est sale.",
+          "Laissez le bac sécher complètement, remettez le filtre et le bac dans le robot."
+        ],
+        "caution": "Rincez à la main uniquement, jamais au lave-vaisselle et jamais avec le filtre."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Nettoyer la fenêtre de la caméra",
+    "why": "La caméra et les fenêtres des capteurs aident le robot à trouver son chemin. Des traces lui font perdre sa position.",
+    "steps": [
+      "Repérez la fenêtre de la caméra sur le dessus ou à l'avant du robot.",
+      "Essuyez-la doucement avec un chiffon microfibre propre et sec.",
+      "Essuyez de la même façon les autres fenêtres de capteurs à l'avant."
+    ],
+    "caution": "Aucun liquide ni produit sur les fenêtres."
+  },
+  "clean_wash_dock": {
+    "title": "Nettoyer la station de lavage",
+    "why": "La station de lavage rince la serpillière. De la saleté dans son bac ou un réservoir d'eau sale plein arrête le lavage.",
+    "steps": [
+      "Sortez le réservoir d'eau sale, videz-le et rincez-le.",
+      "Retirez le bac de lavage et rincez-le sous l'eau courante.",
+      "Essuyez le fond de la station et remettez le bac et le réservoir.",
+      "Remplissez le réservoir d'eau propre s'il est presque vide."
+    ],
+    "caution": "Laissez sécher le bac avant que le robot ne revienne dessus."
+  },
+  "clean_dock_washing_system": {
+    "title": "Nettoyer le système de lavage de la station",
+    "why": "Le système de lavage de la station évacue la saleté de la serpillière. S'il reste des résidus, la serpillière en ressort sale.",
+    "steps": [
+      "Sortez l'insert de lavage de la station.",
+      "Rincez-le sous l'eau courante et dégagez cheveux et débris de ses ouvertures.",
+      "Essuyez le logement de l'insert dans la station.",
+      "Remettez l'insert à plat."
+    ],
+    "caution": "Aucun produit, sauf si le manuel de la station le permet."
+  },
+  "clean_mop_washing_system": {
+    "title": "Nettoyer le système de lavage de la serpillière",
+    "why": "Le système de lavage de la serpillière rotative racle l'eau sale. Quand ses ouvertures se bouchent, de l'eau sale peut goutter sur le sol.",
+    "steps": [
+      "Retirez la serpillière rotative du robot.",
+      "Rincez le racleur et ses ouvertures sous l'eau courante et débouchez les trous avec une brosse douce.",
+      "Rincez la serpillière rotative et laissez-la sécher.",
+      "Remettez la serpillière rotative jusqu'au déclic."
+    ],
+    "caution": "Aucun outil pointu sur les ouvertures du racleur."
+  },
+  "replace_filter": {
+    "title": "Remplacer le filtre",
+    "why": "Un filtre perd de son efficacité avec le temps, même tapoté régulièrement.",
+    "steps": [
+      "Sortez le bac du robot.",
+      "Retirez l'ancien filtre par sa languette.",
+      "Insérez le nouveau filtre avec les plis dans le même sens que l'ancien.",
+      "Remettez le bac jusqu'au déclic, puis signalez le filtre comme remplacé."
+    ],
+    "caution": "Utilisez un filtre prévu pour ce modèle : un filtre qui n'est pas étanche laisse passer la poussière.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac et sortez le bac.",
+          "Appuyez sur l'ancien filtre et soulevez-le.",
+          "Mettez le nouveau filtre avec les plis dans le même sens que l'ancien.",
+          "Insérez le bac jusqu'au déclic et indiquez le filtre comme remplacé."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Sortez le bac du robot.",
+          "Appuyez sur la languette de la trappe du filtre, soulevez la trappe et tirez l'ancien filtre par sa languette jaune.",
+          "Mettez le nouveau filtre avec les plis dans le même sens et fermez la trappe.",
+          "Insérez le bac jusqu'au déclic et indiquez le filtre comme remplacé."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Appuyez sur le bouton de déverrouillage du bac à l'arrière du robot et sortez le bac.",
+          "Saisissez l'ancien filtre par les côtés et tirez-le vers la gauche.",
+          "Mettez le nouveau filtre avec les plis dans le même sens que l'ancien.",
+          "Glissez le bac dans son guide jusqu'au déclic et indiquez le filtre comme remplacé."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Ouvrez le couvercle et sortez le bac par sa poignée.",
+          "Ouvrez la trappe du filtre et tirez l'ancien filtre par sa boucle.",
+          "Mettez le nouveau filtre et fermez la trappe : elle ne ferme qu'avec un filtre bien en place.",
+          "Remettez le bac et indiquez le filtre comme remplacé."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Remplacer les brosses principales",
+    "why": "Des brosses usées atteignent moins bien le sol et ramassent moins de saleté.",
+    "steps": [
+      "Retournez le robot et ouvrez le cadre des brosses.",
+      "Sortez les deux brosses. Gardez les embouts si les nouvelles brosses n'en ont pas.",
+      "Insérez les nouvelles brosses là où leur forme s'adapte et refermez le cadre.",
+      "Signalez les brosses comme remplacées."
+    ],
+    "caution": "Les deux brosses sont différentes et ne se montent que dans un sens. Ne forcez pas.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Retournez le robot et soulevez les deux languettes jaunes du cadre.",
+          "Sortez la brosse à poils et la brosse batteuse. Gardez les embouts si les nouvelles brosses n'en ont pas.",
+          "Mettez les nouvelles brosses là où leur forme s'adapte et fermez le cadre.",
+          "Indiquez les brosses comme remplacées."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Retournez le robot, pincez les languettes jaunes et relevez le cadre.",
+          "Sortez les deux rouleaux. Gardez les embouts si les nouveaux n'en ont pas.",
+          "Mettez les nouveaux rouleaux là où leurs tiges s'adaptent et fermez le cadre jusqu'au déclic.",
+          "Indiquez les brosses comme remplacées."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Retournez le robot et appuyez sur le bouton de déverrouillage à côté des brosses.",
+          "Sortez les deux rouleaux. Gardez les embouts si les nouveaux n'en ont pas.",
+          "Mettez les nouveaux rouleaux là où leur forme s'adapte et fermez le cadre.",
+          "Indiquez les brosses comme remplacées."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Retournez le robot et appuyez sur le bouton à droite de la tête de nettoyage.",
+          "Sortez les deux rouleaux. Gardez les embouts si les nouveaux n'en ont pas.",
+          "Mettez les nouveaux rouleaux là où leur forme s'adapte et fermez le loquet.",
+          "Indiquez les brosses comme remplacées."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Remplacer la brosse latérale",
+    "why": "Une brosse latérale usée n'atteint plus les bords et les coins.",
+    "steps": [
+      "Retournez le robot.",
+      "Dévissez la vis ou retirez l'ancienne brosse de son axe.",
+      "Enfoncez la nouvelle brosse sur l'axe et fixez-la.",
+      "Signalez la brosse latérale comme remplacée."
+    ],
+    "caution": "Gardez la vis : une brosse mal fixée tombe pendant le nettoyage.",
+    "variants": {
+      "s": {
+        "title": "Remplacer la brosse d'angle",
+        "why": "Une brosse d'angle usée n'atteint plus les coins.",
+        "steps": [
+          "Retournez le robot.",
+          "Dévissez la vis et retirez l'ancienne brosse d'angle.",
+          "Mettez la nouvelle brosse d'angle sur l'axe et serrez la vis.",
+          "Indiquez la brosse d'angle comme remplacée."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Remplacer le sac",
+    "why": "Le sac de la station recueille ce que le robot y vide. Quand il est plein, la station ne peut plus vider le robot.",
+    "steps": [
+      "Ouvrez le couvercle de la station.",
+      "Tirez le sac par sa languette : la languette ferme l'ouverture.",
+      "Insérez le nouveau sac et poussez sa carte dans le guide jusqu'à ce qu'elle tienne.",
+      "Fermez le couvercle et signalez le sac comme remplacé."
+    ],
+    "caution": "Ne réutilisez pas un sac : sa fermeture ne se ferme qu'une fois."
+  },
+  "replace_battery": {
+    "title": "Remplacer la batterie",
+    "why": "Une batterie perd de la capacité à chaque charge. Le robot fonctionne alors moins longtemps et peut s'arrêter avant d'avoir fini.",
+    "steps": [
+      "Éteignez le robot et retournez-le.",
+      "Dévissez les vis du couvercle de la batterie et retirez-le.",
+      "Sortez l'ancienne batterie par ses languettes et insérez la nouvelle, contacts dans le même sens.",
+      "Remettez le couvercle, posez le robot sur la station et signalez la batterie comme remplacée."
+    ],
+    "caution": "Utilisez une batterie prévue pour ce modèle et déposez l'ancienne dans un point de collecte des piles."
+  },
+  "replace_pad": {
+    "title": "Remplacer la lingette",
+    "why": "Une lingette usée laisse des traces et ramasse moins de saleté.",
+    "steps": [
+      "Soulevez le robot ou retirez-le de la station.",
+      "Retirez l'ancienne lingette de son support.",
+      "Glissez ou appuyez la nouvelle lingette sur le support jusqu'à ce qu'elle tienne.",
+      "Signalez la lingette comme remplacée."
+    ],
+    "caution": "Lavez les lingettes lavables sans adoucissant ; n'utilisez les lingettes jetables qu'une fois."
+  },
+  "replace_roller": {
+    "title": "Remplacer la serpillière rotative",
+    "why": "Une serpillière rotative usée n'appuie plus uniformément sur le sol et laisse des traces.",
+    "steps": [
+      "Retirez la serpillière rotative du robot.",
+      "Mettez la nouvelle jusqu'au déclic des deux côtés.",
+      "Signalez la serpillière rotative comme remplacée."
+    ],
+    "caution": "Laissez sécher une serpillière lavée avant de la remettre."
+  },
+  "replace_detergent": {
+    "title": "Remplacer le détergent",
+    "why": "La station ajoute le détergent de sa cartouche à l'eau de lavage. Quand elle est vide, le robot lave à l'eau seule.",
+    "steps": [
+      "Ouvrez le compartiment à détergent de la station.",
+      "Retirez la cartouche vide.",
+      "Insérez la nouvelle jusqu'à ce qu'elle tienne et fermez le compartiment.",
+      "Signalez le détergent comme remplacé."
+    ],
+    "caution": "N'utilisez que le détergent prévu pour la station : d'autres produits peuvent mousser ou l'endommager."
+  }
+}

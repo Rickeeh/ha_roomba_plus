@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "Do czego służy",
+    "how": "Jak to zrobić",
+    "note": "Uwaga",
+    "irobot": "Instrukcja iRobot dla twojego modelu",
+    "expired_title": "Ten link wygasł",
+    "expired_text": "Linki do instrukcji pielęgnacji są ważne 30 dni. Nowy znajdziesz w Home Assistant w Ustawienia → Urządzenia oraz usługi → Roomba+ → Konfiguruj → Konserwacja → Instrukcja pielęgnacji.",
+    "unknown_title": "Tu nie ma instrukcji",
+    "unknown_text": "Ta instrukcja nie istnieje. Otwórz Konfiguruj → Konserwacja → Instrukcja pielęgnacji w Home Assistant.",
+    "when": "Kiedy"
+  },
+  "clean_filter": {
+    "title": "Wyczyść filtr",
+    "why": "Filtr zatrzymuje drobny kurz w pojemniku. Gdy jego fałdy są zapchane, siła ssania spada i robot zbiera mniej.",
+    "steps": [
+      "Naciśnij zwalniacz pojemnika i wyjmij go z robota.",
+      "Wyciągnij filtr za jego uchwyt.",
+      "Wystukaj go o wnętrze kosza na śmieci, aż przestanie z niego wypadać kurz. Nie szczotkuj fałd.",
+      "Włóż filtr z fałdami w tym samym kierunku i wsuń pojemnik, aż zaskoczy."
+    ],
+    "caution": "Nigdy nie myj papierowego filtra i nie pozwól mu zamoknąć: mokry już nie filtruje.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika i wyciągnij go z robota.",
+          "Zwolnij filtr, naciskając go w dół, a potem go wyjmij.",
+          "Wystukaj go o wnętrze kosza na śmieci, aż przestanie z niego wypadać kurz. Nie szczotkuj fałd.",
+          "Włóż filtr z powrotem i wsuń pojemnik, aż zaskoczy."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika, wyjmij go i opróżnij.",
+          "Naciśnij zaczep klapki filtra i podnieś klapkę.",
+          "Wyciągnij filtr za żółty uchwyt i wystukaj go o wnętrze kosza na śmieci, aż przestanie wypadać kurz.",
+          "Włóż filtr z powrotem, zamknij klapkę i wsuń pojemnik, aż zaskoczy."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika z tyłu robota i wyjmij pojemnik.",
+          "Otwórz klapkę pojemnika nad koszem na śmieci i opróżnij go.",
+          "Chwyć filtr z boków, wyciągnij go w lewo i wystukaj o wnętrze kosza, aż przestanie wypadać kurz.",
+          "Włóż filtr z powrotem i wsuń pojemnik w prowadnicę, aż zaskoczy."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Naciśnij zwalniacz na pokrywie, otwórz ją i wyjmij pojemnik za uchwyt.",
+          "Trzymając pojemnik nad koszem na śmieci, naciśnij jego zwalniacz, aby go opróżnić.",
+          "Otwórz klapkę filtra, wyciągnij filtr za pętelkę i wystukaj go o wnętrze kosza.",
+          "Włóż filtr z powrotem i zamknij klapkę: zamyka się tylko z dobrze osadzonym filtrem. Włóż pojemnik z powrotem."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Wyczyść szczotki główne",
+    "why": "Szczotki główne podnoszą brud z dywanów i twardych podłóg do pojemnika. Nawinięte włosy sprawiają, że się ślizgają i zbierają mniej.",
+    "steps": [
+      "Odwróć robota na miękkiej powierzchni.",
+      "Otwórz ramkę szczotek za pomocą zaczepów i wyjmij obie szczotki.",
+      "Zdejmij zaślepki i usuń włosy i nitki z końców i osi. Nawinięte włosy przetnij wzdłuż rowka.",
+      "Załóż zaślepki, włóż każdą szczotkę tam, gdzie pasuje jej kształt, i zamknij ramkę."
+    ],
+    "caution": "Szczotki się różnią i pasują tylko w jednym kierunku. Nie wkładaj ich na siłę.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Odwróć robota na miękkiej powierzchni.",
+          "Podnieś dwa żółte zaczepy ramki i wyjmij szczotkę z włosiem oraz szczotkę ubijającą.",
+          "Zdejmij zaślepki i usuń włosy i nitki z końców i osi.",
+          "Załóż zaślepki, włóż każdą szczotkę tam, gdzie pasuje jej kształt, i zamknij ramkę."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Odwróć robota na miękkiej powierzchni.",
+          "Ściśnij żółte zaczepy ramki szczotek i podnieś ramkę.",
+          "Wyjmij oba gumowe wałki, zdejmij zaślepki i usuń włosy z kwadratowego i sześciokątnego bolca.",
+          "Załóż zaślepki, włóż każdy wałek tam, gdzie pasuje jego bolec, i zamknij ramkę, aż zaskoczy."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Odwróć robota na miękkiej powierzchni.",
+          "Naciśnij przycisk zwalniający obok szczotek i otwórz ramkę.",
+          "Wyjmij oba gumowe wałki, zdejmij zaślepki i usuń włosy z końców i osi.",
+          "Załóż zaślepki, włóż każdy wałek tam, gdzie pasuje jego kształt, i zamknij ramkę."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Odwróć robota na miękkiej powierzchni.",
+          "Naciśnij przycisk po prawej stronie głowicy czyszczącej: zatrzask się podniesie.",
+          "Wyjmij oba gumowe wałki, zdejmij zaślepki i usuń włosy z końców i osi.",
+          "Załóż zaślepki, włóż wałki tam, gdzie pasuje ich kształt, i zamknij zatrzask."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Wyczyść szczotkę boczną",
+    "why": "Szczotka boczna zmiata brud z krawędzi i narożników na drogę robota. Splątane lub wygięte ramiona go zostawiają.",
+    "steps": [
+      "Odwróć robota.",
+      "Odkręć śrubę na środku szczotki albo ściągnij szczotkę, jeśli nie ma śruby.",
+      "Usuń włosy z ramion i piasty i wyprostuj wygięte włosie.",
+      "Załóż szczotkę z powrotem na wałek i zamocuj ją."
+    ],
+    "caution": "Wymień szczotkę o zdeformowanych ramionach: nie sięga już do krawędzi.",
+    "variants": {
+      "s": {
+        "title": "Wyczyść szczotkę narożną",
+        "why": "Szczotka narożna wymiata brud z narożników i wzdłuż krawędzi na drogę robota. Splątane lub wygięte ramiona go zostawiają.",
+        "steps": [
+          "Odwróć robota.",
+          "Odkręć śrubę małym śrubokrętem i zdejmij szczotkę narożną.",
+          "Usuń włosy z ramion i z bolca napędowego.",
+          "Załóż szczotkę z powrotem na bolec i ponownie dokręć śrubę."
+        ],
+        "caution": "Dokręć śrubę: luźna szczotka narożna spada podczas sprzątania."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Wyczyść koła",
+    "why": "Przednie kółko i koła napędowe niosą robota. Włosy lub piasek sprawiają, że zbacza albo się zatrzymuje.",
+    "steps": [
+      "Odwróć robota.",
+      "Wyciągnij przednie kółko z gniazda i zdejmij kółko z osi.",
+      "Usuń włosy i brud z kółka, osi i gniazda.",
+      "Obróć ręcznie koła napędowe i usuń to, co się zaczepia, potem wciśnij przednie kółko, aż zaskoczy."
+    ],
+    "caution": "Nie wyciągaj kół napędowych: nie są przeznaczone do demontażu.",
+    "variants": {
+      "s": {
+        "why": "Tylne kółko skrętne i koła napędowe niosą robota. Włosy lub piasek sprawiają, że zbacza albo się zatrzymuje.",
+        "steps": [
+          "Odwróć robota.",
+          "Wyciągnij tylne kółko skrętne z gniazda i zdejmij kółko z osi.",
+          "Usuń włosy i brud z kółka, osi i gniazda.",
+          "Obróć ręcznie koła napędowe i usuń to, co się zaczepia, potem wciśnij kółko skrętne, aż zaskoczy."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Wyczyść czujniki krawędzi",
+    "why": "Czujniki krawędzi patrzą w dół w poszukiwaniu schodów i uskoków. Kurz na ich okienkach może zatrzymać robota albo sprawić, że przeoczy krawędź.",
+    "steps": [
+      "Odwróć robota.",
+      "Przetrzyj każde okienko czujnika lekko wilgotną gąbką melaminową lub ściereczką.",
+      "Sprawdź, czy żadne okienko nie jest porysowane ani zakryte."
+    ],
+    "caution": "Nigdy nie pryskaj środkiem czyszczącym na czujniki ani do ich otworów."
+  },
+  "clean_contact": {
+    "title": "Wyczyść styki ładowania",
+    "why": "Styki ładowania robota i stacji przewodzą prąd ładowania. Nalot na nich przerywa ładowanie.",
+    "steps": [
+      "Zdejmij robota ze stacji.",
+      "Przetrzyj styki ładowania robota lekko wilgotną gąbką melaminową lub ściereczką, aż zaczną błyszczeć.",
+      "Odłącz stację od prądu na 60 sekund i tak samo wyczyść jej styki.",
+      "Podłącz stację z powrotem i postaw na niej robota."
+    ],
+    "caution": "Nic ściernego i żadnych metalowych narzędzi. Styki zielone, miedziane lub zapadnięte są uszkodzone: skontaktuj się z obsługą klienta iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Zdejmij robota ze stacji.",
+          "Przetrzyj styki ładowania robota lekko wilgotną gąbką melaminową lub ściereczką, aż zaczną błyszczeć.",
+          "Odłącz Home Base od prądu na 60 sekund i tak samo wyczyść jej styki. Okienko czujnika dokowania przetrzyj tylko suchą ściereczką.",
+          "Podłącz Home Base z powrotem i postaw na niej robota."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Zdejmij robota z Clean Base.",
+          "Przetrzyj styki ładowania robota lekko wilgotną gąbką melaminową lub ściereczką, aż zaczną błyszczeć.",
+          "Odłącz Clean Base od prądu na 60 sekund i tak samo wyczyść styki na jej rampie.",
+          "Podłącz Clean Base z powrotem i postaw na niej robota."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Zdejmij robota ze stacji.",
+          "Przetrzyj styki ładowania robota lekko wilgotną gąbką melaminową lub ściereczką, aż zaczną błyszczeć.",
+          "Odłącz stację od prądu na 60 sekund. Jej styki, okienko podczerwieni i znacznik dokowania przetrzyj tylko suchą ściereczką.",
+          "Podłącz stację z powrotem i postaw na niej robota."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Opróżnij i sprawdź pojemnik",
+    "why": "Pojemnik mieści to, co zbiera robot. Pełny lub źle włożony pojemnik nie pozwala mu zbierać więcej.",
+    "steps": [
+      "Naciśnij zwalniacz i wyjmij pojemnik.",
+      "Otwórz klapkę nad koszem na śmieci i opróżnij pojemnik.",
+      "Wyjmij filtr, wystukaj go i usuń kurz z jego gniazda.",
+      "Włóż filtr z powrotem i wsuń pojemnik, aż zaskoczy."
+    ],
+    "caution": "Płucz tylko pojemnik do tego przeznaczony, bez filtra, i przed włożeniem pozwól mu całkiem wyschnąć.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika z tyłu robota i wyjmij pojemnik.",
+          "Otwórz klapkę pojemnika nad koszem na śmieci i opróżnij go.",
+          "Wyjmij filtr i go wystukaj. Jeśli pojemnik jest brudny, wypłucz go ręcznie ciepłą wodą.",
+          "Pozwól pojemnikowi całkiem wyschnąć, włóż filtr i wsuń pojemnik, aż zaskoczy."
+        ],
+        "caution": "Płucz tylko ręcznie, nigdy w zmywarce i nigdy z włożonym filtrem."
+      },
+      "s": {
+        "steps": [
+          "Naciśnij zwalniacz na pokrywie i wyjmij pojemnik za uchwyt.",
+          "Trzymając pojemnik nad koszem na śmieci, naciśnij jego zwalniacz, aby go opróżnić.",
+          "Wyjmij filtr i go wystukaj. Jeśli pojemnik jest brudny, wypłucz go ciepłą wodą.",
+          "Pozwól pojemnikowi całkiem wyschnąć, włóż filtr, a pojemnik do robota."
+        ],
+        "caution": "Płucz tylko ręcznie, nigdy w zmywarce i nigdy z włożonym filtrem."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Wyczyść okienko kamery",
+    "why": "Kamera i okienka czujników pomagają robotowi znaleźć drogę. Smugi sprawiają, że gubi swoją pozycję.",
+    "steps": [
+      "Znajdź okienko kamery na górze lub z przodu robota.",
+      "Przetrzyj je delikatnie czystą, suchą ściereczką z mikrofibry.",
+      "Tak samo przetrzyj pozostałe okienka czujników z przodu."
+    ],
+    "caution": "Żadnych płynów ani środków czyszczących na okienka."
+  },
+  "clean_wash_dock": {
+    "title": "Wyczyść stację myjącą",
+    "why": "Stacja myjąca płucze mop. Brud w jej tacce lub pełny zbiornik brudnej wody zatrzymuje mycie.",
+    "steps": [
+      "Wyjmij zbiornik brudnej wody, opróżnij go i wypłucz.",
+      "Wyjmij tackę myjącą i wypłucz ją pod bieżącą wodą.",
+      "Wytrzyj do sucha dno stacji i włóż tackę i zbiornik z powrotem.",
+      "Napełnij zbiornik czystej wody, jeśli jest prawie pusty."
+    ],
+    "caution": "Pozwól tacce wyschnąć, zanim robot znów na nią wjedzie."
+  },
+  "clean_dock_washing_system": {
+    "title": "Wyczyść system mycia stacji",
+    "why": "System mycia stacji wypłukuje brud z mopa. Jeśli zostają w nim resztki, mop wychodzi brudny.",
+    "steps": [
+      "Wyjmij wkład myjący ze stacji.",
+      "Wypłucz go pod bieżącą wodą i usuń włosy i zanieczyszczenia z otworów.",
+      "Przetrzyj miejsce wkładu w stacji.",
+      "Włóż wkład tak, aby leżał płasko."
+    ],
+    "caution": "Bez środków czyszczących, chyba że instrukcja stacji na to pozwala."
+  },
+  "clean_mop_washing_system": {
+    "title": "Wyczyść system mycia mopa",
+    "why": "System mycia mopa wałkowego zgarnia z niego brudną wodę. Gdy jego otwory się zatkają, brudna woda może kapać na podłogę.",
+    "steps": [
+      "Zdejmij mop wałkowy z robota.",
+      "Wypłucz zgarniacz i jego otwory pod bieżącą wodą i udrożnij zatkane otwory miękką szczoteczką.",
+      "Wypłucz mop wałkowy i pozwól mu wyschnąć.",
+      "Załóż mop wałkowy, aż zaskoczy."
+    ],
+    "caution": "Żadnych ostrych narzędzi w otworach zgarniacza."
+  },
+  "replace_filter": {
+    "title": "Wymień filtr",
+    "why": "Filtr z czasem traci skuteczność, nawet gdy jest regularnie wystukiwany.",
+    "steps": [
+      "Wyjmij pojemnik z robota.",
+      "Wyciągnij stary filtr za uchwyt.",
+      "Włóż nowy filtr z fałdami w tym samym kierunku co stary.",
+      "Wsuń pojemnik, aż zaskoczy, i zgłoś filtr jako wymieniony."
+    ],
+    "caution": "Używaj filtra do tego modelu: nieszczelny filtr przepuszcza kurz.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika i wyciągnij go.",
+          "Naciśnij stary filtr w dół i go wyjmij.",
+          "Włóż nowy filtr z fałdami w tym samym kierunku co stary.",
+          "Wsuń pojemnik, aż zaskoczy, i zgłoś filtr jako wymieniony."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Wyjmij pojemnik z robota.",
+          "Naciśnij zaczep klapki filtra, podnieś klapkę i wyciągnij stary filtr za żółty uchwyt.",
+          "Włóż nowy filtr z fałdami w tym samym kierunku i zamknij klapkę.",
+          "Wsuń pojemnik, aż zaskoczy, i zgłoś filtr jako wymieniony."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Naciśnij zwalniacz pojemnika z tyłu robota i wyjmij pojemnik.",
+          "Chwyć stary filtr z boków i wyciągnij go w lewo.",
+          "Włóż nowy filtr z fałdami w tym samym kierunku co stary.",
+          "Wsuń pojemnik w prowadnicę, aż zaskoczy, i zgłoś filtr jako wymieniony."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Otwórz pokrywę i wyjmij pojemnik za uchwyt.",
+          "Otwórz klapkę filtra i wyciągnij stary filtr za pętelkę.",
+          "Włóż nowy filtr i zamknij klapkę: zamyka się tylko z dobrze osadzonym filtrem.",
+          "Włóż pojemnik z powrotem i zgłoś filtr jako wymieniony."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Wymień szczotki główne",
+    "why": "Zużyte szczotki gorzej sięgają podłogi i zbierają mniej brudu.",
+    "steps": [
+      "Odwróć robota i otwórz ramkę szczotek.",
+      "Wyjmij obie szczotki. Zachowaj zaślepki, jeśli nowe szczotki ich nie mają.",
+      "Włóż nowe szczotki tam, gdzie pasuje ich kształt, i zamknij ramkę.",
+      "Zgłoś szczotki jako wymienione."
+    ],
+    "caution": "Szczotki się różnią i pasują tylko w jednym kierunku. Nie wkładaj ich na siłę.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Odwróć robota i podnieś dwa żółte zaczepy ramki.",
+          "Wyjmij szczotkę z włosiem i szczotkę ubijającą. Zachowaj zaślepki, jeśli nowe szczotki ich nie mają.",
+          "Włóż nowe szczotki tam, gdzie pasuje ich kształt, i zamknij ramkę.",
+          "Zgłoś szczotki jako wymienione."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Odwróć robota, ściśnij żółte zaczepy i podnieś ramkę.",
+          "Wyjmij oba wałki. Zachowaj zaślepki, jeśli nowe ich nie mają.",
+          "Włóż nowe wałki tam, gdzie pasują ich bolce, i zamknij ramkę, aż zaskoczy.",
+          "Zgłoś szczotki jako wymienione."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Odwróć robota i naciśnij przycisk zwalniający obok szczotek.",
+          "Wyjmij oba wałki. Zachowaj zaślepki, jeśli nowe ich nie mają.",
+          "Włóż nowe wałki tam, gdzie pasuje ich kształt, i zamknij ramkę.",
+          "Zgłoś szczotki jako wymienione."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Odwróć robota i naciśnij przycisk po prawej stronie głowicy czyszczącej.",
+          "Wyjmij oba wałki. Zachowaj zaślepki, jeśli nowe ich nie mają.",
+          "Włóż nowe wałki tam, gdzie pasuje ich kształt, i zamknij zatrzask.",
+          "Zgłoś szczotki jako wymienione."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Wymień szczotkę boczną",
+    "why": "Zużyta szczotka boczna nie sięga już do krawędzi i narożników.",
+    "steps": [
+      "Odwróć robota.",
+      "Odkręć śrubę lub ściągnij starą szczotkę z wałka.",
+      "Wciśnij nową szczotkę na wałek i zamocuj ją.",
+      "Zgłoś szczotkę boczną jako wymienioną."
+    ],
+    "caution": "Zachowaj śrubę: luźna szczotka spada podczas sprzątania.",
+    "variants": {
+      "s": {
+        "title": "Wymień szczotkę narożną",
+        "why": "Zużyta szczotka narożna nie sięga już do narożników.",
+        "steps": [
+          "Odwróć robota.",
+          "Odkręć śrubę i zdejmij starą szczotkę narożną.",
+          "Załóż nową szczotkę narożną na bolec i dokręć śrubę.",
+          "Zgłoś szczotkę narożną jako wymienioną."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Wymień worek",
+    "why": "Worek w stacji zbiera to, co robot do niej opróżnia. Gdy jest pełny, stacja nie może już opróżnić robota.",
+    "steps": [
+      "Otwórz pokrywę stacji.",
+      "Wyciągnij worek za uchwyt: uchwyt zamyka otwór.",
+      "Włóż nowy worek i wsuń jego kartonik w prowadnicę, aż się zablokuje.",
+      "Zamknij pokrywę i zgłoś worek jako wymieniony."
+    ],
+    "caution": "Nie używaj worka ponownie: jego zamknięcie zamyka się tylko raz."
+  },
+  "replace_battery": {
+    "title": "Wymień akumulator",
+    "why": "Akumulator z każdym ładowaniem traci pojemność. Robot pracuje wtedy krócej i może się zatrzymać, zanim skończy.",
+    "steps": [
+      "Wyłącz robota i odwróć go.",
+      "Odkręć śruby pokrywy akumulatora i zdejmij ją.",
+      "Wyciągnij stary akumulator za uchwyty i włóż nowy stykami w tę samą stronę.",
+      "Załóż pokrywę, postaw robota na stacji i zgłoś akumulator jako wymieniony."
+    ],
+    "caution": "Używaj akumulatora do tego modelu, a stary oddaj do punktu zbiórki baterii."
+  },
+  "replace_pad": {
+    "title": "Wymień nakładkę mopującą",
+    "why": "Zużyta nakładka zostawia smugi i zbiera mniej brudu.",
+    "steps": [
+      "Podnieś robota lub zdejmij go ze stacji.",
+      "Ściągnij starą nakładkę z uchwytu.",
+      "Nasuń lub dociśnij nową nakładkę do uchwytu, aż się utrzyma.",
+      "Zgłoś nakładkę jako wymienioną."
+    ],
+    "caution": "Nakładki wielorazowe pierz bez płynu zmiękczającego; jednorazowych używaj tylko raz."
+  },
+  "replace_roller": {
+    "title": "Wymień mop wałkowy",
+    "why": "Zużyty mop wałkowy nie dociska już równo do podłogi i zostawia smugi.",
+    "steps": [
+      "Zdejmij mop wałkowy z robota.",
+      "Załóż nowy, aż zaskoczy z obu stron.",
+      "Zgłoś mop wałkowy jako wymieniony."
+    ],
+    "caution": "Pozwól wypranemu mopowi wyschnąć przed założeniem."
+  },
+  "replace_detergent": {
+    "title": "Wymień detergent",
+    "why": "Stacja dodaje detergent ze swojego wkładu do wody do mopowania. Gdy jest pusty, robot myje samą wodą.",
+    "steps": [
+      "Otwórz komorę detergentu w stacji.",
+      "Wyjmij pusty wkład.",
+      "Włóż nowy, aż się utrzyma, i zamknij komorę.",
+      "Zgłoś detergent jako wymieniony."
+    ],
+    "caution": "Używaj tylko detergentu do tej stacji: inne środki mogą się pienić lub ją uszkodzić."
+  }
+}

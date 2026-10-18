@@ -29,7 +29,15 @@ from homeassistant.components.event import EventEntity
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import EVENT_MISSION_COMPLETED, EVENT_ROOM_COMPLETED, EVENT_STUCK
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
+from .const import (
+    EVENT_MISSION_COMPLETED,
+    EVENT_ROOM_COMPLETED,
+    EVENT_STUCK,
+    maintenance_event_signal,
+)
+from .maintenance_model import EVENT_TYPES as MAINTENANCE_EVENT_TYPES
 from .entity import IRobotEntity
 from .models import ConnectionType, RoombaConfigEntry
 
@@ -52,14 +60,19 @@ async def async_setup_entry(
 ) -> None:
     data = config_entry.runtime_data
     prime = data.connection_type == ConnectionType.CLOUD_ONLY
-    async_add_entities(
+    entities: list[EventEntity] = [
         RoombaMomentEvent(
             None if prime else data.roomba, data.blid, config_entry,
             key=key, bus_event=bus_event, event_type=event_type,
         )
         for key, bus_event, event_type in _MOMENTS
         if not (prime and key in _CLASSIC_ONLY)
-    )
+    ]
+    if getattr(data, "maintenance", None) is not None:
+        entities.append(
+            RoombaMaintenanceEvent(None if prime else data.roomba, data.blid, config_entry)
+        )
+    async_add_entities(entities)
 
 
 class RoombaMomentEvent(IRobotEntity, EventEntity):
@@ -103,4 +116,40 @@ class RoombaMomentEvent(IRobotEntity, EventEntity):
         if payload.get("entry_id") != self._config_entry.entry_id:
             return
         self._trigger_event(self._event_type, payload)
+        self.async_write_ha_state()
+
+
+class RoombaMaintenanceEvent(IRobotEntity, EventEntity):
+    """A maintenance entry became due or overdue, or was done or
+    snoozed (4.5.0).
+
+    Once per level change, not once per restart: the tracker keeps
+    what it announced. The entry -- id, part, level, remaining, due,
+    links -- is the event's data, so a notification can say what to do
+    and offer "done" without looking anything up.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "maintenance"
+    _attr_event_types = list(MAINTENANCE_EVENT_TYPES)
+
+    def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
+        super().__init__(roomba, blid, config_entry)
+        self._config_entry = config_entry
+        self._attr_unique_id = f"{self.robot_unique_id}_maintenance"
+
+    def new_state_filter(self, new_state: dict[str, Any]) -> bool:
+        return False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, maintenance_event_signal(self._blid), self._on_maintenance,
+            )
+        )
+
+    @callback
+    def _on_maintenance(self, event_type: str, payload: dict[str, Any]) -> None:
+        self._trigger_event(event_type, payload)
         self.async_write_ha_state()

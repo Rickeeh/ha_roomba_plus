@@ -79,6 +79,14 @@ class MissionTrajectoryStore:
                             float(t) for t in m.get("thetas", [])
                             if isinstance(t, (int, float))
                         ],
+                        # 4.5.0, additive like `thetas`.
+                        **(
+                            {"learned_runs": _clean_runs(
+                                m["learned_runs"], len(m.get("points") or [])
+                            )}
+                            if isinstance(m.get("learned_runs"), list)
+                            else {}
+                        ),
                     }
                     for m in raw
                     if isinstance(m, dict)
@@ -129,6 +137,7 @@ class MissionTrajectoryStore:
         points_mm: list[tuple[float, float]],
         ended_at: str = "",
         thetas_deg: list[float] | None = None,
+        learned_runs: list[list[float]] | None = None,
     ) -> bool:
         """Append one mission's trajectory to the bounded window.
 
@@ -151,6 +160,13 @@ class MissionTrajectoryStore:
 
         ONCE PER MISSION (4.3.2): a key already held is not stored again.
         Returns whether the mission was stored.
+
+        learned_runs (4.5.0): the stretches the coverage grid learned
+        from, each [start, end, dx_mm, dy_mm] -- points[start:end] shifted
+        by (dx, dy). Stored so that a later room recompute can check its
+        doors against where the robot actually went (learned_paths). A
+        mission stored without it, as every one before 4.5.0 was, is not
+        used for that: whether its position held is not known.
         """
         if not points_mm:
             return False
@@ -161,13 +177,32 @@ class MissionTrajectoryStore:
             )
             return False
         thetas = list(thetas_deg) if thetas_deg and len(thetas_deg) == len(points_mm) else []
-        self._missions.append({
+        entry: dict[str, Any] = {
             "mission_key": mission_key,
             "ended_at": ended_at,
             "points": [[float(x), float(y)] for x, y in points_mm],
             "thetas": [float(t) for t in thetas],
-        })
+        }
+        if learned_runs is not None:
+            entry["learned_runs"] = _clean_runs(learned_runs, len(points_mm))
+        self._missions.append(entry)
         return True
+
+    def learned_paths(self) -> list[tuple[str, list[list[tuple[float, float]]]]]:
+        """(mission key, learned stretches as points) for every mission
+        stored with its learned stretches, oldest first (4.5.0)."""
+        out: list[tuple[str, list[list[tuple[float, float]]]]] = []
+        for m in self._missions:
+            runs = m.get("learned_runs")
+            if not isinstance(runs, list):
+                continue
+            points = m.get("points") or []
+            stretches = [
+                [(p[0] + dx, p[1] + dy) for p in points[int(a):int(b)]]
+                for a, b, dx, dy in runs
+            ]
+            out.append((str(m.get("mission_key", "")), [s for s in stretches if s]))
+        return out
 
     def has_mission(self, mission_key: str) -> bool:
         """Whether a mission with this key is in the window."""
@@ -189,3 +224,19 @@ class MissionTrajectoryStore:
         if n <= 0:
             return []
         return list(self._missions)[-n:]
+
+
+def _clean_runs(raw: Any, n_points: int) -> list[list[float]]:
+    """Learned stretches as [start, end, dx, dy], inside the points."""
+    out: list[list[float]] = []
+    for r in raw if isinstance(raw, list) else []:
+        if not isinstance(r, (list, tuple)) or len(r) != 4:
+            continue
+        try:
+            a, b = int(r[0]), int(r[1])
+            dx, dy = float(r[2]), float(r[3])
+        except (TypeError, ValueError):
+            continue
+        if 0 <= a < b <= n_points:
+            out.append([a, b, dx, dy])
+    return out

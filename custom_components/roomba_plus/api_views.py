@@ -1108,7 +1108,19 @@ class HouseholdSummaryView(RoombaPlusView):
                 health_trend = data.robot_profile_store.health_score_trend()
 
             maintenance_due = False
-            if data.connection_type is ConnectionType.CLOUD_ONLY:
+            maintenance_level = None
+            tracker = getattr(data, "maintenance", None)
+            if tracker is not None:
+                # ONE CALCULATION (4.5.0): the entries the status sensor,
+                # the list and GET /maintenance show. "Due" here stays
+                # what it was -- a part to replace -- and the level adds
+                # the care tasks.
+                maintenance_due = any(
+                    item.action == "replace" and item.level in ("due", "overdue")
+                    for item in tracker.items
+                )
+                maintenance_level = tracker.level
+            elif data.connection_type is ConnectionType.CLOUD_ONLY:
                 # PRIME COUNTS ITS PARTS ITSELF. The Classic rule below
                 # reads local hour counters a Prime robot never reports,
                 # so a Prime robot was never due here. The maintenance
@@ -1142,6 +1154,7 @@ class HouseholdSummaryView(RoombaPlusView):
                 "health_trend":                    health_trend,
                 "battery_capacity_retention_pct":  data.battery_retention_value,
                 "maintenance_due":                 maintenance_due,
+                "maintenance_level":               maintenance_level,
                 "needs_attention":                 needs_attention,
             })
             total_missions  += missions
@@ -1188,6 +1201,45 @@ class HouseholdSummaryView(RoombaPlusView):
             result["floors"] = list(floors.values())
 
         return self.json(result)
+
+
+class MaintenanceView(RoombaPlusView):
+    """GET /api/roomba_plus/{entry_id}/maintenance (4.5.0)
+
+    The robot's maintenance entries, as the status sensor's `items`:
+
+        {"level": "soon", "generated_at": "...",
+         "items": [{"id": "replace.filter", "action": "replace",
+                    "part": "filter", "level": "soon", "used": 0.84,
+                    "remaining": 8.0, "unit": "hours", "due": "...",
+                    "interval": 52.0, "interval_unit": "hours",
+                    "interval_source": "profile", "last_done": "...",
+                    "wear_rate": 1.1, "part_id": null, "guide_url": null,
+                    "buy_url": null, "hint": "replace.filter",
+                    "done": "local", "snoozed_until": null}, ...]}
+
+    Read-only; an entry is marked done with the
+    `roomba_plus.maintenance_done` action. Both generations.
+    """
+
+    url = "/api/roomba_plus/{entry_id}/maintenance"
+    name = "api:roomba_plus:maintenance"
+    requires_auth = True
+
+    async def get(self, request: web.Request, entry_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN:
+            return self.json_message("Entry not found", status_code=404)
+        data = getattr(entry, "runtime_data", None)
+        tracker = getattr(data, "maintenance", None)
+        if tracker is None:
+            return self.json_message("Integration initialising", status_code=503)
+        return self.json({
+            "level": tracker.level,
+            "generated_at": dt_util.now().isoformat(),
+            "items": [item.as_dict() for item in tracker.items],
+        })
 
 
 class DailyDigestView(RoombaPlusView):

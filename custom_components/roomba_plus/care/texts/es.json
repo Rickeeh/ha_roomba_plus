@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "Para qué sirve",
+    "how": "Cómo se hace",
+    "note": "Atención",
+    "irobot": "La guía de iRobot para tu modelo",
+    "expired_title": "Este enlace ha caducado",
+    "expired_text": "Los enlaces a las guías de cuidado valen 30 días. Para obtener uno nuevo, abre en Home Assistant Ajustes → Dispositivos y servicios → Roomba+ → Configurar → Mantenimiento → Guía de cuidado.",
+    "unknown_title": "Aquí no hay ninguna guía",
+    "unknown_text": "Esta guía no existe. Abre Configurar → Mantenimiento → Guía de cuidado en Home Assistant.",
+    "when": "Cuándo"
+  },
+  "clean_filter": {
+    "title": "Limpiar el filtro",
+    "why": "El filtro retiene el polvo fino en el depósito. Cuando sus pliegues se obstruyen, la aspiración baja y el robot recoge menos.",
+    "steps": [
+      "Pulsa el botón de liberación del depósito y sácalo del robot.",
+      "Saca el filtro tirando de su lengüeta.",
+      "Golpéalo contra el interior de un cubo de basura hasta que no caiga más polvo. No cepilles los pliegues.",
+      "Vuelve a colocar el filtro con los pliegues en la misma dirección y desliza el depósito hasta que encaje."
+    ],
+    "caution": "No laves nunca un filtro de papel ni dejes que se moje: una vez mojado, ya no filtra.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito y sácalo del robot.",
+          "Libera el filtro presionándolo hacia abajo y luego levántalo.",
+          "Golpéalo contra el interior de un cubo de basura hasta que no caiga más polvo. No cepilles los pliegues.",
+          "Vuelve a colocar el filtro e introduce el depósito hasta que haga clic."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito, sácalo y vacíalo.",
+          "Presiona la lengüeta de la tapa del filtro y levanta la tapa.",
+          "Saca el filtro por su lengüeta amarilla y golpéalo contra el interior de un cubo de basura hasta que no caiga más polvo.",
+          "Vuelve a colocar el filtro, cierra la tapa e introduce el depósito hasta que haga clic."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito en la parte trasera del robot y saca el depósito.",
+          "Abre la puerta del depósito sobre un cubo de basura y vacíalo.",
+          "Sujeta el filtro por los lados, sácalo hacia la izquierda y golpéalo contra el interior del cubo hasta que no caiga más polvo.",
+          "Vuelve a colocar el filtro y desliza el depósito en su guía hasta que haga clic."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Pulsa el botón de la tapa, ábrela y saca el depósito por su asa.",
+          "Sujeta el depósito sobre un cubo de basura y pulsa su botón para vaciarlo.",
+          "Abre la tapa del filtro, saca el filtro por su lazo y golpéalo contra el interior del cubo.",
+          "Vuelve a colocar el filtro y cierra la tapa: solo cierra con el filtro bien colocado. Vuelve a colocar el depósito."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Limpiar los cepillos principales",
+    "why": "Los cepillos principales levantan la suciedad de alfombras y suelos duros hacia el depósito. El pelo enrollado los hace patinar y recogen menos.",
+    "steps": [
+      "Da la vuelta al robot sobre una superficie blanda.",
+      "Abre el marco de los cepillos por sus pestañas y saca ambos cepillos.",
+      "Quita las tapas de los extremos y retira pelos e hilos de los extremos y los ejes. Corta el pelo enrollado a lo largo de la ranura.",
+      "Vuelve a poner las tapas, coloca cada cepillo donde encaje su forma y cierra el marco."
+    ],
+    "caution": "Los dos cepillos no son iguales y solo encajan en un sentido. No los fuerces.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Da la vuelta al robot sobre una superficie blanda.",
+          "Levanta las dos lengüetas amarillas del marco y saca el cepillo de cerdas y el cepillo batidor.",
+          "Quita las tapas de los extremos y retira pelos e hilos de los extremos y los ejes.",
+          "Vuelve a poner las tapas, coloca cada cepillo donde encaje su forma y cierra el marco."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Da la vuelta al robot sobre una superficie blanda.",
+          "Aprieta las lengüetas amarillas del marco de los cepillos y levanta el marco.",
+          "Saca los dos rodillos de goma, quita las tapas y retira los pelos de los pernos cuadrado y hexagonal.",
+          "Vuelve a poner las tapas, coloca cada rodillo donde encaje su perno y cierra el marco hasta que haga clic."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Da la vuelta al robot sobre una superficie blanda.",
+          "Pulsa el botón de liberación junto a los cepillos y abre el marco.",
+          "Saca los dos rodillos de goma, quita las tapas y retira los pelos de los extremos y los ejes.",
+          "Vuelve a poner las tapas, coloca cada rodillo donde encaje su forma y cierra el marco."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Da la vuelta al robot sobre una superficie blanda.",
+          "Pulsa el botón a la derecha del cabezal de limpieza: el pestillo se levanta.",
+          "Saca los dos rodillos de goma, quita las tapas y retira los pelos de los extremos y los ejes.",
+          "Vuelve a poner las tapas, coloca los rodillos donde encaje su forma y cierra el pestillo."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Limpiar el cepillo lateral",
+    "why": "El cepillo lateral barre la suciedad de bordes y esquinas hacia el recorrido del robot. Unos brazos enredados o doblados la dejan atrás.",
+    "steps": [
+      "Da la vuelta al robot.",
+      "Afloja el tornillo del centro del cepillo, o tira del cepillo si no tiene tornillo.",
+      "Quita el pelo de los brazos y del buje, y endereza las cerdas dobladas.",
+      "Vuelve a colocar el cepillo en su eje y fíjalo."
+    ],
+    "caution": "Cambia un cepillo con los brazos deformados: ya no llega al borde.",
+    "variants": {
+      "s": {
+        "title": "Limpiar el cepillo de esquinas",
+        "why": "El cepillo de esquinas barre la suciedad de las esquinas y a lo largo de los bordes hacia el camino del robot. Unos brazos enredados o doblados la dejan atrás.",
+        "steps": [
+          "Da la vuelta al robot.",
+          "Afloja el tornillo con un destornillador pequeño y quita el cepillo de esquinas.",
+          "Retira los pelos de los brazos y del perno de accionamiento.",
+          "Vuelve a poner el cepillo en el perno y aprieta de nuevo el tornillo."
+        ],
+        "caution": "Aprieta el tornillo: un cepillo de esquinas suelto se cae durante la limpieza."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Limpiar las ruedas",
+    "why": "La rueda delantera y las ruedas motrices sostienen el robot. Pelos o arena en ellas lo hacen desviarse o detenerse.",
+    "steps": [
+      "Da la vuelta al robot.",
+      "Saca la rueda delantera de su alojamiento y retira la rueda de su eje.",
+      "Quita pelos y suciedad de la rueda, el eje y el alojamiento.",
+      "Gira las ruedas motrices a mano y retira lo que se enganche; después vuelve a colocar la rueda delantera hasta que encaje."
+    ],
+    "caution": "No saques las ruedas motrices: no están pensadas para desmontarse.",
+    "variants": {
+      "s": {
+        "why": "La rueda giratoria trasera y las ruedas motrices llevan al robot. Pelos o arena hacen que se desvíe o se pare.",
+        "steps": [
+          "Da la vuelta al robot.",
+          "Saca la rueda giratoria trasera de su alojamiento y quita la rueda de su eje.",
+          "Retira pelos y suciedad de la rueda, el eje y el alojamiento.",
+          "Gira las ruedas motrices a mano y quita lo que se enganche; luego vuelve a encajar la rueda giratoria hasta que haga clic."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Limpiar los sensores de desnivel",
+    "why": "Los sensores de desnivel miran hacia abajo buscando escaleras y bordes. El polvo en sus ventanas puede detener el robot o hacer que no vea un borde.",
+    "steps": [
+      "Da la vuelta al robot.",
+      "Limpia cada ventana de sensor con una esponja de melamina o un paño ligeramente húmedo.",
+      "Comprueba que ninguna ventana esté rayada ni tapada."
+    ],
+    "caution": "No pulverices nunca un producto de limpieza sobre los sensores ni en sus aberturas."
+  },
+  "clean_contact": {
+    "title": "Limpiar los contactos de carga",
+    "why": "Los contactos de carga del robot y de la base conducen la corriente de carga. Una película sobre ellos interrumpe la carga.",
+    "steps": [
+      "Retira el robot de la base.",
+      "Frota los contactos de carga del robot con una esponja de melamina o un paño ligeramente húmedo hasta que brillen.",
+      "Desenchufa la base durante 60 segundos y limpia sus contactos de la misma forma.",
+      "Vuelve a enchufar la base y coloca el robot en ella."
+    ],
+    "caution": "Nada abrasivo ni herramientas metálicas. Los contactos verdes, cobrizos o hundidos están dañados: contacta con el servicio de atención de iRobot.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Retira el robot de la base.",
+          "Frota los contactos de carga del robot con una esponja de melamina o un paño ligeramente húmedo hasta que brillen.",
+          "Desenchufa la Home Base durante 60 segundos y limpia sus contactos de la misma forma. Limpia la ventana de su sensor de acoplamiento solo con un paño seco.",
+          "Vuelve a enchufar la Home Base y coloca el robot en ella."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Retira el robot de la Clean Base.",
+          "Frota los contactos de carga del robot con una esponja de melamina o un paño ligeramente húmedo hasta que brillen.",
+          "Desenchufa la Clean Base durante 60 segundos y limpia de la misma forma los contactos de su rampa.",
+          "Vuelve a enchufar la Clean Base y coloca el robot en ella."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Retira el robot de la base.",
+          "Frota los contactos de carga del robot con una esponja de melamina o un paño ligeramente húmedo hasta que brillen.",
+          "Desenchufa la base durante 60 segundos. Limpia sus contactos, la ventana de infrarrojos y la marca de acoplamiento solo con un paño seco.",
+          "Vuelve a enchufar la base y coloca el robot en ella."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Vaciar y revisar el depósito",
+    "why": "El depósito guarda lo que recoge el robot. Un depósito lleno o mal colocado le impide recoger más.",
+    "steps": [
+      "Pulsa el botón de liberación y saca el depósito.",
+      "Abre la tapa sobre un cubo de basura y vacíalo.",
+      "Saca el filtro, golpéalo para limpiarlo y quita el polvo de su asiento.",
+      "Vuelve a poner el filtro y desliza el depósito hasta que encaje."
+    ],
+    "caution": "Enjuaga solo un depósito preparado para ello, sin el filtro, y déjalo secar del todo antes de volver a colocarlo.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito en la parte trasera del robot y saca el depósito.",
+          "Abre la puerta del depósito sobre un cubo de basura y vacíalo.",
+          "Saca el filtro y golpéalo. Enjuaga el depósito a mano con agua templada si está sucio.",
+          "Deja que el depósito se seque por completo, coloca el filtro e introduce el depósito hasta que haga clic."
+        ],
+        "caution": "Enjuágalo solo a mano, nunca en el lavavajillas y nunca con el filtro puesto."
+      },
+      "s": {
+        "steps": [
+          "Pulsa el botón de la tapa y saca el depósito por su asa.",
+          "Sujeta el depósito sobre un cubo de basura y pulsa su botón para vaciarlo.",
+          "Saca el filtro y golpéalo. Enjuaga el depósito con agua templada si está sucio.",
+          "Deja que el depósito se seque por completo, coloca el filtro y el depósito en el robot."
+        ],
+        "caution": "Enjuágalo solo a mano, nunca en el lavavajillas y nunca con el filtro puesto."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Limpiar la ventana de la cámara",
+    "why": "La cámara y las ventanas de los sensores ayudan al robot a orientarse. Las manchas le hacen perder su posición.",
+    "steps": [
+      "Busca la ventana de la cámara en la parte superior o delantera del robot.",
+      "Límpiala con cuidado con un paño de microfibra limpio y seco.",
+      "Limpia igual las demás ventanas de sensores de la parte delantera."
+    ],
+    "caution": "Ningún líquido ni producto de limpieza en las ventanas."
+  },
+  "clean_wash_dock": {
+    "title": "Limpiar la base de lavado",
+    "why": "La base de lavado enjuaga la mopa. La suciedad en su bandeja o un depósito de agua sucia lleno detiene el lavado.",
+    "steps": [
+      "Saca el depósito de agua sucia, vacíalo y enjuágalo.",
+      "Saca la bandeja de lavado y enjuágala con agua corriente.",
+      "Seca el fondo de la base y vuelve a colocar la bandeja y el depósito.",
+      "Llena el depósito de agua limpia si queda poca."
+    ],
+    "caution": "Deja secar la bandeja antes de que el robot vuelva a subirse."
+  },
+  "clean_dock_washing_system": {
+    "title": "Limpiar el sistema de lavado de la base",
+    "why": "El sistema de lavado de la base expulsa la suciedad de la mopa. Si quedan restos, la mopa sale sucia.",
+    "steps": [
+      "Saca el inserto de lavado de la base.",
+      "Enjuágalo con agua corriente y quita pelos y restos de sus aberturas.",
+      "Limpia el asiento del inserto en la base.",
+      "Vuelve a colocar el inserto de modo que quede plano."
+    ],
+    "caution": "Ningún producto de limpieza, salvo que el manual de la base lo permita."
+  },
+  "clean_mop_washing_system": {
+    "title": "Limpiar el sistema de lavado de la mopa",
+    "why": "El sistema de lavado de la mopa de rodillo escurre el agua sucia de la mopa. Si sus aberturas se obstruyen, puede gotear agua sucia en el suelo.",
+    "steps": [
+      "Saca la mopa de rodillo del robot.",
+      "Enjuaga el rascador y sus aberturas con agua corriente y desatasca los orificios con un cepillo suave.",
+      "Enjuaga la mopa de rodillo y déjala secar.",
+      "Vuelve a colocar la mopa de rodillo hasta que encaje."
+    ],
+    "caution": "Ninguna herramienta puntiaguda en las aberturas del rascador."
+  },
+  "replace_filter": {
+    "title": "Sustituir el filtro",
+    "why": "Un filtro pierde eficacia con el tiempo, aunque se limpie con regularidad.",
+    "steps": [
+      "Saca el depósito del robot.",
+      "Saca el filtro viejo tirando de su lengüeta.",
+      "Coloca el filtro nuevo con los pliegues en la misma dirección que el viejo.",
+      "Desliza el depósito hasta que encaje e indica el filtro como sustituido."
+    ],
+    "caution": "Usa un filtro para este modelo: uno que no ajusta deja pasar el polvo.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito y sácalo.",
+          "Presiona el filtro viejo hacia abajo y levántalo.",
+          "Coloca el filtro nuevo con los pliegues en la misma dirección que el viejo.",
+          "Introduce el depósito hasta que haga clic e indica el filtro como sustituido."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Saca el depósito del robot.",
+          "Presiona la lengüeta de la tapa del filtro, levanta la tapa y saca el filtro viejo por su lengüeta amarilla.",
+          "Coloca el filtro nuevo con los pliegues en la misma dirección y cierra la tapa.",
+          "Introduce el depósito hasta que haga clic e indica el filtro como sustituido."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Pulsa el botón de liberación del depósito en la parte trasera del robot y saca el depósito.",
+          "Sujeta el filtro viejo por los lados y sácalo hacia la izquierda.",
+          "Coloca el filtro nuevo con los pliegues en la misma dirección que el viejo.",
+          "Desliza el depósito en su guía hasta que haga clic e indica el filtro como sustituido."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Abre la tapa y saca el depósito por su asa.",
+          "Abre la tapa del filtro y saca el filtro viejo por su lazo.",
+          "Coloca el filtro nuevo y cierra la tapa del filtro: solo cierra con el filtro bien colocado.",
+          "Vuelve a colocar el depósito e indica el filtro como sustituido."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Sustituir los cepillos principales",
+    "why": "Los cepillos desgastados llegan peor al suelo y recogen menos suciedad.",
+    "steps": [
+      "Da la vuelta al robot y abre el marco de los cepillos.",
+      "Saca ambos cepillos. Guarda las tapas si los nuevos vienen sin ellas.",
+      "Coloca los cepillos nuevos donde encaje su forma y cierra el marco.",
+      "Indica los cepillos como sustituidos."
+    ],
+    "caution": "Los dos cepillos no son iguales y solo encajan en un sentido. No los fuerces.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Da la vuelta al robot y levanta las dos lengüetas amarillas del marco.",
+          "Saca el cepillo de cerdas y el cepillo batidor. Guarda las tapas si los nuevos cepillos no las traen.",
+          "Coloca los cepillos nuevos donde encaje su forma y cierra el marco.",
+          "Indica los cepillos como sustituidos."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Da la vuelta al robot, aprieta las lengüetas amarillas y levanta el marco.",
+          "Saca los dos rodillos. Guarda las tapas si los nuevos no las traen.",
+          "Coloca los rodillos nuevos donde encajen sus pernos y cierra el marco hasta que haga clic.",
+          "Indica los cepillos como sustituidos."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Da la vuelta al robot y pulsa el botón de liberación junto a los cepillos.",
+          "Saca los dos rodillos. Guarda las tapas si los nuevos no las traen.",
+          "Coloca los rodillos nuevos donde encaje su forma y cierra el marco.",
+          "Indica los cepillos como sustituidos."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Da la vuelta al robot y pulsa el botón a la derecha del cabezal de limpieza.",
+          "Saca los dos rodillos. Guarda las tapas si los nuevos no las traen.",
+          "Coloca los rodillos nuevos donde encaje su forma y cierra el pestillo.",
+          "Indica los cepillos como sustituidos."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Sustituir el cepillo lateral",
+    "why": "Un cepillo lateral desgastado ya no llega a bordes y esquinas.",
+    "steps": [
+      "Da la vuelta al robot.",
+      "Afloja el tornillo o tira del cepillo viejo para sacarlo del eje.",
+      "Encaja el cepillo nuevo en el eje y fíjalo.",
+      "Indica el cepillo lateral como sustituido."
+    ],
+    "caution": "Guarda el tornillo: un cepillo suelto se cae durante la limpieza.",
+    "variants": {
+      "s": {
+        "title": "Sustituir el cepillo de esquinas",
+        "why": "Un cepillo de esquinas gastado ya no llega a las esquinas.",
+        "steps": [
+          "Da la vuelta al robot.",
+          "Afloja el tornillo y quita el cepillo de esquinas viejo.",
+          "Pon el cepillo de esquinas nuevo en el perno y aprieta el tornillo.",
+          "Indica el cepillo de esquinas como sustituido."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Sustituir la bolsa",
+    "why": "La bolsa de la base recoge lo que el robot vacía en ella. Cuando está llena, la base ya no puede vaciar el robot.",
+    "steps": [
+      "Abre la tapa de la base.",
+      "Saca la bolsa tirando de su lengüeta: la lengüeta cierra la abertura.",
+      "Coloca la bolsa nueva y empuja su cartón en la guía hasta que quede fijo.",
+      "Cierra la tapa e indica la bolsa como sustituida."
+    ],
+    "caution": "No reutilices una bolsa: su cierre solo se cierra una vez."
+  },
+  "replace_battery": {
+    "title": "Sustituir la batería",
+    "why": "Una batería pierde capacidad con cada carga. El robot funciona entonces menos tiempo y puede pararse antes de terminar.",
+    "steps": [
+      "Apaga el robot y dale la vuelta.",
+      "Afloja los tornillos de la tapa de la batería y quítala.",
+      "Saca la batería vieja por sus lengüetas y coloca la nueva con los contactos en la misma dirección.",
+      "Pon la tapa, coloca el robot en la base e indica la batería como sustituida."
+    ],
+    "caution": "Usa una batería para este modelo y lleva la vieja a un punto de recogida de pilas."
+  },
+  "replace_pad": {
+    "title": "Sustituir la mopa",
+    "why": "Una mopa desgastada deja marcas y recoge menos suciedad.",
+    "steps": [
+      "Levanta el robot o retíralo de la base.",
+      "Saca la mopa vieja de su soporte.",
+      "Desliza o presiona la mopa nueva en el soporte hasta que quede fija.",
+      "Indica la mopa como sustituida."
+    ],
+    "caution": "Lava las mopas lavables sin suavizante; usa las desechables una sola vez."
+  },
+  "replace_roller": {
+    "title": "Sustituir la mopa de rodillo",
+    "why": "Una mopa de rodillo desgastada ya no presiona por igual sobre el suelo y deja marcas.",
+    "steps": [
+      "Saca la mopa de rodillo del robot.",
+      "Coloca la nueva hasta que encaje por ambos lados.",
+      "Indica la mopa de rodillo como sustituida."
+    ],
+    "caution": "Deja secar una mopa lavada antes de volver a colocarla."
+  },
+  "replace_detergent": {
+    "title": "Sustituir el detergente",
+    "why": "La base añade detergente de su cartucho al agua de fregado. Cuando está vacío, el robot friega solo con agua.",
+    "steps": [
+      "Abre el compartimento de detergente de la base.",
+      "Saca el cartucho vacío.",
+      "Coloca el nuevo hasta que quede fijo y cierra el compartimento.",
+      "Indica el detergente como sustituido."
+    ],
+    "caution": "Usa solo detergente para esta base: otros productos pueden hacer espuma o dañarla."
+  }
+}

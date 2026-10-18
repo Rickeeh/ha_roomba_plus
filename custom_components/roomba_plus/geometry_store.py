@@ -363,7 +363,13 @@ class GeometryStore:
         """
         existing_by_id = {m.id: m for m in self.door_markers}
         synced: list[DoorMarker] = []
-        for seg_door in room_seg_store.doors:
+        # THE DRIVEN DOORS ONLY (4.5.0): two areas touching across a wall
+        # are not a door. RoomSegStore.driven_doors; a store without it
+        # (an older stand-in) gives all of them.
+        seg_doors = getattr(room_seg_store, "driven_doors", None)
+        if not isinstance(seg_doors, list):
+            seg_doors = room_seg_store.doors
+        for seg_door in seg_doors:
             gm_id = f"rs_{seg_door.id}"  # namespaced — can't collide with dm_N ids
             existing = existing_by_id.get(gm_id)
             if existing is not None:

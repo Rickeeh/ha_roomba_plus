@@ -55,8 +55,18 @@ class UmfAligner:
         regions: list[dict[str, Any]],
         geometry_store: GeometryStore,
         pmap_version_id: str = "",
+        door_mm: float | None = None,
     ) -> None:
         self._points2d      = points2d
+        # THE DOOR WIDTH THE USER SET (4.5.0): door candidates are gaps
+        # from 20 cm narrower to 40 cm wider. 80 cm gives the window the
+        # constants below always held.
+        self._door_gap_min = (
+            door_mm - 200.0 if door_mm is not None else _DOOR_GAP_MIN
+        )
+        self._door_gap_max = (
+            door_mm + 400.0 if door_mm is not None else _DOOR_GAP_MAX
+        )
         self._regions       = regions
         self._geometry_store = geometry_store
         self.pmap_version_id = pmap_version_id
@@ -370,7 +380,7 @@ class UmfAligner:
             if c1 and c2:
                 gap = math.dist(c1, c2)
                 gaps.append(gap)
-                if _DOOR_GAP_MIN <= gap <= _DOOR_GAP_MAX:
+                if self._door_gap_min <= gap <= self._door_gap_max:
                     mid = ((c1[0] + c2[0]) / 2.0, (c1[1] + c2[1]) / 2.0)
                     self._door_candidates.append(mid)
         if gaps:
@@ -379,7 +389,7 @@ class UmfAligner:
                 "candidates=%d (thresholds: %.0f–%.0f)",
                 min(gaps), max(gaps), sum(gaps) / len(gaps),
                 len(self._door_candidates),
-                _DOOR_GAP_MIN, _DOOR_GAP_MAX,
+                self._door_gap_min, self._door_gap_max,
             )
 
     def _resolve_room_polygons(self) -> None:

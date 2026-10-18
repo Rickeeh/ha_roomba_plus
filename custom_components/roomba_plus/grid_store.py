@@ -267,6 +267,11 @@ class GridStore:
         # paths specifically to prevent double-counting a mission that
         # the live path already processed — see record_processed_nmssn().
         self._last_processed_nmssn: int = 0
+        #: Missions this grid learned from since it was empty (4.5.0), the
+        #: count RoomSegStore waits on before it divides the floor. None
+        #: for a grid saved before the count existed: how many missions
+        #: built it is not known, and its areas are long since drawn.
+        self._missions_learned: int | None = 0
 
     # ── Persistence ───────────────────────────────────────────────────────────
 
@@ -352,6 +357,12 @@ class GridStore:
             # legitimate backfill candidate, which is the correct behaviour
             # for a robot upgrading onto this feature for the first time).
             self._last_processed_nmssn = int(data.get("last_processed_nmssn", 0) or 0)
+            learned = data.get("missions_learned")
+            self._missions_learned = (
+                int(learned)
+                if isinstance(learned, int) and not isinstance(learned, bool)
+                else (0 if not self._cells else None)
+            )
             last_valid_ratio = data.get("last_valid_edge_coverage_ratio")
             self._last_valid_edge_coverage_ratio = (
                 float(last_valid_ratio)
@@ -370,6 +381,7 @@ class GridStore:
             self._furniture_dismissed_at = {}
             self._structure_cells = {}
             self._last_processed_nmssn = 0
+            self._missions_learned = 0
             self._last_valid_edge_coverage_ratio = None
 
     async def async_save(self, hass: Any, entry_id: str) -> None:
@@ -396,6 +408,7 @@ class GridStore:
                 f"{gx},{gy}": w for (gx, gy), w in self._structure_cells.items()
             },
             "last_processed_nmssn": self._last_processed_nmssn,
+            "missions_learned": self._missions_learned,
             "last_valid_edge_coverage_ratio": self._last_valid_edge_coverage_ratio,
         })
 
@@ -511,10 +524,19 @@ class GridStore:
                 if len(times_list) > 200:
                     self._stuck[cell]["times"] = times_list[-200:]
 
+        if self._missions_learned is not None:
+            self._missions_learned += 1
+
         _LOGGER.debug(
             "GridStore: update complete — %d cell(s), %d stuck cell(s)",
             len(self._cells), len(self._stuck),
         )
+
+    @property
+    def missions_learned(self) -> int | None:
+        """Missions fed in since the grid was empty; None when unknown
+        (a grid saved before 4.5.0 counted them)."""
+        return self._missions_learned
 
     @property
     def last_processed_nmssn(self) -> int:

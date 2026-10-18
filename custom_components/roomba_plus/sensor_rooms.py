@@ -26,13 +26,13 @@ from homeassistant.helpers.typing import StateType
 
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ROOM_SCHEDULE, mission_command_regions
+from .const import CONF_ROOM_SCHEDULE, mission_command, mission_command_regions
 from .entity import IRobotEntity
 from .prime_room_map import SIGNAL_PRIME_ROOM_NAMES
 from .models import RoombaConfigEntry
 from .prime_coordinator import prime_current_state, prime_last_command
 from .room_times import current_cleaning_mode, measured_room_seconds, typical_room_seconds
-from .room_cleaning import region_names_across_maps
+from .room_cleaning import CommandRegionNames, region_names_across_maps
 
 _LOGGER = logging.getLogger("custom_components.roomba_plus.sensor")
 
@@ -179,8 +179,22 @@ def _get_planned_room_order(data: Any) -> list[str]:
     #
     # `lastCommand.pmap_id` is what the robot was actually told, and it
     # is already read three lines above for the region ids themselves.
-    id_to_name = region_names_across_maps(cc, last_cmd.get("pmap_id"))
-    result = [id_to_name[rid] for rid in region_ids if rid in id_to_name]
+    #
+    # AND EACH REGION BY ITS TYPE (4.5.0): a zone and a room may share a
+    # number. CommandRegionNames looks up a zone among zones and a room
+    # among rooms, on the command's map first; the planned order and the
+    # mission's names now come from the same lookup.
+    _command = mission_command(last_cmd, getattr(data, "mission_command", None))
+    _pmap = _command.get("pmap_id") if isinstance(_command, dict) else None
+    _lookup = CommandRegionNames(cc, str(_pmap) if _pmap else last_cmd.get("pmap_id"))
+    _regions = [
+        r for r in mission_command_regions(
+            reported.get("cleanMissionStatus"), last_cmd,
+            getattr(data, "mission_command", None),
+        )
+        if _MS.extract_rid(r)
+    ]
+    result = [n for n in (_lookup.name(r) for r in _regions) if n]
 
     # v2.9.0 — region_ids had entries, but not all of them resolved via
     # cc.regions (id_to_name). The pre-v2.9.0 fallback only triggered when
@@ -1750,6 +1764,12 @@ class RoombaLastMissionSummarySensor(IRobotEntity, SensorEntity):
             "duration_min": rec.get("duration_min"),
             "area_sqft": rec.get("area_sqft"),
             "cleaned_rooms": cleaned_rooms,
+            # `requested` when nothing observed the rooms (4.5.0): they
+            # are the rooms the mission was sent to. See
+            # MissionStore.latest_rooms_source() for the other values.
+            "cleaned_rooms_source": (
+                store.latest_rooms_source() if cleaned_rooms is not None and store else None
+            ),
             "room_coverage": room_coverage,
             "cleaning_passes": rec.get("cleaning_passes"),
             "battery_start_pct": rec.get("battery_start_pct"),

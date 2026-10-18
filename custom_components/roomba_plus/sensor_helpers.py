@@ -19,6 +19,7 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    lifetime_hours,
     CARPET_BOOST_LABELS,
     CLEAN_MODE_LABELS,
     DOMAIN,
@@ -324,7 +325,7 @@ def _consumable_wear_rate(entity: "IRobotEntity", role: str) -> float | None:
     maint = entity._config_entry.runtime_data.maintenance_store
     if mission_store is None or maint is None:
         return None
-    current_hr = entity.run_stats.get("hr", 0)
+    current_hr = lifetime_hours({"bbrun": entity.run_stats})
     reset_hr, reset_at = maint.reset_baseline_for_role(role)
     return mission_store.wear_rate_since_reset(reset_hr, reset_at, current_hr)
 
@@ -339,13 +340,9 @@ def _consumable_days_until_due(
     maint = entity._config_entry.runtime_data.maintenance_store
     if maint is None:
         return None
-    remaining_hr = maint.cloud_remaining_hours(role)
-    if remaining_hr is None:
-        current_hr = entity.run_stats.get("hr", 0)
-        threshold = maint.threshold_hours(
-            role, entity._config_entry.options
-        )
-        remaining_hr = maint.remaining_hours(role, current_hr, threshold)
+    remaining_hr = maint.role_remaining_hours(
+        role, lifetime_hours({"bbrun": entity.run_stats}), entity._config_entry.options
+    )
     return int(remaining_hr / rate)
 
 
@@ -359,9 +356,8 @@ def _consumable_max_hours(
     full_life = maint.cloud_full_life_hours(role)
     if full_life is not None:
         return full_life
-    learned = maint.learned_hours(role)
-    threshold = maint.threshold_hours(role, entity._config_entry.options)
-    return round(float(learned if learned is not None else threshold))
+    interval, _source = maint.interval_hours(role, entity._config_entry.options)
+    return round(interval)
 
 
 def _filter_days_until_due(entity: "IRobotEntity") -> int | None:

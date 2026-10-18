@@ -22,12 +22,19 @@ from homeassistant.core import HomeAssistant
 from .live_position import LivePositionStream
 from .position_room import PositionRoomTracker
 from .structural_failures import diagnostic_info
+from .prime_parts import prime_part_role
 from .const import (
+    CONF_DOOR_WIDTH_CM,
     CONF_LIVE_PATH_TURN,
     CONF_PRIME_FAVORITE_BUTTONS,
+    CONF_WALL_THICKNESS_CM,
+    DEFAULT_DOOR_WIDTH_CM,
     DEFAULT_LIVE_PATH_TURN,
     DEFAULT_PRIME_FAVORITE_BUTTONS,
+    DEFAULT_WALL_THICKNESS_CM,
 )
+from .map_renderer import fallback_font_names
+from .room_layout import layout_diagnostics, polygon_walls
 from .withheld_features import withheld_features
 from .const import (
     DIAG_REDACT_KEYS,
@@ -236,6 +243,59 @@ def _parts_report(data: Any) -> dict[str, Any]:
                 "category": getattr(part, "counter_category", None),
             }
             for part_id, part in parts.items()
+        },
+    }
+
+
+def _maintenance_report(data: Any) -> dict[str, Any]:
+    """The maintenance entries and what they are built from (4.5.0).
+
+    Every part as the robot reports it -- with `part_name` from the
+    catalogue and the role the name gives it -- so a part the entries
+    name wrongly, or a Prime part nobody has identified (202, 212, 68),
+    can be settled from a tester's download. The catalogue's links are
+    reduced to whether they exist: they are public, but long.
+    """
+    catalogue = getattr(data, "parts_catalogue", None) or {}
+    tracker = getattr(data, "maintenance", None)
+    coordinator = getattr(data, "prime_parts_coordinator", None)
+    prime_parts = getattr(coordinator, "data", None) if coordinator is not None else None
+    parts: dict[str, Any] = {}
+    if isinstance(prime_parts, dict):
+        for part_id, part in prime_parts.items():
+            name = (catalogue.get(str(part_id)) or {}).get("part_name")
+            parts[str(part_id)] = {
+                "part_name": name,
+                "role": prime_part_role(part_id, name),
+                **{
+                    key: getattr(part, key, None)
+                    for key in (
+                        "count_type", "counter_category", "reset_by", "counter",
+                        "count_used", "count_remaining", "minutes_remaining",
+                        "last_updated_ts",
+                    )
+                },
+            }
+    store = getattr(data, "maintenance_store", None)
+    if store is not None and not parts:
+        for part_id, record in (store.cloud_parts or {}).items():
+            parts[str(part_id)] = {
+                "part_name": (catalogue.get(str(part_id)) or {}).get("part_name"),
+                **{k: v for k, v in record.items() if k != "part_id"},
+            }
+    return {
+        **(tracker.diagnostics() if tracker is not None else {"items": None}),
+        "parts": parts,
+        "cloud_parts_hydrated_hr": getattr(store, "cloud_parts_hydrated_hr", None),
+        "catalogue": {
+            str(part_id): {
+                "part_name": entry.get("part_name"),
+                "part_category": entry.get("part_category"),
+                "guide_url": "guide_url" in entry,
+                "buy_url": "buy_url" in entry,
+            }
+            for part_id, entry in catalogue.items()
+            if isinstance(entry, dict)
         },
     }
 
@@ -1005,7 +1065,38 @@ def _position_chain(data: Any, options: Any = None) -> dict[str, Any]:
                 getattr(data, "geometry_store", None), "door_markers", None
             ) or []
         ),
+        # WHAT iROBOT'S MAP SAYS ABOUT DOORS (4.5.0). The format has door
+        # and threshold layers; the one capture we have (an i3+) leaves
+        # both empty. Counts only, to learn whether any robot fills them.
+        **_umf_door_layers(getattr(data, "cloud_coordinator", None)),
+        # The walls and doors the rooms map draws from the polygons.
+        "rooms_map_walls": _rooms_map_walls(aligner, options),
+        # The fonts for characters DejaVu Sans lacks (4.5.0): file names
+        # only. Empty: CJK room names draw as boxes.
+        "map_fallback_fonts": fallback_font_names(),
     }
+
+
+def _umf_door_layers(coordinator: Any) -> dict[str, int | None]:
+    umf = getattr(coordinator, "umf_data", None)
+    if not isinstance(umf, dict):
+        return {"map_doors": None, "map_thresholds": None}
+    return {
+        "map_doors": len(umf.get("doors") or []),
+        "map_thresholds": len(umf.get("thresholds") or []),
+    }
+
+
+def _rooms_map_walls(aligner: Any, options: Any) -> dict[str, object] | None:
+    polygons = getattr(aligner, "room_polygons_umf", None)
+    if not isinstance(polygons, dict) or not polygons:
+        return None
+    options = options if isinstance(options, Mapping) else {}
+    return polygon_walls(
+        {str(k): v for k, v in polygons.items()},
+        wall_mm=10.0 * float(options.get(CONF_WALL_THICKNESS_CM, DEFAULT_WALL_THICKNESS_CM)),
+        door_mm=10.0 * float(options.get(CONF_DOOR_WIDTH_CM, DEFAULT_DOOR_WIDTH_CM)),
+    ).diagnostics()
 
 
 def _nav_stats_with_provenance(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -2055,6 +2146,7 @@ async def _build_diagnostics(
             # points today.
             "stores": _prime_store_summary(data),
             "consumable_parts": _parts_report(data),
+            "maintenance": _maintenance_report(data),
             "live_map": data.live_map_stats,
 
             # WHICH REGION NAMES EXIST, AND FROM WHERE.
@@ -2324,6 +2416,17 @@ async def _build_diagnostics(
                 if data.grid_store is not None else None
             ),
         ))
+        # THE STRAIGHT WALLS (4.5.0): drawn or not, and why. Counts only.
+        room_diag["layout"] = layout_diagnostics(
+            data.room_seg_store,
+            getattr(data, "trajectory_store", None),
+            wall_mm=10.0 * float(config_entry.options.get(
+                CONF_WALL_THICKNESS_CM, DEFAULT_WALL_THICKNESS_CM
+            )),
+            door_mm=10.0 * float(config_entry.options.get(
+                CONF_DOOR_WIDTH_CM, DEFAULT_DOOR_WIDTH_CM
+            )),
+        )
 
     diag: dict[str, Any] = {
         "integration": DOMAIN,
@@ -2571,6 +2674,9 @@ async def _build_diagnostics(
             }
             if data.maintenance_store is not None else None
         ),
+
+        # 4.5.0 -- the maintenance entries, their parts and the catalogue
+        "maintenance": _maintenance_report(data),
 
         # Last known position
         "position": state.get("pose"),

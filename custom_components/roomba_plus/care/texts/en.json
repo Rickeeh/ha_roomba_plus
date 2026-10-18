@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "What it does",
+    "how": "How to",
+    "note": "Note",
+    "irobot": "iRobot's guide for your model",
+    "expired_title": "This link has expired",
+    "expired_text": "Care guide links are valid for 30 days. For a new one, open Settings → Devices & services → Roomba+ → Configure → Maintenance → Care guide in Home Assistant.",
+    "unknown_title": "No guide here",
+    "unknown_text": "This guide does not exist. Open Configure → Maintenance → Care guide in Home Assistant.",
+    "when": "When"
+  },
+  "clean_filter": {
+    "title": "Clean the filter",
+    "why": "The filter keeps fine dust in the bin. Once its pleats are clogged, suction drops and the robot picks up less.",
+    "steps": [
+      "Press the bin release and take the bin out of the robot.",
+      "Lift the filter out by its tab.",
+      "Tap it against the inside of a waste bin until no more dust falls out. Do not brush the pleats.",
+      "Put the filter back with the pleats facing the same way, and slide the bin in until it clicks."
+    ],
+    "caution": "Never wash a paper filter or let it get wet: once wet, it no longer filters.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Press the bin release and pull the bin out of the robot.",
+          "Release the filter by pressing it down, then lift it out.",
+          "Tap it against the inside of a waste bin until no more dust falls out. Do not brush the pleats.",
+          "Put the filter back and slide the bin in until it clicks."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Press the bin release, take the bin out and empty it.",
+          "Press the tab of the filter door and lift the door.",
+          "Pull the filter out by its yellow tab and tap it against the inside of a waste bin until no more dust falls out.",
+          "Put the filter back, close the filter door and slide the bin in until it clicks."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Press the bin release on the back of the robot and take the bin out.",
+          "Open the bin door over a waste bin and empty the bin.",
+          "Grip the filter at its sides, pull it out to the left and tap it against the inside of the waste bin until no more dust falls out.",
+          "Put the filter back and slide the bin into its guide until it clicks."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Press the release on the lid, open it and lift the bin out by its handle.",
+          "Hold the bin over a waste bin and press its release to empty it.",
+          "Open the filter door, pull the filter out by its loop and tap it against the inside of the waste bin.",
+          "Put the filter back and close the filter door: it only closes with the filter seated correctly. Put the bin back."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Clean the main brushes",
+    "why": "The main brushes lift dirt from carpet and hard floor into the bin. Hair wound round them makes them slip and pick up less.",
+    "steps": [
+      "Turn the robot over onto a soft surface.",
+      "Open the brush frame by its release tabs and lift both brushes out.",
+      "Pull off the end caps and remove hair and threads from the ends and axles. Cut wound hair along the groove.",
+      "Put the end caps back, insert each brush where its shape fits, and close the frame."
+    ],
+    "caution": "The two brushes are not alike and fit only one way round. Do not force them.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Turn the robot over onto a soft surface.",
+          "Lift the two yellow tabs of the brush frame and take out the bristle brush and the beater brush.",
+          "Pull off the end caps and remove hair and thread from the ends and the axles.",
+          "Put the end caps back, put each brush back where its shape fits and close the frame."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Turn the robot over onto a soft surface.",
+          "Squeeze the yellow tabs of the brush frame and fold the frame up.",
+          "Take out both rubber rollers, pull off the end caps and remove hair from the square and hexagonal pegs.",
+          "Put the end caps back, put each roller back where its peg fits and close the frame until it clicks."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Turn the robot over onto a soft surface.",
+          "Press the release button next to the brushes and open the brush frame.",
+          "Take out both rubber rollers, pull off the end caps and remove hair from the ends and the axles.",
+          "Put the end caps back, put each roller back where its shape fits and close the frame."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Turn the robot over onto a soft surface.",
+          "Press the button on the right of the cleaning head: the latch lifts.",
+          "Take out both rubber rollers, pull off the end caps and remove hair from the ends and the axles.",
+          "Put the end caps back, put the rollers back where their shape fits and close the latch."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Clean the side brush",
+    "why": "The side brush sweeps dirt from edges and corners into the robot's path. Tangled or bent arms leave it behind.",
+    "steps": [
+      "Turn the robot over.",
+      "Undo the screw in the middle of the brush, or pull the brush off where it has no screw.",
+      "Remove hair from the arms and the hub, and straighten bent bristles.",
+      "Fit the brush back onto its shaft and fasten it."
+    ],
+    "caution": "Replace a brush whose arms are bent out of shape: it no longer reaches the edge.",
+    "variants": {
+      "s": {
+        "title": "Clean the corner brush",
+        "why": "The corner brush sweeps dirt out of corners and along edges into the robot's path. Tangled or bent arms leave it behind.",
+        "steps": [
+          "Turn the robot over.",
+          "Undo the screw with a small screwdriver and take the corner brush off.",
+          "Remove hair from the arms and the drive peg.",
+          "Put the brush back on the peg and tighten the screw again."
+        ],
+        "caution": "Tighten the screw: a loose corner brush comes off while cleaning."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Clean the wheels",
+    "why": "The front caster and the drive wheels carry the robot. Hair or grit in them makes it pull to one side or stop.",
+    "steps": [
+      "Turn the robot over.",
+      "Pull the front caster out of its socket and take the wheel off its axle.",
+      "Remove hair and dirt from the wheel, the axle and the socket.",
+      "Turn the drive wheels by hand and clear anything that catches, then push the caster back in until it clicks."
+    ],
+    "caution": "Do not pull the drive wheels out: they are not meant to be removed.",
+    "variants": {
+      "s": {
+        "why": "The caster wheel at the back and the drive wheels carry the robot. Hair or grit in them makes it pull to one side or stop.",
+        "steps": [
+          "Turn the robot over.",
+          "Pull the caster wheel at the back out of its socket and take the wheel off its axle.",
+          "Remove hair and dirt from the wheel, the axle and the socket.",
+          "Turn the drive wheels by hand and clear anything that catches, then push the caster back in until it clicks."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Clean the cliff sensors",
+    "why": "The cliff sensors look down for stairs and drops. Dust on their windows can stop the robot or let it miss an edge.",
+    "steps": [
+      "Turn the robot over.",
+      "Wipe each sensor window with a slightly damp melamine sponge or cloth.",
+      "Check that no window is scratched or covered."
+    ],
+    "caution": "Never spray a cleaning agent onto the sensors or into their openings."
+  },
+  "clean_contact": {
+    "title": "Clean the charging contacts",
+    "why": "The charging contacts on the robot and on the dock carry the charging current. A film on them interrupts charging.",
+    "steps": [
+      "Lift the robot off the dock.",
+      "Rub the robot's charging contacts with a slightly damp melamine sponge or cloth until they shine.",
+      "Unplug the dock for 60 seconds and clean its contacts the same way.",
+      "Plug the dock back in and set the robot on it."
+    ],
+    "caution": "Nothing abrasive and no metal tools. Contacts that are green, copper-coloured or sunk in are damaged: contact iRobot support.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Lift the robot off the dock.",
+          "Rub the robot's charging contacts with a slightly damp melamine sponge or cloth until they shine.",
+          "Unplug the Home Base for 60 seconds and clean its contacts the same way. Wipe its docking sensor window with a dry cloth only.",
+          "Plug the Home Base back in and set the robot on it."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Lift the robot off the Clean Base.",
+          "Rub the robot's charging contacts with a slightly damp melamine sponge or cloth until they shine.",
+          "Unplug the Clean Base for 60 seconds and clean the contacts on its ramp the same way.",
+          "Plug the Clean Base back in and set the robot on it."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Lift the robot off the dock.",
+          "Rub the robot's charging contacts with a slightly damp melamine sponge or cloth until they shine.",
+          "Unplug the dock for 60 seconds. Wipe its contacts, the infrared window and the docking marker with a dry cloth only.",
+          "Plug the dock back in and set the robot on it."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Empty and check the bin",
+    "why": "The bin holds what the robot picks up. A full or badly seated bin stops it from picking up more.",
+    "steps": [
+      "Press the bin release and take the bin out.",
+      "Open the bin door over a waste bin and empty it.",
+      "Take the filter out, tap it clean and remove dust from the filter seat.",
+      "Put the filter back and slide the bin in until it clicks."
+    ],
+    "caution": "Rinse only a bin made for it, with the filter taken out, and let it dry completely before it goes back.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Press the bin release on the back of the robot and take the bin out.",
+          "Open the bin door over a waste bin and empty the bin.",
+          "Take the filter out and tap it clean. Rinse the bin by hand with warm water if it is dirty.",
+          "Let the bin dry completely, put the filter back and slide the bin in until it clicks."
+        ],
+        "caution": "Rinse by hand only, never in a dishwasher, and never with the filter in it."
+      },
+      "s": {
+        "steps": [
+          "Press the release on the lid and lift the bin out by its handle.",
+          "Hold the bin over a waste bin and press its release to empty it.",
+          "Take the filter out and tap it clean. Rinse the bin with warm water if it is dirty.",
+          "Let the bin dry completely, put the filter back and the bin into the robot."
+        ],
+        "caution": "Rinse by hand only, never in a dishwasher, and never with the filter in it."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Clean the camera window",
+    "why": "The camera and the sensor windows help the robot find its way. Smudges make it lose its position.",
+    "steps": [
+      "Find the camera window on top of or at the front of the robot.",
+      "Wipe it gently with a clean, dry microfibre cloth.",
+      "Wipe the other sensor windows at the front the same way."
+    ],
+    "caution": "No liquids or cleaning agents on the windows."
+  },
+  "clean_wash_dock": {
+    "title": "Clean the wash dock",
+    "why": "The wash dock rinses the mop. Dirt in its tray or a full dirty-water tank stops the washing.",
+    "steps": [
+      "Take out the dirty-water tank, empty it and rinse it.",
+      "Lift out the wash tray and rinse it under running water.",
+      "Wipe the base of the dock dry and put the tray and the tank back.",
+      "Fill the clean-water tank if it is low."
+    ],
+    "caution": "Let the tray dry before the robot goes back onto it."
+  },
+  "clean_dock_washing_system": {
+    "title": "Clean the dock washing system",
+    "why": "The dock's washing system flushes dirt out of the mop. Residue left in it means the mop comes out dirty.",
+    "steps": [
+      "Lift the wash insert out of the dock.",
+      "Rinse it under running water and clear hair and debris from its openings.",
+      "Wipe the seat of the insert in the dock.",
+      "Put the insert back so that it sits flat."
+    ],
+    "caution": "No cleaning agents unless the dock's manual allows them."
+  },
+  "clean_mop_washing_system": {
+    "title": "Clean the mop washing system",
+    "why": "The roller mop's washing system scrapes dirty water off the mop. When its openings clog, dirty water can drip onto the floor.",
+    "steps": [
+      "Take the roller mop off the robot.",
+      "Rinse the scraper and its openings under running water, and clear blocked holes with a soft brush.",
+      "Rinse the roller mop and let it dry.",
+      "Fit the roller mop back until it clicks."
+    ],
+    "caution": "No sharp tools on the scraper's openings."
+  },
+  "replace_filter": {
+    "title": "Replace the filter",
+    "why": "A filter loses its effect over time, even when it is tapped clean regularly.",
+    "steps": [
+      "Take the bin out of the robot.",
+      "Lift the old filter out by its tab.",
+      "Insert the new filter with the pleats facing the same way as the old one.",
+      "Slide the bin back in until it clicks, then mark the filter as replaced."
+    ],
+    "caution": "Use a filter made for this model: one that does not seal lets dust through.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Press the bin release and pull the bin out.",
+          "Press the old filter down and lift it out.",
+          "Put the new filter in with the pleats facing the same way as the old one.",
+          "Slide the bin in until it clicks and report the filter as replaced."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Take the bin out of the robot.",
+          "Press the tab of the filter door, lift the door and pull the old filter out by its yellow tab.",
+          "Put the new filter in with the pleats facing the same way and close the filter door.",
+          "Slide the bin in until it clicks and report the filter as replaced."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Press the bin release on the back of the robot and take the bin out.",
+          "Grip the old filter at its sides and pull it out to the left.",
+          "Put the new filter in with the pleats facing the same way as the old one.",
+          "Slide the bin into its guide until it clicks and report the filter as replaced."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Open the lid and lift the bin out by its handle.",
+          "Open the filter door and pull the old filter out by its loop.",
+          "Put the new filter in and close the filter door: it only closes with the filter seated correctly.",
+          "Put the bin back and report the filter as replaced."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Replace the main brushes",
+    "why": "Worn brushes reach the floor less well and pick up less dirt.",
+    "steps": [
+      "Turn the robot over and open the brush frame.",
+      "Lift both brushes out. Keep the end caps if the new brushes come without them.",
+      "Insert the new brushes where each shape fits, and close the frame.",
+      "Mark the brushes as replaced."
+    ],
+    "caution": "The two brushes are not alike and fit only one way round. Do not force them.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Turn the robot over and lift the two yellow tabs of the brush frame.",
+          "Take out the bristle brush and the beater brush. Keep the end caps if the new brushes have none.",
+          "Put in the new brushes where their shape fits and close the frame.",
+          "Report the brushes as replaced."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Turn the robot over, squeeze the yellow tabs and fold the brush frame up.",
+          "Take out both rollers. Keep the end caps if the new ones have none.",
+          "Put in the new rollers where their pegs fit and close the frame until it clicks.",
+          "Report the brushes as replaced."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Turn the robot over and press the release button next to the brushes.",
+          "Take out both rollers. Keep the end caps if the new ones have none.",
+          "Put in the new rollers where their shape fits and close the frame.",
+          "Report the brushes as replaced."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Turn the robot over and press the button on the right of the cleaning head.",
+          "Take out both rollers. Keep the end caps if the new ones have none.",
+          "Put in the new rollers where their shape fits and close the latch.",
+          "Report the brushes as replaced."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Replace the side brush",
+    "why": "A worn side brush no longer reaches into edges and corners.",
+    "steps": [
+      "Turn the robot over.",
+      "Undo the screw, or pull the old brush off its shaft.",
+      "Push the new brush onto the shaft and fasten it.",
+      "Mark the side brush as replaced."
+    ],
+    "caution": "Keep the screw: a brush that sits loose falls off during cleaning.",
+    "variants": {
+      "s": {
+        "title": "Replace the corner brush",
+        "why": "A worn corner brush no longer reaches into corners.",
+        "steps": [
+          "Turn the robot over.",
+          "Undo the screw and take the old corner brush off.",
+          "Put the new corner brush on the peg and tighten the screw.",
+          "Report the corner brush as replaced."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Replace the bag",
+    "why": "The bag in the station collects what the robot empties into it. When it is full, the station can no longer empty the robot.",
+    "steps": [
+      "Open the lid of the station.",
+      "Pull the bag out by its tab: the tab seals the opening.",
+      "Insert the new bag and push its card into the guide until it sits.",
+      "Close the lid and mark the bag as replaced."
+    ],
+    "caution": "Do not reuse a bag: its seal closes only once."
+  },
+  "replace_battery": {
+    "title": "Replace the battery",
+    "why": "A battery loses capacity with every charge. The robot then runs for less time and may stop before it has finished.",
+    "steps": [
+      "Switch the robot off and turn it over.",
+      "Undo the screws of the battery cover and lift the cover off.",
+      "Pull the old battery out by its tabs and insert the new one with the contacts facing the same way.",
+      "Fit the cover, set the robot on the dock and mark the battery as replaced."
+    ],
+    "caution": "Use a battery made for this model, and take the old one to a battery collection point."
+  },
+  "replace_pad": {
+    "title": "Replace the mop pad",
+    "why": "A worn pad leaves streaks and picks up less dirt.",
+    "steps": [
+      "Lift the robot or take it off the dock.",
+      "Pull the old pad off its holder.",
+      "Slide or press the new pad onto the holder until it sits.",
+      "Mark the pad as replaced."
+    ],
+    "caution": "Wash washable pads without fabric softener; use disposable pads only once."
+  },
+  "replace_roller": {
+    "title": "Replace the roller mop",
+    "why": "A worn roller mop no longer presses evenly on the floor and leaves streaks.",
+    "steps": [
+      "Take the roller mop off the robot.",
+      "Fit the new roller until it clicks on both sides.",
+      "Mark the roller mop as replaced."
+    ],
+    "caution": "Let a washed roller dry before it goes back on."
+  },
+  "replace_detergent": {
+    "title": "Replace the detergent",
+    "why": "The station adds detergent from its cartridge to the cleaning water. When it is empty, the robot mops with water alone.",
+    "steps": [
+      "Open the station's detergent compartment.",
+      "Take out the empty cartridge.",
+      "Insert the new one until it sits, and close the compartment.",
+      "Mark the detergent as replaced."
+    ],
+    "caution": "Use only detergent made for the station: other agents can foam or damage it."
+  }
+}

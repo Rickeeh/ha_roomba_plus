@@ -1085,6 +1085,27 @@ class MissionStore:
             return None
         return self._record_room_names(latest, effective_map)
 
+    def latest_rooms_source(self) -> str | None:
+        """Where latest_cleaned_rooms() takes its rooms from (4.5.0).
+
+        `cloud` when the cloud decides -- the timeline's room events or
+        Prime's synced `rooms_cleaned`, which _record_room_names() prefers
+        over anything stored. Otherwise the record's own `rooms_source`:
+        `requested` (the rooms it was sent to; nothing observed them),
+        `tracked`, `awaiting_cloud`, or None for rooms room tracking saw
+        and imported records."""
+        latest = self.latest()
+        if latest is None:
+            return None
+        if (
+            self._timeline_cleaned_rids(latest)
+            or self._timeline_has_room_events(latest)
+            or isinstance(latest.get("rooms_cleaned"), list)
+        ):
+            return ROOMS_FROM_CLOUD
+        source = latest.get("rooms_source")
+        return source if isinstance(source, str) else None
+
     @staticmethod
     def _record_region_map(
         rec: dict[str, Any],

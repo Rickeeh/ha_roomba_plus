@@ -50,7 +50,14 @@ import datetime as dt_stdlib
 
 from .prime_coordinator import prime_region_names_from_command
 from .calendar_modes import match_mode
-from .const import DOMAIN
+from .care_guides import context_for
+from .const import (
+    CONF_ENABLE_SCHEDULE_CALENDAR,
+    CONF_MAINTENANCE_CALENDAR,
+    DEFAULT_ENABLE_SCHEDULE_CALENDAR,
+    DEFAULT_MAINTENANCE_CALENDAR,
+    DOMAIN,
+)
 from .structural_failures import record_failure, record_success
 from .classic_schedule_write import (
     MODERN_KEY,
@@ -63,6 +70,7 @@ from .classic_schedule_write import (
     schedule_key,
 )
 from .entity import IRobotEntity
+from .todo import MaintenanceWording
 from .models import ConnectionType, RoombaConfigEntry
 from .schedule_parser import (
     DEFAULT_EVENT_DURATION,
@@ -1536,16 +1544,98 @@ async def async_setup_entry(
 ) -> None:
     """Set up the schedule calendar for this Roomba.
 
-    Unconditional — no filter_fn/capability gate (CAL plan §3): every
+    The schedule calendar has no capability gate (CAL plan §3): every
     robot tier can have a schedule, and an empty calendar for one that
-    doesn't yet is normal HA behaviour, not an error state.
+    doesn't yet is normal HA behaviour, not an error state. Each
+    calendar has its option; the platform loads when either is on.
     """
     data = config_entry.runtime_data
+    prime = data.connection_type is ConnectionType.CLOUD_ONLY
+    entities: list[CalendarEntity] = []
+    # TWO CALENDARS, EACH ON ITS OWN OPTION (4.5.0): the platform is
+    # loaded when either is on.
+    if config_entry.options.get(
+        CONF_ENABLE_SCHEDULE_CALENDAR, DEFAULT_ENABLE_SCHEDULE_CALENDAR
+    ):
+        entities.append(
+            PrimeScheduleCalendar(data.blid, config_entry)
+            if prime else RoombaScheduleCalendar(data.roomba, data.blid, config_entry)
+        )
+    if getattr(data, "maintenance", None) is not None and config_entry.options.get(
+        CONF_MAINTENANCE_CALENDAR, DEFAULT_MAINTENANCE_CALENDAR
+    ):
+        entities.append(RoombaMaintenanceCalendar(
+            None if prime else data.roomba, data.blid, config_entry,
+        ))
+    async_add_entities(entities)
 
-    if data.connection_type is ConnectionType.CLOUD_ONLY:
-        async_add_entities([PrimeScheduleCalendar(data.blid, config_entry)])
-        return
 
-    roomba = data.roomba
-    blid = data.blid
-    async_add_entities([RoombaScheduleCalendar(roomba, blid, config_entry)])
+class RoombaMaintenanceCalendar(MaintenanceWording, IRobotEntity, CalendarEntity):
+    """When maintenance is due, as all-day events (4.5.0, E13, K).
+
+    READ-ONLY AND SEPARATE from the schedule calendar, which writes to
+    the robot: maintenance does not belong among cleaning times. Off by
+    default -- a calendar entity puts the calendar in the sidebar, and the
+    dates are in the list and the sensors already.
+
+    A part's date is an estimate from its wear rate and moves with every
+    run; the description says so. A care task's date stands.
+    """
+
+    _attr_translation_key = "maintenance"
+    _shows_maintenance = True
+
+    def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
+        super().__init__(roomba, blid, config_entry)
+        self._config_entry = config_entry
+        self._attr_unique_id = f"{self.robot_unique_id}_maintenance"
+
+    @property
+    def suggested_object_id(self) -> str:
+        return "maintenance"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        await self._async_load_wording()
+
+    def new_state_filter(self, new_state: dict[str, Any]) -> bool:
+        return False
+
+    def _events(self) -> list[CalendarEvent]:
+        tracker = getattr(self._config_entry.runtime_data, "maintenance", None)
+        events: list[CalendarEvent] = []
+        for item in tracker.items if tracker is not None else []:
+            due = dt_util.parse_datetime(item.due) if item.due else None
+            if due is None:
+                continue
+            day = dt_util.as_local(due).date()
+            lines = [self._description(
+                item, self._config_entry.entry_id, context_for(self._config_entry.runtime_data),
+            ) or ""]
+            if item.action == "replace":
+                lines.append(self._text("estimate_note"))
+            events.append(CalendarEvent(
+                start=day,
+                end=day + dt_stdlib.timedelta(days=1),
+                summary=self._summary(item),
+                description="\n\n".join(line for line in lines if line),
+                uid=item.id,
+            ))
+        events.sort(key=lambda e: (e.start, e.summary))
+        return events
+
+    @property
+    def event(self) -> CalendarEvent | None:
+        """The next maintenance date, or one today."""
+        today = dt_util.now().date()
+        return next((e for e in self._events() if e.end > today), None)
+
+    async def async_get_events(
+        self,
+        hass: HomeAssistant,
+        start_date: dt_stdlib.datetime,
+        end_date: dt_stdlib.datetime,
+    ) -> list[CalendarEvent]:
+        first = dt_util.as_local(start_date).date()
+        last = dt_util.as_local(end_date).date()
+        return [e for e in self._events() if e.end > first and e.start <= last]

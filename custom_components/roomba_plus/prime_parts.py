@@ -1,13 +1,16 @@
-"""Which Prime parts are due -- the rule, without the to-do platform.
+"""Which Prime parts are due, and what they are -- without the platforms.
 
-Split out of `todo_prime.py` (4.2.19) so that the household API can ask
-the same question. `todo_prime` imports the entity base, which imports
-the package root, which imports `api_views`: the API could not import
-the rule from where it lived without a cycle. Plain functions over the
-runtime data, no Home Assistant imports.
+Split out of the Prime to-do list (4.2.19) so that the household API can
+ask the same question: the list imported the entity base, which imports
+the package root, which imports `api_views`, and the API could not
+import the rule from there without a cycle. The maintenance model reads
+it too (4.5.0), and the list itself is built from the model since the
+Prime list module went. Plain functions over the runtime data, no Home
+Assistant imports.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -104,3 +107,95 @@ def prime_parts_due(config_entry: Any) -> list[str]:
         for part_id, part in parts.items()
         if str(part_id) not in absent and needs_attention(part)
     )
+
+
+# ── Which part it is (4.5.0) ─────────────────────────────────────────────────
+
+#: The Prime app's own rule for what a part is (app 3.2.0): the first of
+#: these words found in the part's name decides, in this order -- so a
+#: "mop washing system" is not taken for a mop pad. The app knows no
+#: numeric part ids at all; it reads the name.
+PRIME_ROLE_KEYWORDS: tuple[str, ...] = (
+    "mop_washing_system",
+    "dock_washing_system",
+    "main_brush",
+    "side_brush",
+    "detergent",
+    "filter",
+    "pad",
+    "bag",
+    "roller",
+    "sensor",
+)
+
+#: Numeric ids matched against the app by value (see sensor_prime's
+#: _KNOWN_PARTS for who confirmed which). They come first: a match
+#: against the app's own screen is better evidence than a name. 202 and
+#: 212 are not here -- nobody found them in the app -- so their name,
+#: where the catalogue has one, decides.
+_PRIME_NUMERIC_ROLES: dict[str, str] = {
+    "67": "side_brush",
+    "69": "main_brush",
+    "71": "main_brush",
+    "68": "filter",
+    "72": "filter",
+    "147": "bag",
+    "148": "pad",
+    "149": "pad",
+    "213": "sensor",
+}
+
+
+def _name_key(text: Any) -> str:
+    """"Main Brush" and "main-brush" as "main_brush"."""
+    return re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
+
+
+def prime_part_role(part_id: Any, part_name: Any = None) -> str | None:
+    """The role of a Prime part, or None when nothing names it.
+
+    The id where it was matched against the app; otherwise the app's
+    keyword rule over the id itself (servers since app 3.0.0 send
+    speaking ids such as `main_brush`) and then over the catalogue's
+    part name.
+    """
+    pid = str(part_id or "").strip()
+    if pid in _PRIME_NUMERIC_ROLES:
+        return _PRIME_NUMERIC_ROLES[pid]
+    for text in (pid, part_name):
+        key = _name_key(text)
+        if not key:
+            continue
+        for keyword in PRIME_ROLE_KEYWORDS:
+            if keyword in key:
+                return keyword
+    return None
+
+
+def part_count_in_display_unit(part: Any, count: int | None) -> int | None:
+    """A part count expressed in the unit its sensor shows.
+
+    THE TABLE RENAMES A UNIT AND THE VALUE HAS TO FOLLOW. `minutes` is
+    displayed as hours, so a count in minutes has to be divided before
+    it is shown beside that word. Every other count type is displayed in
+    the unit the robot already counts in and passes through untouched.
+
+    Shared because it was not. The sensor divided; the maintenance list
+    looked up the same table for the same part and printed the raw
+    number beside the renamed unit, so one robot showed `179 h` on
+    `sensor.*_prime_part_69` and "10740 hours remaining" on its
+    maintenance list at the same moment -- the same value, one of them
+    sixty times too large (@utkjmitch, part 69, confirmed against the
+    iRobot app's "Multi-surface brush 179 hrs").
+
+    A number and the word it is labelled with cannot drift apart if
+    both come from here. Moved here from sensor_prime (4.5.0) so the
+    maintenance model can use it without importing an entity module.
+    """
+    if count is None:
+        return None
+    if (getattr(part, "count_type", "") or "").lower() == "minutes":
+        # Minutes on the wire, hours in the app -- 5100 -> 85 h,
+        # confirmed on two accounts and then by count_type itself.
+        return round(count / 60)
+    return count

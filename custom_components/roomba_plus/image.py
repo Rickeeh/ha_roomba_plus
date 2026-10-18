@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import sys
 import collections
+import dataclasses
 import datetime
 import io
 import functools
@@ -39,7 +40,7 @@ import logging
 import math
 import time as _time_mod
 from datetime import datetime as dt_datetime
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from homeassistant.components.image import ImageEntity
@@ -67,6 +68,8 @@ from .const import (
     CONF_LIVE_POSITION_REQUESTS,
     DEFAULT_LIVE_PATH_TURN,
     CONF_MAP_ROTATION,
+    CONF_DOOR_WIDTH_CM,
+    CONF_WALL_THICKNESS_CM,
     CONF_MAP_CLEAN_ZONES,
     DEFAULT_LIVE_POSITION_REQUESTS,
     CONF_MAP_KEEPOUT_ZONES,
@@ -87,11 +90,20 @@ from .const import (
     ROOM_TRANSITION_CANDIDATE_PHASES,
     reports_local_pose,
     DEFAULT_MAP_ROTATION,
+    DEFAULT_DOOR_WIDTH_CM,
+    DEFAULT_WALL_THICKNESS_CM,
 )
 from .entity import IRobotEntity
 from .geometry_utils import pose_point_to_map_mm
 from .cloud_coordinator import requested_position_turn
 from .position_room import PositionRoomTracker, in_room_by_turn, room_at_position
+from .room_layout import (
+    DEFAULT_ROBOT_DIAMETER_MM,
+    PolygonWalls,
+    RoomLayout,
+    layout_from_stores,
+    polygon_walls,
+)
 from .live_position import LivePositionStream
 from .room_cleaning import region_names_across_maps
 from .segment_anchoring import anchor_segment
@@ -101,6 +113,7 @@ from .grid_store import GridStore, CELL_SIZE_MM, DECAY, VISIT_INCREMENT
 from .map_renderer import (
     MapRenderer,
     _load_font,
+    label_font,
     map_mm_to_view,
     quarter_turns,
     render_area_map,
@@ -361,6 +374,61 @@ def _compute_dock_correction(
     return (-rotated_x, -rotated_y, rotation_rad)
 
 
+#: Walls and doors on the rooms maps (4.5.0), over the dark canvas.
+ROOMS_MAP_WALL = (215, 215, 215)
+ROOMS_MAP_DOOR = (70, 200, 120)
+
+
+def _wall_and_door_mm(options: Mapping[str, Any] | None) -> tuple[float, float]:
+    """The wall thickness and door width the user set, in mm."""
+    options = options or {}
+    return (
+        10.0 * float(options.get(CONF_WALL_THICKNESS_CM, DEFAULT_WALL_THICKNESS_CM)),
+        10.0 * float(options.get(CONF_DOOR_WIDTH_CM, DEFAULT_DOOR_WIDTH_CM)),
+    )
+
+
+def _draw_polygon_walls(
+    draw: Any,
+    found: PolygonWalls,
+    to_px: Callable[[float, float], tuple[int, int]],
+    px_per_mm: float,
+) -> None:
+    """Walls as thick as set; a door as a thin line across its opening,
+    an open passage as the opening alone."""
+    width = max(2, int(round(found.wall_mm * px_per_mm)))
+    for wall in found.walls:
+        draw.line([to_px(*wall.a), to_px(*wall.b)], fill=ROOMS_MAP_WALL, width=width)
+    for opening in found.openings:
+        if not opening.open:
+            draw.line([to_px(*opening.a), to_px(*opening.b)], fill=ROOMS_MAP_DOOR, width=2)
+
+
+def _driven_door_ids(room_seg_store: Any) -> set[str]:
+    """Ids of the doors a path went through (4.5.0); none from a store
+    without them."""
+    doors = getattr(room_seg_store, "driven_doors", None)
+    if not isinstance(doors, list):
+        return set()
+    return {str(getattr(d, "id", "")) for d in doors}
+
+
+def _missions_learned(grid_store: Any) -> int | None:
+    """GridStore.missions_learned, None from a stand-in without it."""
+    value = getattr(grid_store, "missions_learned", None)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _carried_back(dx: float, dy: float, picked_up: bool) -> bool:
+    """Whether a dock correction is too large to be drift (4.5.0).
+
+    A counted pickup has its own handling (_interpolate_and_correct_segment).
+    Anything else beyond MAX_DOCK_CORRECTION_MM is a robot moved by hand
+    without the robot counting it.
+    """
+    return not picked_up and math.hypot(dx, dy) > MAX_DOCK_CORRECTION_MM
+
+
 def _apply_dock_correction(
     point: tuple[float, float], dx: float, dy: float, rotation_rad: float,
 ) -> tuple[float, float]:
@@ -395,6 +463,20 @@ def _mission_start_on_dock(phase_before: str) -> bool | None:
     return phase_before in _ON_DOCK_PHASES
 
 
+def _checkpoint_ranges(checkpoint: Mapping[str, Any]) -> list[list[int]]:
+    """The unverified ranges a checkpoint carries (4.5.0); none from one
+    saved before it did."""
+    raw = checkpoint.get("unverified_ranges")
+    if not isinstance(raw, list):
+        return []
+    return [
+        [int(r[0]), int(r[1])]
+        for r in raw
+        if isinstance(r, (list, tuple)) and len(r) == 2
+        and all(isinstance(v, int) and not isinstance(v, bool) for v in r)
+    ]
+
+
 def _checkpoint_on_dock(checkpoint: Mapping[str, Any]) -> bool | None:
     """The start flag a mission checkpoint carries; None from one saved
     before it did."""
@@ -402,11 +484,37 @@ def _checkpoint_on_dock(checkpoint: Mapping[str, Any]) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+#: The largest dock correction taken for drift (4.5.0). Odometry and
+#: vSLAM drift on the maintainer's 980 measured 0.2 and 0.5 m; the one
+#: correction of 6.2 m was a robot carried back to its dock after it got
+#: stuck, with no pickup counted -- the "drift" was the distance it was
+#: carried. Spread over the path as drift, it bent the whole stretch
+#: after the stuck and the areas cut from it.
+MAX_DOCK_CORRECTION_MM = 1500.0
+
+#: One stretch of a mission the grid learns from: points[start:end],
+#: shifted by (dx, dy) mm where anchoring placed it.
+LearnedRun = tuple[int, int, float, float]
+
+
 def _anchored_mission_points(
     points: list[tuple[float, float]],
     breaks: set[int],
     grid_store: Any,
 ) -> list[tuple[float, float]]:
+    """The points of _anchored_runs(), joined."""
+    return [
+        (x + dx, y + dy)
+        for start, end, dx, dy in _anchored_runs(points, breaks, grid_store)
+        for x, y in points[start:end]
+    ]
+
+
+def _anchored_runs(
+    points: list[tuple[float, float]],
+    breaks: set[int],
+    grid_store: Any,
+) -> list[LearnedRun]:
     """Mission points with pre-break segments placed against known coverage.
 
     THE LAST SEGMENT IS ALREADY RIGHT. It ends at the dock and the
@@ -426,7 +534,7 @@ def _anchored_mission_points(
     """
     segments = split_into_segments(points, breaks)
     if len(segments) < 2:
-        return points
+        return [(0, len(points), 0.0, 0.0)] if points else []
 
     known: set[tuple[int, int]] = set(getattr(grid_store, "cells", {}) or {})
     # The final segment is dock-verified, so it joins the reference
@@ -434,7 +542,7 @@ def _anchored_mission_points(
     # adjoining it can then anchor even on a grid that is still sparse.
     known |= _cells_of_points(segments[-1].points)
 
-    out: list[tuple[float, float]] = []
+    out: list[LearnedRun] = []
     for seg in segments[:-1]:
         placement = anchor_segment(seg.points, known)
         if placement is None:
@@ -453,11 +561,45 @@ def _anchored_mission_points(
             seg.length, placement.dx_mm, placement.dy_mm,
             placement.overlap_cells, placement.margin,
         )
-        out.extend(moved)
+        out.append((seg.start, seg.end, placement.dx_mm, placement.dy_mm))
         known |= _cells_of_points(moved)
 
-    out.extend(segments[-1].points)
+    last = segments[-1]
+    out.append((last.start, last.end, 0.0, 0.0))
     return out
+
+
+def _without_ranges(
+    runs: list[LearnedRun], excluded: list[list[int]] | list[tuple[int, int]]
+) -> list[LearnedRun]:
+    """`runs` with the index ranges [start, end) of `excluded` cut out."""
+    out = list(runs)
+    for ex_start, ex_end in excluded:
+        cut: list[LearnedRun] = []
+        for start, end, dx, dy in out:
+            if ex_end <= start or ex_start >= end:
+                cut.append((start, end, dx, dy))
+                continue
+            if start < ex_start:
+                cut.append((start, ex_start, dx, dy))
+            if ex_end < end:
+                cut.append((ex_end, end, dx, dy))
+        out = cut
+    return out
+
+
+def _run_points(
+    points: list[tuple[float, float]], runs: list[LearnedRun]
+) -> tuple[list[tuple[float, float]], set[int]]:
+    """The runs' points joined, and the indices where one run starts:
+    the grid does not join two runs with a line."""
+    joined: list[tuple[float, float]] = []
+    starts: set[int] = set()
+    for start, end, dx, dy in runs:
+        if joined:
+            starts.add(len(joined))
+        joined.extend((x + dx, y + dy) for x, y in points[start:end])
+    return joined, starts
 
 
 def _cells_of_points(
@@ -1282,6 +1424,11 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         #: reasoning callbacks.py already applies to nStuck.
         self._npicks_at_start: int | None = None
         self._picked_up_this_mission: bool = False
+        #: [start, end) ranges of _mission_points whose position no dock
+        #: contact could verify -- a robot carried back (4.5.0,
+        #: MAX_DOCK_CORRECTION_MM). Kept for the live picture and the
+        #: trajectory, left out of what Roomba+ learns from.
+        self._unverified_ranges: list[list[int]] = []
         self._mission_points: list[tuple[float, float]] = []
         # v3.2.1 — parallel theta list, same index alignment as
         # self._mission_points (mission_thetas[i] is the heading for
@@ -1502,6 +1649,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
 
         # THE FLOOR PLAN UNDER THE PATH (4.4.0, @frnchfrgg).
         self._renderer.set_floor_plan(self._floor_plan())
+        # A 900-SERIES' STRAIGHT WALLS, DOORS AND FURNITURE (4.5.0).
+        self._renderer.set_room_layout(self._room_layout())
 
         png = await self.hass.async_add_executor_job(self._renderer.render)
 
@@ -1908,6 +2057,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                     # run must not change how this one is corrected.
                     self._npicks_at_start = None
                     self._picked_up_this_mission = False
+                    self._unverified_ranges = []
                     # v3.2.1 DOCK-ANCHOR — a new mission starting means any
                     # still-buffered segment from the PREVIOUS mission never
                     # got a dock-contact confirmation (stuck_and_abandoned,
@@ -2248,6 +2398,49 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             self._mission_thetas.append(theta)
         self._observe_position_room(x, y, frame="pose")
         self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
+
+    def _room_layout(self) -> RoomLayout | None:
+        """The 900-series layout from the areas, rebuilt only on a change.
+
+        None where there are no areas, or where the robot's travel does
+        not run along two axes (room_layout.MIN_AXIS_SHARE): walls there
+        are not known to be straight, and the areas are drawn as before.
+        """
+        if getattr(self, "_map_capability", None) != MapCapability.EPHEMERAL:
+            return None
+        data = (
+            getattr(self._config_entry, "runtime_data", None)
+            if self._config_entry is not None
+            else None
+        )
+        seg = getattr(data, "room_seg_store", None)
+        if seg is None or not isinstance(getattr(seg, "revision", None), int):
+            return None
+        wall_mm, door_mm = _wall_and_door_mm(getattr(self._config_entry, "options", None))
+        trajectories = getattr(data, "trajectory_store", None)
+        missions = (
+            trajectories.missions
+            if trajectories is not None and isinstance(getattr(trajectories, "missions", None), list)
+            else []
+        )
+        key = (
+            id(seg), seg.revision, wall_mm, door_mm,
+            tuple(str(m.get("mission_key", "")) for m in missions),
+        )
+        cached = getattr(self, "_room_layout_cache", None)
+        if cached is not None and cached[0] == key:
+            layout: RoomLayout | None = cached[1]
+            return layout
+        layout = layout_from_stores(
+            seg, trajectories,
+            wall_mm=wall_mm, door_mm=door_mm,
+            robot_mm=(
+                float(self._renderer._cfg.robot_diameter_mm)
+                if self._renderer is not None else DEFAULT_ROBOT_DIAMETER_MM
+            ),
+        )
+        self._room_layout_cache = (key, layout)
+        return layout
 
     def _floor_plan(self) -> list[tuple[str | None, list[tuple[float, float]]]]:
         """The rooms of the cloud map, in the frame this path is drawn in.
@@ -2633,75 +2826,83 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             dx, dy, rotation_rad = _compute_dock_correction(
                 measured_final_pos, measured_final_theta, dock_theta_baseline,
             )
-            corrected_points = _interpolate_and_correct_segment(
-                segment, dx, dy, rotation_rad,
-                # getattr, not direct access: this entity is also built
-                # via __new__ in places that never run __init__, and a
-                # correction failing on a missing attribute would be a
-                # worse outcome than falling back to the ramp.
-                picked_up=getattr(self, "_picked_up_this_mission", False),
-                # Indices relative to this segment, which starts where
-                # buffering began -- not to the renderer's full list.
-                breaks={
-                    i - self._last_dock_anchor_index
-                    for i in getattr(self._renderer, "_breaks", set())
-                    if i > self._last_dock_anchor_index
-                } if self._renderer else None,
-            )
-            rotation_deg = math.degrees(rotation_rad)
-            n = len(thetas)
-            corrected_thetas = [
-                (t + rotation_deg * (i / (n - 1) if n > 1 else 1.0)) % 360.0
-                for i, t in enumerate(thetas)
-            ]
-
-            if self._dock_anchor_buffering:
-                self._mission_points.extend(corrected_points)
-                self._mission_thetas.extend(corrected_thetas)
+            # CARRIED, NOT DRIFTED (4.5.0). See MAX_DOCK_CORRECTION_MM.
+            # No dock contact verifies where this stretch was: it is kept
+            # as measured, for the live picture and the trajectory, and
+            # left out of the grid and the areas. Not a drift sample and
+            # not a clean docking either.
+            if _carried_back(dx, dy, getattr(self, "_picked_up_this_mission", False)):
+                self._keep_unverified(segment, thetas)
             else:
-                self._mission_points[self._last_dock_anchor_index:] = corrected_points
-                self._mission_thetas[self._last_dock_anchor_index:] = corrected_thetas
+                corrected_points = _interpolate_and_correct_segment(
+                    segment, dx, dy, rotation_rad,
+                    # getattr, not direct access: this entity is also built
+                    # via __new__ in places that never run __init__, and a
+                    # correction failing on a missing attribute would be a
+                    # worse outcome than falling back to the ramp.
+                    picked_up=getattr(self, "_picked_up_this_mission", False),
+                    # Indices relative to this segment, which starts where
+                    # buffering began -- not to the renderer's full list.
+                    breaks={
+                        i - self._last_dock_anchor_index
+                        for i in getattr(self._renderer, "_breaks", set())
+                        if i > self._last_dock_anchor_index
+                    } if self._renderer else None,
+                )
+                rotation_deg = math.degrees(rotation_rad)
+                n = len(thetas)
+                corrected_thetas = [
+                    (t + rotation_deg * (i / (n - 1) if n > 1 else 1.0)) % 360.0
+                    for i, t in enumerate(thetas)
+                ]
 
-            if self._renderer is not None:
-                start_index = max(0, self._renderer.point_count - len(segment))
-                self._renderer.replace_range(start_index, corrected_points)
+                if self._dock_anchor_buffering:
+                    self._mission_points.extend(corrected_points)
+                    self._mission_thetas.extend(corrected_thetas)
+                else:
+                    self._mission_points[self._last_dock_anchor_index:] = corrected_points
+                    self._mission_thetas[self._last_dock_anchor_index:] = corrected_thetas
 
-            if is_clean_contact and robot_profile_store is not None:
-                robot_profile_store.update_dock_theta_baseline(measured_final_theta)
+                if self._renderer is not None:
+                    start_index = max(0, self._renderer.point_count - len(segment))
+                    self._renderer.replace_range(start_index, corrected_points)
 
-            # v3.2.1 DOCK-ANCHOR — consolidates the old, disconnected
-            # _check_dock_drift()-only diagnostic (pure logging, no
-            # correction applied) into this single place that now both
-            # detects AND corrects. GeometryStore.record_drift() keeps
-            # its existing Repair-Issue-triggering behaviour, fed from
-            # the SAME correction vector this method just applied.
-            if self._config_entry is not None:
-                data = getattr(self._config_entry, "runtime_data", None)
-                geometry_store = getattr(data, "geometry_store", None) if data else None
-                if geometry_store is not None and (dx, dy) != (0.0, 0.0):
-                    threshold_exceeded = geometry_store.record_drift(dx, dy)
-                    if threshold_exceeded:
-                        # v3.2.1 field-fix — self.hass.loop, not
-                        # asyncio.get_event_loop(): this callback runs on
-                        # roombapy's paho-MQTT thread (see
-                        # _handle_mission_end's own "loop = self.hass.loop"
-                        # a few lines below for the established pattern),
-                        # not the HA event loop thread — get_event_loop()
-                        # there is not guaranteed to return the same loop
-                        # HA actually runs on.
+                if is_clean_contact and robot_profile_store is not None:
+                    robot_profile_store.update_dock_theta_baseline(measured_final_theta)
+
+                # v3.2.1 DOCK-ANCHOR — consolidates the old, disconnected
+                # _check_dock_drift()-only diagnostic (pure logging, no
+                # correction applied) into this single place that now both
+                # detects AND corrects. GeometryStore.record_drift() keeps
+                # its existing Repair-Issue-triggering behaviour, fed from
+                # the SAME correction vector this method just applied.
+                if self._config_entry is not None:
+                    data = getattr(self._config_entry, "runtime_data", None)
+                    geometry_store = getattr(data, "geometry_store", None) if data else None
+                    if geometry_store is not None and (dx, dy) != (0.0, 0.0):
+                        threshold_exceeded = geometry_store.record_drift(dx, dy)
+                        if threshold_exceeded:
+                            # v3.2.1 field-fix — self.hass.loop, not
+                            # asyncio.get_event_loop(): this callback runs on
+                            # roombapy's paho-MQTT thread (see
+                            # _handle_mission_end's own "loop = self.hass.loop"
+                            # a few lines below for the established pattern),
+                            # not the HA event loop thread — get_event_loop()
+                            # there is not guaranteed to return the same loop
+                            # HA actually runs on.
+                            self._config_entry.async_create_task(
+                                self.hass, self._trigger_drift_issue_enriched(dx, dy)
+                            )
+                        # v3.2.1 field-fix — this save call was missing
+                        # entirely in the first version: the old
+                        # _check_dock_drift block always persisted
+                        # geometry_store after recording a drift sample, and
+                        # this new mechanism must too, or a HA restart right
+                        # after a correction would silently lose the
+                        # updated cumulative_drift_mm/recent_drifts_mm.
                         self._config_entry.async_create_task(
-                            self.hass, self._trigger_drift_issue_enriched(dx, dy)
+                            self.hass, geometry_store.async_save(self.hass, self._config_entry.entry_id)
                         )
-                    # v3.2.1 field-fix — this save call was missing
-                    # entirely in the first version: the old
-                    # _check_dock_drift block always persisted
-                    # geometry_store after recording a drift sample, and
-                    # this new mechanism must too, or a HA restart right
-                    # after a correction would silently lose the
-                    # updated cumulative_drift_mm/recent_drifts_mm.
-                    self._config_entry.async_create_task(
-                        self.hass, geometry_store.async_save(self.hass, self._config_entry.entry_id)
-                    )
 
         self._dock_anchor_buffering = False
         self._pending_segment_points = []
@@ -2718,6 +2919,35 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             self._config_entry.async_create_task(
                 self.hass, self._async_save_mission_checkpoint()
             )
+
+    def _keep_unverified(
+        self,
+        segment: list[tuple[float, float]],
+        thetas: list[float],
+    ) -> None:
+        """Keep a stretch the dock could not verify, marked as such."""
+        start = (
+            len(self._mission_points)
+            if self._dock_anchor_buffering
+            else self._last_dock_anchor_index
+        )
+        if self._dock_anchor_buffering:
+            self._mission_points.extend(segment)
+            self._mission_thetas.extend(thetas)
+        end = len(self._mission_points)
+        if end > start:
+            ranges = getattr(self, "_unverified_ranges", None)
+            if not isinstance(ranges, list):
+                ranges = []
+                self._unverified_ranges = ranges
+            ranges.append([start, end])
+        _LOGGER.info(
+            "Map: dock contact %.1f m from where the robot measured itself, "
+            "with no pickup counted -- carried back, not drift; %d points "
+            "kept out of the coverage grid and the areas",
+            math.hypot(*(segment[-1] if segment else (0.0, 0.0))) / 1000,
+            end - start,
+        )
 
     def _handle_mission_end(self, ending_phase: str = "") -> None:
         """End-of-mission processing. ORDER-SENSITIVE THROUGHOUT.
@@ -2966,11 +3196,30 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                 # replaces "stamp at an arbitrary wrong offset" with
                 # "stamp at a checked offset, or not at all". Both
                 # outcomes beat what happened before.
-                _points_for_grid = _anchored_mission_points(
-                    self._mission_points,
-                    getattr(self._renderer, "_breaks", set()),
-                    _gdata.grid_store,
+                #
+                # AND NOT WHAT NO DOCK VERIFIED (4.5.0): a stretch after a
+                # robot was carried back is kept out (_keep_unverified).
+                _learned_runs = _without_ranges(
+                    _anchored_runs(
+                        self._mission_points,
+                        getattr(self._renderer, "_breaks", set()),
+                        _gdata.grid_store,
+                    ),
+                    getattr(self, "_unverified_ranges", []),
                 )
+                _points_for_grid, _grid_breaks = _run_points(
+                    self._mission_points, _learned_runs
+                )
+                _mission_key = str(getattr(self, "_mission_start_ts", "") or "")
+                #: This mission's learned stretches, for the doors (4.5.0).
+                _learned_paths = [(
+                    _mission_key,
+                    [
+                        [(x + dx, y + dy) for x, y in self._mission_points[a:b]]
+                        for a, b, dx, dy in _learned_runs
+                    ],
+                )] if _learned_runs else []
+            if _gdata.grid_store is not None and _points_for_grid:
                 _gdata.grid_store.update_from_mission(
                     _points_for_grid,
                     self._stuck_mission_points,
@@ -3001,8 +3250,11 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                     # Index-aligned because nothing is dropped any more:
                     # every pose reaches both _points and _mission_points,
                     # so a break index means the same position in both.
-                    breaks=set(self._renderer._breaks),
+                    # Where stretches were left out or anchored apart
+                    # (4.5.0), each learned stretch starts a new run.
+                    breaks=_grid_breaks,
                 )
+            if _gdata.grid_store is not None:
                 # v3.4.0 GS-SMART-COVERAGE — stamp this mission's nMssn as
                 # "already fed into GridStore via the live path". Shared
                 # watermark with the cloud-backfill path (callbacks.py):
@@ -3053,6 +3305,13 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                     and _gdata.room_seg_store is not None
                 ):
                     _unconfirmed_before = len(_gdata.room_seg_store.unconfirmed_rooms)
+                    _driven_before = _driven_door_ids(_gdata.room_seg_store)
+                    _recent_paths = (
+                        _gdata.trajectory_store.learned_paths()
+                        if _gdata.trajectory_store is not None
+                        and hasattr(_gdata.trajectory_store, "learned_paths")
+                        else []
+                    )
                     _recomputed = _gdata.room_seg_store.maybe_recompute(
                         _gdata.grid_store.cells,
                         # Rooms derived after a single mission come from
@@ -3061,11 +3320,33 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                         # unvisited thresholds. On this robot's own
                         # archives: 7 rooms after one mission, 6 after
                         # four, 5 once coverage settled.
-                        missions_seen=(
-                            _gdata.mission_store.completed_count
-                            if _gdata.mission_store is not None else None
-                        ),
+                        #
+                        # The missions THIS GRID learned from (4.5.0),
+                        # not the robot's lifetime count: after the grid
+                        # was emptied, that count let the first mission
+                        # cut the areas.
+                        missions_seen=_missions_learned(_gdata.grid_store),
+                        # Which doors a path went through (4.5.0).
+                        paths=[*_recent_paths, *_learned_paths],
                     )
+                    if not _recomputed and _learned_paths:
+                        _gdata.room_seg_store.note_paths(_learned_paths)
+                    if (
+                        not _recomputed
+                        and _driven_door_ids(_gdata.room_seg_store) != _driven_before
+                    ):
+                        # A door driven for the first time: the areas
+                        # are unchanged, the doors shown are not.
+                        self._config_entry.async_create_task(
+                            self.hass, _gdata.room_seg_store.async_save(self.hass, self._config_entry.entry_id)
+                        )
+                        if _gdata.geometry_store is not None:
+                            _gdata.geometry_store.update_from_room_seg_store(
+                                _gdata.room_seg_store
+                            )
+                            self._config_entry.async_create_task(
+                                self.hass, _gdata.geometry_store.async_save(self.hass, self._config_entry.entry_id)
+                            )
                     if _recomputed:
                         # ROOM-SEG — fire the same naming-wizard Repair Issue
                         # ZoneStore used to trigger, only when the count of
@@ -3154,15 +3435,15 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                     self._map_capability == MapCapability.EPHEMERAL
                     and _gdata.trajectory_store is not None
                 ):
-                    _mission_key = str(
-                        getattr(self, "_mission_start_ts", "") or ""
-                    )
                     _gdata.trajectory_store.record_mission(
                         _mission_key, self._mission_points,
                         # Was never passed: every stored trajectory had an
                         # empty `ended_at` (a tester's backup).
                         ended_at=dt_util.now().isoformat(),
                         thetas_deg=self._mission_thetas,
+                        # What the grid learned from (4.5.0), so that a
+                        # later recompute checks doors against it.
+                        learned_runs=[list(r) for r in _learned_runs],
                     )
                     self._config_entry.async_create_task(
                         self.hass, _gdata.trajectory_store.async_save(self.hass, self._config_entry.entry_id)
@@ -3177,6 +3458,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         self._stuck_mission_points = []
         self._npicks_at_start = None
         self._picked_up_this_mission = False
+        self._unverified_ranges = []
         # v3.2.1 DOCK-ANCHOR — mission has now genuinely ended; any
         # still-buffered segment (stuck_and_abandoned, no dock contact
         # ever confirmed) is discarded here, same as the mission-start
@@ -3409,6 +3691,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             self._pending_segment_points = list(checkpoint.get("pending_segment_points", []))
             self._pending_segment_thetas = list(checkpoint.get("pending_segment_thetas", []))
             self._last_dock_anchor_index = checkpoint.get("last_dock_anchor_index", 0)
+            self._unverified_ranges = _checkpoint_ranges(checkpoint)
             renderer_state = checkpoint.get("renderer_state")
             if self._renderer is not None and renderer_state:
                 self._renderer.restore_state(renderer_state)
@@ -3463,6 +3746,7 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         self._stuck_mission_points = list(checkpoint.get("stuck_mission_points", []))
         self._mission_start_ts = checkpoint.get("mission_start_ts")
         self._mission_started_on_dock = _checkpoint_on_dock(checkpoint)
+        self._unverified_ranges = _checkpoint_ranges(checkpoint)
         renderer_state = checkpoint.get("renderer_state")
         if self._renderer is not None and renderer_state:
             self._renderer.restore_state(renderer_state)
@@ -3528,6 +3812,9 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             "pending_segment_points": list(self._pending_segment_points),
             "pending_segment_thetas": list(self._pending_segment_thetas),
             "last_dock_anchor_index": self._last_dock_anchor_index,
+            "unverified_ranges": [
+                list(r) for r in getattr(self, "_unverified_ranges", [])
+            ],
         })
         _LOGGER.debug(
             "Map: saved mission checkpoint — %d pose pt(s), %d stuck pt(s)",
@@ -3888,8 +4175,10 @@ class RoombaRoomsImage(IRobotEntity, ImageEntity):
         turns = quarter_turns(
             self._config_entry.options.get(CONF_MAP_ROTATION, DEFAULT_MAP_ROTATION)
         )
+        wall_mm, door_mm = _wall_and_door_mm(self._config_entry.options)
         cache_key = (
             aligner.pmap_version_id, aligned, tuple(sorted(labels.items())), turns,
+            wall_mm, door_mm,
         )
         # Known limitation: this assumes umf_to_pose()'s rotation/translation
         # is stable for a given pmap_version_id once aligned=True is reached.
@@ -3992,10 +4281,12 @@ class RoombaRoomsImage(IRobotEntity, ImageEntity):
         # without the XVMC card's own room-name overlay. Outline stays fixed
         # (matches existing card highlight colour); only fill rotates.
         # Muted tones chosen to read clearly against the dark (30,30,30) canvas.
+        resolved_polys: dict[str, list[tuple[float, float]]] = {}
         for idx, (rid, poly_umf) in enumerate(polygons_umf.items()):
             resolved = resolve_poly(poly_umf)
             if not resolved:
                 continue
+            resolved_polys[str(rid)] = resolved
             poly_px = [to_px(x, y) for x, y in resolved]
             fill = ROOM_FILL_PALETTE[idx % len(ROOM_FILL_PALETTE)]
             draw.polygon(poly_px, outline=(100, 149, 237), fill=fill)
@@ -4022,8 +4313,15 @@ class RoombaRoomsImage(IRobotEntity, ImageEntity):
                 cy = sum(y for _, y in poly_px) / len(poly_px)
                 draw.text(
                     (cx, cy), name, fill=(230, 230, 230),
-                    anchor="mm", font=LABEL_FONT,
+                    anchor="mm", font=label_font(name, LABEL_FONT),
                 )
+
+        # WALLS AND DOORS (4.5.0). The rooms are iRobot's; the walls
+        # between them and the doors are not in its map, and come from
+        # where the polygons touch (room_layout.polygon_walls).
+        _draw_polygon_walls(
+            draw, polygon_walls(resolved_polys, wall_mm, door_mm), to_px, scale,
+        )
 
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -4267,8 +4565,9 @@ class RoombaRoomsImage(IRobotEntity, ImageEntity):
                 draw = ImageDraw.Draw(img)
                 y = 290 - 16 * len(lines)
                 for line in lines:
-                    width = draw.textlength(line, font=font)
-                    draw.text(((600 - width) / 2, y), line, fill=(200, 200, 200), font=font)
+                    line_font = label_font(line, font)
+                    width = draw.textlength(line, font=line_font)
+                    draw.text(((600 - width) / 2, y), line, fill=(200, 200, 200), font=line_font)
                     y += 32
             buf = io.BytesIO()
             img.save(buf, format="PNG")
@@ -4773,6 +5072,22 @@ class PrimeRoomsImage(IRobotEntity, ImageEntity):
             points = [to_px(x, y) for x, y in ring]
             draw.line(points, fill=(175, 175, 175), width=2)
 
+        # WALLS AND DOORS FROM THE ROOMS (4.5.0). A bundle with a floor
+        # plan has iRobot's own walls, drawn above; its doors are marked
+        # where two rooms' polygons meet. Without one, the walls come from
+        # the polygons too (room_layout.polygon_walls), as on Classic.
+        if self._polygons:
+            wall_mm, door_mm = _wall_and_door_mm(
+                getattr(self._config_entry, "options", None)
+            )
+            found = polygon_walls(self._polygons, wall_mm, door_mm)
+            if getattr(self._floor_plan, "floor_plan", ()):
+                found = dataclasses.replace(found, walls=())
+            _draw_polygon_walls(
+                draw, found, to_px,
+                1.0 / max(self._renderer._fit_scale, 1e-6),  # noqa: SLF001
+            )
+
         # Furniture is useful context, but an outline keeps it from hiding
         # the selectable room colours or live cleaning coverage.
         for ring in getattr(self._floor_plan, "furniture", ()):
@@ -5154,7 +5469,7 @@ class PrimeRoomsImage(IRobotEntity, ImageEntity):
                     cy = sum(y for _, y in ring) / len(ring)
                     draw.text(
                         to_px(cx, cy), name, fill=_colour,
-                        anchor="mm", font=LABEL_FONT,
+                        anchor="mm", font=label_font(name, LABEL_FONT),
                     )
 
         buf = io.BytesIO()

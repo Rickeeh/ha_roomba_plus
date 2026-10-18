@@ -41,6 +41,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
+from .const import MAINTENANCE_DIAGNOSTIC_KEYS
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -117,3 +119,71 @@ def async_remove_entities_by_suffix(
             registry.async_remove(entry.entity_id)
             removed += 1
     return removed
+
+
+@callback
+def async_remove_prime_only_entities(hass: HomeAssistant, config_entry: Any) -> int:
+    """Remove the entry's Prime-only entities, for an entry that moves
+    from the cloud-only path to the local connection (4.5.0). Returns how
+    many.
+
+    The entities both paths create keep their unique id, so they stay
+    the same entity with their name, area and history. The Prime-only
+    ones would sit there as `restored: true` forever. They are the ones
+    whose unique id carries `_prime_` right after the robot's prefix --
+    the naming every Prime-only entity follows -- and the local path
+    creates none of those, so nothing removed here comes back.
+
+    The CALLER decides the robot is no longer on the Prime path, from a
+    local connection that just worked (config_flow's reconfigure); this
+    never runs on a guess.
+    """
+    blid = str((getattr(config_entry, "data", None) or {}).get("blid") or "")
+    if not blid:
+        return 0
+    prefix = f"roomba_plus_{blid}_prime_"
+    registry = er.async_get(hass)
+    removed = 0
+    for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        if (entry.unique_id or "").startswith(prefix):
+            _LOGGER.info(
+                "roomba_plus: removing %s -- the robot moved to the local connection",
+                entry.entity_id,
+            )
+            registry.async_remove(entry.entity_id)
+            removed += 1
+    return removed
+
+
+@callback
+def async_set_maintenance_diagnostics_hidden(
+    hass: HomeAssistant, config_entry: Any, hidden: bool,
+) -> int:
+    """Hide or show the maintenance diagnostic entities (4.5.0, E2).
+
+    "Last replaced", "wear rate" and "days until due" per part: their
+    figures are attributes of the part sensors now, and a new
+    installation creates them disabled. This takes an existing one to the
+    same set, on request -- and back. Hiding disables them as the
+    integration; showing enables only what the integration disabled, never
+    an entity the user switched off himself. Home Assistant reloads the
+    entry to bring enabled entities back.
+
+    Returns the number changed.
+    """
+    suffixes = tuple(f"_{key}" for key in MAINTENANCE_DIAGNOSTIC_KEYS)
+    registry = er.async_get(hass)
+    changed = 0
+    for entry in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+        unique_id = entry.unique_id if isinstance(entry.unique_id, str) else ""
+        if entry.domain != "sensor" or not unique_id.endswith(suffixes):
+            continue
+        if hidden and entry.disabled_by is None:
+            registry.async_update_entity(
+                entry.entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+            )
+            changed += 1
+        elif not hidden and entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entry.entity_id, disabled_by=None)
+            changed += 1
+    return changed

@@ -1,0 +1,437 @@
+{
+  "_page": {
+    "why": "Wozu",
+    "how": "So geht's",
+    "note": "Achtung",
+    "irobot": "iRobots Anleitung für dein Modell",
+    "expired_title": "Dieser Link ist abgelaufen",
+    "expired_text": "Links auf Pflegeanleitungen gelten 30 Tage. Einen neuen bekommst du in Home Assistant unter Einstellungen → Geräte & Dienste → Roomba+ → Konfigurieren → Wartung → Pflegeanleitung.",
+    "unknown_title": "Hier gibt es keine Anleitung",
+    "unknown_text": "Diese Anleitung gibt es nicht. Öffne in Home Assistant Konfigurieren → Wartung → Pflegeanleitung.",
+    "when": "Wann"
+  },
+  "clean_filter": {
+    "title": "Filter reinigen",
+    "why": "Der Filter hält feinen Staub im Behälter. Sind seine Falten zugesetzt, sinkt die Saugkraft und der Roboter nimmt weniger auf.",
+    "steps": [
+      "Behälterentriegelung drücken und den Behälter aus dem Roboter nehmen.",
+      "Den Filter an seiner Lasche herausheben.",
+      "Ihn an der Innenseite eines Mülleimers ausklopfen, bis kein Staub mehr herausfällt. Die Falten nicht ausbürsten.",
+      "Den Filter mit den Falten in derselben Richtung wieder einsetzen und den Behälter einschieben, bis er einrastet."
+    ],
+    "caution": "Einen Papierfilter nie waschen oder nass werden lassen: Einmal nass, filtert er nicht mehr.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Die Behälterentriegelung drücken und den Behälter aus dem Roboter ziehen.",
+          "Den Filter durch Herunterdrücken lösen und herausheben.",
+          "Ihn am Rand eines Mülleimers ausklopfen, bis kein Staub mehr herausfällt. Die Falten nicht ausbürsten.",
+          "Den Filter wieder einsetzen und den Behälter einschieben, bis er einrastet."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Die Behälterentriegelung drücken, den Behälter herausnehmen und leeren.",
+          "Die Lasche der Filterklappe drücken und die Klappe anheben.",
+          "Den Filter an der gelben Lasche herausziehen und am Rand eines Mülleimers ausklopfen, bis kein Staub mehr herausfällt.",
+          "Den Filter wieder einsetzen, die Filterklappe schließen und den Behälter einschieben, bis er einrastet."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Die Behälterentriegelung hinten am Roboter drücken und den Behälter herausnehmen.",
+          "Die Behälterklappe über einem Mülleimer öffnen und den Behälter leeren.",
+          "Den Filter seitlich greifen, nach links herausziehen und am Rand des Mülleimers ausklopfen, bis kein Staub mehr herausfällt.",
+          "Den Filter wieder einsetzen und den Behälter in die Führung schieben, bis er einrastet."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Die Entriegelung am Deckel drücken, ihn öffnen und den Behälter am Griff herausheben.",
+          "Den Behälter über einen Mülleimer halten und seine Entriegelung drücken, damit er sich leert.",
+          "Die Filterklappe öffnen, den Filter an der Schlaufe herausziehen und am Rand des Mülleimers ausklopfen.",
+          "Den Filter wieder einsetzen und die Filterklappe schließen: Sie schließt nur mit richtig sitzendem Filter. Den Behälter wieder einsetzen."
+        ]
+      }
+    }
+  },
+  "clean_brushes": {
+    "title": "Hauptbürsten reinigen",
+    "why": "Die Hauptbürsten heben Schmutz von Teppich und Hartboden in den Behälter. Aufgewickelte Haare lassen sie rutschen, und sie nehmen weniger auf.",
+    "steps": [
+      "Den Roboter auf eine weiche Unterlage umdrehen.",
+      "Den Bürstenrahmen an seinen Laschen öffnen und beide Bürsten herausheben.",
+      "Die Endkappen abziehen und Haare und Fäden von den Enden und Achsen entfernen. Aufgewickelte Haare entlang der Rille aufschneiden.",
+      "Die Endkappen wieder aufsetzen, jede Bürste dort einsetzen, wo ihre Form passt, und den Rahmen schließen."
+    ],
+    "caution": "Die beiden Bürsten sind verschieden und passen nur in einer Richtung. Nicht mit Gewalt einsetzen.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Den Roboter auf eine weiche Unterlage umdrehen.",
+          "Die zwei gelben Laschen am Bürstenrahmen anheben und die Borstenbürste und die Klopfbürste herausnehmen.",
+          "Die Endkappen abziehen und Haare und Fäden von den Enden und Achsen entfernen.",
+          "Die Endkappen aufsetzen, jede Bürste dort einsetzen, wo ihre Form passt, und den Rahmen schließen."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Den Roboter auf eine weiche Unterlage umdrehen.",
+          "Die gelben Laschen am Bürstenrahmen zusammendrücken und den Rahmen hochklappen.",
+          "Beide Gummiwalzen herausnehmen, die Endkappen abziehen und Haare von den vier- und sechseckigen Stiften entfernen.",
+          "Die Endkappen aufsetzen, jede Walze dort einsetzen, wo ihr Stift passt, und den Rahmen schließen, bis er einrastet."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Den Roboter auf eine weiche Unterlage umdrehen.",
+          "Die Entriegelungstaste neben den Bürsten drücken und den Bürstenrahmen öffnen.",
+          "Beide Gummiwalzen herausnehmen, die Endkappen abziehen und Haare von den Enden und Achsen entfernen.",
+          "Die Endkappen aufsetzen, jede Walze dort einsetzen, wo ihre Form passt, und den Rahmen schließen."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Den Roboter auf eine weiche Unterlage umdrehen.",
+          "Die Taste rechts am Reinigungskopf drücken: Der Riegel hebt sich.",
+          "Beide Gummiwalzen herausnehmen, die Endkappen abziehen und Haare von den Enden und Achsen entfernen.",
+          "Die Endkappen aufsetzen, die Walzen dort einsetzen, wo ihre Form passt, und den Riegel schließen."
+        ]
+      }
+    }
+  },
+  "clean_side_brush": {
+    "title": "Seitenbürste reinigen",
+    "why": "Die Seitenbürste kehrt Schmutz aus Kanten und Ecken in die Bahn des Roboters. Verfilzte oder verbogene Arme lassen ihn liegen.",
+    "steps": [
+      "Den Roboter umdrehen.",
+      "Die Schraube in der Mitte der Bürste lösen oder die Bürste abziehen, wo sie keine Schraube hat.",
+      "Haare von den Armen und der Nabe entfernen und verbogene Borsten geraderichten.",
+      "Die Bürste wieder auf ihre Welle setzen und befestigen."
+    ],
+    "caution": "Eine Bürste mit verbogenen Armen ersetzen: Sie reicht nicht mehr bis an die Kante.",
+    "variants": {
+      "s": {
+        "title": "Eckbürste reinigen",
+        "why": "Die Eckbürste kehrt Schmutz aus Ecken und an Kanten entlang in die Bahn des Roboters. Verfilzte oder verbogene Arme lassen ihn liegen.",
+        "steps": [
+          "Den Roboter umdrehen.",
+          "Die Schraube mit einem kleinen Schraubendreher lösen und die Eckbürste abnehmen.",
+          "Haare von den Armen und dem Antriebsstift entfernen.",
+          "Die Bürste wieder auf den Stift setzen und die Schraube wieder festziehen."
+        ],
+        "caution": "Die Schraube festziehen: Eine lose Eckbürste fällt beim Reinigen ab."
+      }
+    }
+  },
+  "clean_wheel": {
+    "title": "Räder reinigen",
+    "why": "Vorderrad und Antriebsräder tragen den Roboter. Haare oder Sand darin lassen ihn zur Seite ziehen oder stehen bleiben.",
+    "steps": [
+      "Den Roboter umdrehen.",
+      "Das Vorderrad aus seiner Aufnahme ziehen und das Rad von der Achse nehmen.",
+      "Haare und Schmutz von Rad, Achse und Aufnahme entfernen.",
+      "Die Antriebsräder von Hand drehen und alles entfernen, was hakt; dann das Vorderrad wieder einsetzen, bis es einrastet."
+    ],
+    "caution": "Die Antriebsräder nicht herausziehen: Sie sind nicht zum Ausbauen gedacht.",
+    "variants": {
+      "s": {
+        "why": "Das hintere Laufrad und die Antriebsräder tragen den Roboter. Haare oder Sand darin lassen ihn seitlich ziehen oder stehen bleiben.",
+        "steps": [
+          "Den Roboter umdrehen.",
+          "Das hintere Laufrad aus seiner Halterung ziehen und das Rad von der Achse nehmen.",
+          "Haare und Schmutz von Rad, Achse und Halterung entfernen.",
+          "Die Antriebsräder von Hand drehen und entfernen, was hängen bleibt, dann das Laufrad wieder eindrücken, bis es einrastet."
+        ]
+      }
+    }
+  },
+  "clean_cliff_sensors": {
+    "title": "Absturzsensoren reinigen",
+    "why": "Die Absturzsensoren schauen nach unten nach Treppen und Kanten. Staub auf ihren Fenstern kann den Roboter anhalten oder eine Kante übersehen lassen.",
+    "steps": [
+      "Den Roboter umdrehen.",
+      "Jedes Sensorfenster mit einem leicht feuchten Schmutzradierer oder Tuch abwischen.",
+      "Prüfen, dass kein Fenster zerkratzt oder verdeckt ist."
+    ],
+    "caution": "Nie Reinigungsmittel auf die Sensoren oder in ihre Öffnungen sprühen."
+  },
+  "clean_contact": {
+    "title": "Ladekontakte reinigen",
+    "why": "Die Ladekontakte an Roboter und Station leiten den Ladestrom. Ein Belag darauf unterbricht das Laden.",
+    "steps": [
+      "Den Roboter von der Station nehmen.",
+      "Die Ladekontakte des Roboters mit einem leicht feuchten Schmutzradierer oder Tuch blank reiben.",
+      "Die Station 60 Sekunden vom Strom trennen und ihre Kontakte genauso reinigen.",
+      "Die Station wieder einstecken und den Roboter daraufsetzen."
+    ],
+    "caution": "Nichts Scheuerndes und kein Metallwerkzeug. Grüne, kupferfarbene oder eingesunkene Kontakte sind beschädigt: an den iRobot-Kundendienst wenden.",
+    "variants": {
+      "home_base": {
+        "steps": [
+          "Den Roboter von der Station nehmen.",
+          "Die Ladekontakte des Roboters mit einem leicht feuchten Schmutzradierer oder Tuch blank reiben.",
+          "Die Home Base 60 Sekunden vom Strom trennen und ihre Kontakte genauso reinigen. Das Fenster ihres Andocksensors nur mit einem trockenen Tuch abwischen.",
+          "Die Home Base wieder einstecken und den Roboter daraufsetzen."
+        ]
+      },
+      "clean_base": {
+        "steps": [
+          "Den Roboter von der Clean Base nehmen.",
+          "Die Ladekontakte des Roboters mit einem leicht feuchten Schmutzradierer oder Tuch blank reiben.",
+          "Die Clean Base 60 Sekunden vom Strom trennen und die Kontakte auf ihrer Rampe genauso reinigen.",
+          "Die Clean Base wieder einstecken und den Roboter daraufsetzen."
+        ]
+      },
+      "wash_dock": {
+        "steps": [
+          "Den Roboter von der Station nehmen.",
+          "Die Ladekontakte des Roboters mit einem leicht feuchten Schmutzradierer oder Tuch blank reiben.",
+          "Die Station 60 Sekunden vom Strom trennen. Ihre Kontakte, das Infrarotfenster und die Andockmarke nur mit einem trockenen Tuch abwischen.",
+          "Die Station wieder einstecken und den Roboter daraufsetzen."
+        ]
+      }
+    }
+  },
+  "clean_bin": {
+    "title": "Behälter leeren und prüfen",
+    "why": "Der Behälter nimmt auf, was der Roboter einsammelt. Ein voller oder schlecht sitzender Behälter hindert ihn daran, mehr aufzunehmen.",
+    "steps": [
+      "Behälterentriegelung drücken und den Behälter herausnehmen.",
+      "Die Klappe über einem Mülleimer öffnen und den Behälter leeren.",
+      "Den Filter herausnehmen, ausklopfen und Staub aus seinem Sitz entfernen.",
+      "Den Filter wieder einsetzen und den Behälter einschieben, bis er einrastet."
+    ],
+    "caution": "Nur einen dafür gedachten Behälter ausspülen, mit herausgenommenem Filter, und ihn vor dem Einsetzen ganz trocknen lassen.",
+    "variants": {
+      "eij": {
+        "steps": [
+          "Die Behälterentriegelung hinten am Roboter drücken und den Behälter herausnehmen.",
+          "Die Behälterklappe über einem Mülleimer öffnen und den Behälter leeren.",
+          "Den Filter herausnehmen und ausklopfen. Den Behälter von Hand mit warmem Wasser ausspülen, wenn er schmutzig ist.",
+          "Den Behälter ganz trocknen lassen, den Filter einsetzen und den Behälter einschieben, bis er einrastet."
+        ],
+        "caution": "Nur von Hand spülen, nie in der Spülmaschine und nie mit eingesetztem Filter."
+      },
+      "s": {
+        "steps": [
+          "Die Entriegelung am Deckel drücken und den Behälter am Griff herausheben.",
+          "Den Behälter über einen Mülleimer halten und seine Entriegelung drücken, damit er sich leert.",
+          "Den Filter herausnehmen und ausklopfen. Den Behälter mit warmem Wasser ausspülen, wenn er schmutzig ist.",
+          "Den Behälter ganz trocknen lassen, den Filter einsetzen und den Behälter in den Roboter setzen."
+        ],
+        "caution": "Nur von Hand spülen, nie in der Spülmaschine und nie mit eingesetztem Filter."
+      }
+    }
+  },
+  "clean_camera": {
+    "title": "Kamerafenster reinigen",
+    "why": "Kamera und Sensorfenster helfen dem Roboter, seinen Weg zu finden. Schlieren lassen ihn seine Position verlieren.",
+    "steps": [
+      "Das Kamerafenster oben oder vorne am Roboter suchen.",
+      "Es vorsichtig mit einem sauberen, trockenen Mikrofasertuch abwischen.",
+      "Die übrigen Sensorfenster vorne ebenso abwischen."
+    ],
+    "caution": "Keine Flüssigkeit und kein Reinigungsmittel an die Fenster."
+  },
+  "clean_wash_dock": {
+    "title": "Wasch-Dock reinigen",
+    "why": "Das Wasch-Dock spült den Mopp. Schmutz in seiner Wanne oder ein voller Schmutzwassertank stoppt das Waschen.",
+    "steps": [
+      "Den Schmutzwassertank herausnehmen, leeren und ausspülen.",
+      "Die Waschwanne herausheben und unter fließendem Wasser ausspülen.",
+      "Den Boden der Station trockenwischen und Wanne und Tank wieder einsetzen.",
+      "Den Frischwassertank auffüllen, wenn er fast leer ist."
+    ],
+    "caution": "Die Wanne trocknen lassen, bevor der Roboter wieder darauf fährt."
+  },
+  "clean_dock_washing_system": {
+    "title": "Waschsystem der Station reinigen",
+    "why": "Das Waschsystem der Station spült Schmutz aus dem Mopp. Bleiben Reste darin, kommt der Mopp schmutzig heraus.",
+    "steps": [
+      "Den Wascheinsatz aus der Station heben.",
+      "Ihn unter fließendem Wasser ausspülen und Haare und Schmutz aus seinen Öffnungen entfernen.",
+      "Den Sitz des Einsatzes in der Station auswischen.",
+      "Den Einsatz so wieder einsetzen, dass er flach aufliegt."
+    ],
+    "caution": "Kein Reinigungsmittel, außer die Anleitung der Station erlaubt es."
+  },
+  "clean_mop_washing_system": {
+    "title": "Mopp-Waschsystem reinigen",
+    "why": "Das Waschsystem des Walzenmopps streift Schmutzwasser vom Mopp ab. Sind seine Öffnungen verstopft, kann Schmutzwasser auf den Boden tropfen.",
+    "steps": [
+      "Den Walzenmopp vom Roboter nehmen.",
+      "Den Abstreifer und seine Öffnungen unter fließendem Wasser ausspülen und verstopfte Löcher mit einer weichen Bürste freimachen.",
+      "Den Walzenmopp ausspülen und trocknen lassen.",
+      "Den Walzenmopp wieder einsetzen, bis er einrastet."
+    ],
+    "caution": "Kein spitzes Werkzeug an den Öffnungen des Abstreifers."
+  },
+  "replace_filter": {
+    "title": "Filter ersetzen",
+    "why": "Ein Filter verliert mit der Zeit seine Wirkung, auch wenn er regelmäßig ausgeklopft wird.",
+    "steps": [
+      "Den Behälter aus dem Roboter nehmen.",
+      "Den alten Filter an seiner Lasche herausheben.",
+      "Den neuen Filter mit den Falten in derselben Richtung wie den alten einsetzen.",
+      "Den Behälter wieder einschieben, bis er einrastet, und den Filter als ersetzt melden."
+    ],
+    "caution": "Einen Filter für dieses Modell verwenden: Einer, der nicht dicht sitzt, lässt Staub durch.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Die Behälterentriegelung drücken und den Behälter herausziehen.",
+          "Den alten Filter herunterdrücken und herausheben.",
+          "Den neuen Filter mit den Falten in dieselbe Richtung wie den alten einsetzen.",
+          "Den Behälter einschieben, bis er einrastet, und den Filter als ersetzt melden."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Den Behälter aus dem Roboter nehmen.",
+          "Die Lasche der Filterklappe drücken, die Klappe anheben und den alten Filter an der gelben Lasche herausziehen.",
+          "Den neuen Filter mit den Falten in dieselbe Richtung einsetzen und die Filterklappe schließen.",
+          "Den Behälter einschieben, bis er einrastet, und den Filter als ersetzt melden."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Die Behälterentriegelung hinten am Roboter drücken und den Behälter herausnehmen.",
+          "Den alten Filter seitlich greifen und nach links herausziehen.",
+          "Den neuen Filter mit den Falten in dieselbe Richtung wie den alten einsetzen.",
+          "Den Behälter in die Führung schieben, bis er einrastet, und den Filter als ersetzt melden."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Den Deckel öffnen und den Behälter am Griff herausheben.",
+          "Die Filterklappe öffnen und den alten Filter an der Schlaufe herausziehen.",
+          "Den neuen Filter einsetzen und die Filterklappe schließen: Sie schließt nur mit richtig sitzendem Filter.",
+          "Den Behälter wieder einsetzen und den Filter als ersetzt melden."
+        ]
+      }
+    }
+  },
+  "replace_main_brush": {
+    "title": "Hauptbürsten ersetzen",
+    "why": "Abgenutzte Bürsten erreichen den Boden schlechter und nehmen weniger Schmutz auf.",
+    "steps": [
+      "Den Roboter umdrehen und den Bürstenrahmen öffnen.",
+      "Beide Bürsten herausheben. Die Endkappen behalten, wenn die neuen Bürsten ohne kommen.",
+      "Die neuen Bürsten dort einsetzen, wo ihre Form passt, und den Rahmen schließen.",
+      "Die Bürsten als ersetzt melden."
+    ],
+    "caution": "Die beiden Bürsten sind verschieden und passen nur in einer Richtung. Nicht mit Gewalt einsetzen.",
+    "variants": {
+      "600": {
+        "steps": [
+          "Den Roboter umdrehen und die zwei gelben Laschen am Bürstenrahmen anheben.",
+          "Die Borstenbürste und die Klopfbürste herausnehmen. Die Endkappen aufheben, wenn die neuen Bürsten keine haben.",
+          "Die neuen Bürsten dort einsetzen, wo ihre Form passt, und den Rahmen schließen.",
+          "Die Bürsten als ersetzt melden."
+        ]
+      },
+      "900": {
+        "steps": [
+          "Den Roboter umdrehen, die gelben Laschen zusammendrücken und den Bürstenrahmen hochklappen.",
+          "Beide Walzen herausnehmen. Die Endkappen aufheben, wenn die neuen keine haben.",
+          "Die neuen Walzen dort einsetzen, wo ihre Stifte passen, und den Rahmen schließen, bis er einrastet.",
+          "Die Bürsten als ersetzt melden."
+        ]
+      },
+      "eij": {
+        "steps": [
+          "Den Roboter umdrehen und die Entriegelungstaste neben den Bürsten drücken.",
+          "Beide Walzen herausnehmen. Die Endkappen aufheben, wenn die neuen keine haben.",
+          "Die neuen Walzen dort einsetzen, wo ihre Form passt, und den Rahmen schließen.",
+          "Die Bürsten als ersetzt melden."
+        ]
+      },
+      "s": {
+        "steps": [
+          "Den Roboter umdrehen und die Taste rechts am Reinigungskopf drücken.",
+          "Beide Walzen herausnehmen. Die Endkappen aufheben, wenn die neuen keine haben.",
+          "Die neuen Walzen dort einsetzen, wo ihre Form passt, und den Riegel schließen.",
+          "Die Bürsten als ersetzt melden."
+        ]
+      }
+    }
+  },
+  "replace_side_brush": {
+    "title": "Seitenbürste ersetzen",
+    "why": "Eine abgenutzte Seitenbürste reicht nicht mehr in Kanten und Ecken.",
+    "steps": [
+      "Den Roboter umdrehen.",
+      "Die Schraube lösen oder die alte Bürste von der Welle ziehen.",
+      "Die neue Bürste auf die Welle drücken und befestigen.",
+      "Die Seitenbürste als ersetzt melden."
+    ],
+    "caution": "Die Schraube aufheben: Eine lose Bürste fällt beim Reinigen ab.",
+    "variants": {
+      "s": {
+        "title": "Eckbürste ersetzen",
+        "why": "Eine abgenutzte Eckbürste reicht nicht mehr in die Ecken.",
+        "steps": [
+          "Den Roboter umdrehen.",
+          "Die Schraube lösen und die alte Eckbürste abnehmen.",
+          "Die neue Eckbürste auf den Stift setzen und die Schraube festziehen.",
+          "Die Eckbürste als ersetzt melden."
+        ]
+      }
+    }
+  },
+  "replace_bag": {
+    "title": "Beutel ersetzen",
+    "why": "Der Beutel in der Station sammelt, was der Roboter in sie entleert. Ist er voll, kann die Station den Roboter nicht mehr entleeren.",
+    "steps": [
+      "Den Deckel der Station öffnen.",
+      "Den Beutel an seiner Lasche herausziehen: Die Lasche verschließt die Öffnung.",
+      "Den neuen Beutel einsetzen und seine Karte in die Führung schieben, bis sie sitzt.",
+      "Den Deckel schließen und den Beutel als ersetzt melden."
+    ],
+    "caution": "Einen Beutel nicht wiederverwenden: Sein Verschluss schließt nur einmal."
+  },
+  "replace_battery": {
+    "title": "Akku ersetzen",
+    "why": "Ein Akku verliert mit jeder Ladung an Kapazität. Der Roboter läuft dann kürzer und bleibt womöglich stehen, bevor er fertig ist.",
+    "steps": [
+      "Den Roboter ausschalten und umdrehen.",
+      "Die Schrauben der Akkuabdeckung lösen und die Abdeckung abnehmen.",
+      "Den alten Akku an seinen Laschen herausziehen und den neuen mit den Kontakten in derselben Richtung einsetzen.",
+      "Die Abdeckung anbringen, den Roboter auf die Station setzen und den Akku als ersetzt melden."
+    ],
+    "caution": "Einen Akku für dieses Modell verwenden und den alten bei einer Sammelstelle für Batterien abgeben."
+  },
+  "replace_pad": {
+    "title": "Wischpad ersetzen",
+    "why": "Ein abgenutztes Pad hinterlässt Schlieren und nimmt weniger Schmutz auf.",
+    "steps": [
+      "Den Roboter anheben oder von der Station nehmen.",
+      "Das alte Pad von seiner Halterung abziehen.",
+      "Das neue Pad auf die Halterung schieben oder drücken, bis es sitzt.",
+      "Das Pad als ersetzt melden."
+    ],
+    "caution": "Waschbare Pads ohne Weichspüler waschen; Einwegpads nur einmal verwenden."
+  },
+  "replace_roller": {
+    "title": "Walzenmopp ersetzen",
+    "why": "Ein abgenutzter Walzenmopp drückt nicht mehr gleichmäßig auf den Boden und hinterlässt Schlieren.",
+    "steps": [
+      "Den Walzenmopp vom Roboter nehmen.",
+      "Den neuen einsetzen, bis er auf beiden Seiten einrastet.",
+      "Den Walzenmopp als ersetzt melden."
+    ],
+    "caution": "Einen gewaschenen Mopp trocknen lassen, bevor er wieder eingesetzt wird."
+  },
+  "replace_detergent": {
+    "title": "Reinigungsmittel ersetzen",
+    "why": "Die Station gibt Reinigungsmittel aus ihrer Kartusche ins Wischwasser. Ist sie leer, wischt der Roboter nur mit Wasser.",
+    "steps": [
+      "Das Reinigungsmittelfach der Station öffnen.",
+      "Die leere Kartusche herausnehmen.",
+      "Die neue einsetzen, bis sie sitzt, und das Fach schließen.",
+      "Das Reinigungsmittel als ersetzt melden."
+    ],
+    "caution": "Nur Reinigungsmittel für diese Station verwenden: Andere können schäumen oder sie beschädigen."
+  }
+}

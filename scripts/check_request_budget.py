@@ -71,6 +71,21 @@ _POLLING_EXCEPTIONS: dict[str, str] = {
 }
 
 
+#: Methods that call one cloud method twice ON PURPOSE, with a reason.
+#:
+#: Same rule as above: an entry is a claim, and says why the two calls
+#: are not the same request.
+_DUPLICATE_EXCEPTIONS: dict[str, str] = {
+    "image.py::PrimeMapImage._async_watch_live_map": (
+        "Two different presigned URLs of one live-map message: the full "
+        "bundle (livemap_url) and the occupancy grid (livemap_url_raw). "
+        "download_map_bundle() is the library's unsigned GET of a "
+        "presigned URL (4.5.0; it was our own session.get before), and "
+        "each message carries each URL once."
+    ),
+}
+
+
 def _cloud_wrappers(tree: ast.AST) -> set[str]:
     """Module-level functions that make a cloud call.
 
@@ -168,6 +183,8 @@ def main() -> int:
                     continue
                 checked += 1
                 seen: dict[str, int] = {}
+                if f"{path.name}::{node.name}.{member.name}" in _DUPLICATE_EXCEPTIONS:
+                    continue
                 for name, lineno in _cloud_calls_in(member):
                     if name in seen:
                         duplicate_findings.append(

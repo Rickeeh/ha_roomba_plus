@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 """Which rooms a Prime robot considers dirty.
 
 Classic derives dirt density from cloud mission records and builds a
@@ -161,7 +162,7 @@ class TestThePrimeEvaluationPath:
     a density averaged over a mission cannot say which room was dirty.
     """
 
-    def _manager(self, *, blocked=False, scores=None, selected="M1"):
+    def _manager(self, *, blocked=False, scores=None, selected="M1", docked=True):
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from custom_components.roomba_plus.dirt_threshold_manager import (
@@ -183,11 +184,30 @@ class TestThePrimeEvaluationPath:
         )
         mgr.async_save = AsyncMock()
         backend = AsyncMock()
-        return mgr, backend, robot, patch(
-            "custom_components.roomba_plus.dirt_threshold_manager."
-            "async_get_room_cleaning_backend",
-            return_value=backend,
-        )
+        # Where the robot is (4.5.0): the scores and the room come from
+        # the floor the robot stands on, not from the map select.
+        backend.where_the_robot_is = AsyncMock(return_value=(selected, True))
+        from contextlib import ExitStack
+
+        class _Patched:
+            def __enter__(self_inner):
+                self_inner.stack = ExitStack()
+                self_inner.stack.enter_context(patch(
+                    "custom_components.roomba_plus.dirt_threshold_manager."
+                    "async_get_room_cleaning_backend",
+                    return_value=backend,
+                ))
+                self_inner.stack.enter_context(patch(
+                    "custom_components.roomba_plus.dirt_threshold_manager."
+                    "prime_robot_docked",
+                    return_value=docked,
+                ))
+                return self_inner
+
+            def __exit__(self_inner, *exc):
+                return self_inner.stack.__exit__(*exc)
+
+        return mgr, backend, robot, _Patched()
 
     async def _run(self, **kwargs):
         mgr, backend, robot, patched = self._manager(**kwargs)
@@ -201,7 +221,7 @@ class TestThePrimeEvaluationPath:
             _region("10", 0.75), _region("12", 0.95),
         ]))
 
-        backend.clean_rooms.assert_awaited_once_with(["12"])
+        backend.clean_rooms.assert_awaited_once_with(["M1/12"])
 
     @pytest.mark.asyncio
     async def test_only_one_room_per_evaluation(self):
@@ -213,6 +233,25 @@ class TestThePrimeEvaluationPath:
         ]))
 
         assert len(backend.clean_rooms.await_args.args[0]) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_next_room_waits_six_hours(self):
+        """4.5.0: run after every mission, the end of one room's clean
+        found the next room past the line and started it -- a whole-house
+        clean one room at a time."""
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        for hours_ago, started in ((1, False), (7, True)):
+            mgr, backend, robot, patched = self._manager(
+                scores=_response([_region("12", 0.95)])
+            )
+            mgr._last_trigger_time = dt_util.utcnow() - timedelta(hours=hours_ago)
+            with patched:
+                await mgr.async_evaluate_prime("E1")
+            assert backend.clean_rooms.await_count == (1 if started else 0), hours_ago
+            assert robot.get_clean_score_raw.await_count == (1 if started else 0)
 
     @pytest.mark.asyncio
     async def test_a_blocked_gate_stops_everything(self):
@@ -233,7 +272,6 @@ class TestThePrimeEvaluationPath:
         from unittest.mock import AsyncMock
 
         mgr, backend, robot, patched = self._manager(selected=None)
-        backend._current_map_id = AsyncMock(return_value=None)
         with patched:
             await mgr.async_evaluate_prime("E1")
 
@@ -246,11 +284,54 @@ class TestThePrimeEvaluationPath:
         mgr, backend, robot, patched = self._manager(
             selected=None, scores=_response([_region("12", 0.95)])
         )
-        backend._current_map_id = AsyncMock(return_value="M-CURRENT")
+        backend.where_the_robot_is = AsyncMock(return_value=("M-CURRENT", False))
         with patched:
             await mgr.async_evaluate_prime("E1")
 
         robot.get_clean_score_raw.assert_awaited_once_with("M-CURRENT")
+        backend.clean_rooms.assert_awaited_once_with(["M-CURRENT/12"])
+
+    @pytest.mark.asyncio
+    async def test_the_map_select_is_not_where_the_robot_is(self):
+        """4.5.0: room ids are per map. Scores read for the floor the map
+        select shows, sent to a robot standing on another floor, clean
+        the wrong room. An unattended start without a location does
+        nothing."""
+        mgr, backend, robot, patched = self._manager(
+            selected="UPSTAIRS", scores=_response([_region("3", 0.95)])
+        )
+        backend.where_the_robot_is = AsyncMock(return_value=(None, False))
+        with patched:
+            await mgr.async_evaluate_prime("E1")
+
+        robot.get_clean_score_raw.assert_not_awaited()
+        backend.clean_rooms.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_robot_away_from_its_dock_is_not_started(self):
+        mgr, backend, robot, patched = self._manager(
+            scores=_response([_region("12", 0.95)]), docked=False
+        )
+        with patched:
+            await mgr.async_evaluate_prime("E1")
+
+        robot.get_clean_score_raw.assert_not_awaited()
+        backend.clean_rooms.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_robot_started_meanwhile_is_left_alone(self):
+        """The gates are asked again after the cloud calls: a schedule
+        that started the robot meanwhile is not overridden."""
+        mgr, backend, robot, patched = self._manager(
+            scores=_response([_region("12", 0.95)])
+        )
+        answers = iter([(False, ""), (True, "robot_busy_clean")])
+        mgr.gate_blocked = MagicMock(side_effect=lambda: next(answers))
+        with patched:
+            await mgr.async_evaluate_prime("E1")
+
+        robot.get_clean_score_raw.assert_awaited_once()
+        backend.clean_rooms.assert_not_awaited()
 
 
 class TestTheVendorsOwnResponseShape:
@@ -497,3 +578,37 @@ class TestPerRoomPreferences:
 
     def test_absent_reads_as_none(self):
         assert self._prefs(None) is None
+
+
+class TestDockedAndQualified:
+    """4.5.0: the unattended start needs a docked robot, and the room goes
+    out with the map its score came from."""
+
+    @staticmethod
+    def _data(phase, cycle):
+        from types import SimpleNamespace
+
+        coordinator = SimpleNamespace(data={"ro-currentstate": {
+            "cleanMissionStatus": {"phase": phase, "cycle": cycle},
+        }})
+        return SimpleNamespace(prime_status_coordinator=coordinator)
+
+    def test_docked_means_charge_with_no_mission(self):
+        from custom_components.roomba_plus.dirt_threshold_manager import prime_robot_docked
+
+        assert prime_robot_docked(self._data("charge", "none")) is True
+        assert prime_robot_docked(self._data("charge", "clean")) is False, "a mid-mission recharge"
+        assert prime_robot_docked(self._data("stop", "none")) is False, "stopped in a room"
+        assert prime_robot_docked(self._data("run", "clean")) is False
+        from types import SimpleNamespace
+
+        assert prime_robot_docked(SimpleNamespace(prime_status_coordinator=None)) is False
+
+    def test_a_room_carries_its_map(self):
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.dirt_threshold_manager import qualified_room_id
+
+        assert qualified_room_id(SimpleNamespace(prime_clean_scores_map_id="M1"), "3") == "M1/3"
+        assert qualified_room_id(SimpleNamespace(prime_clean_scores_map_id="M1"), "M2/3") == "M2/3"
+        assert qualified_room_id(SimpleNamespace(prime_clean_scores_map_id=None), "3") == "3"

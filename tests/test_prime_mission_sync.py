@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tests.conftest import hass_mock
+from tests.conftest import close_entry_tasks, hass_mock
 
 
 def _entry(**kwargs):
@@ -570,6 +570,9 @@ class TestLongTermStatisticsAreBackfilled:
         store.async_save = AsyncMock()
         store.async_backfill_statistics = AsyncMock()
         entry.runtime_data.mission_store = store
+        from tests.conftest import close_entry_tasks
+
+        close_entry_tasks(entry)
         return entry, store
 
     def _hist(self, mission_id, day):
@@ -594,7 +597,13 @@ class TestLongTermStatisticsAreBackfilled:
 
         await async_sync_prime_missions(entry)
 
-        entry.runtime_data.hass_ref.async_create_task.assert_called()
+        # On the entry (4.5.0): an unload waits for it rather than leaving
+        # it running against an entry that is gone.
+        entry.async_create_task.assert_called()
+        assert entry.async_create_task.call_args.kwargs["name"] == (
+            "roomba_plus_prime_statistics_backfill_after_sync"
+        )
+        entry.runtime_data.hass_ref.async_create_task.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_backfill_when_nothing_was_added(self):
@@ -608,7 +617,7 @@ class TestLongTermStatisticsAreBackfilled:
 
         await async_sync_prime_missions(entry)
 
-        entry.runtime_data.hass_ref.async_create_task.assert_not_called()
+        entry.async_create_task.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_failing_backfill_does_not_lose_the_records(self):
@@ -619,10 +628,28 @@ class TestLongTermStatisticsAreBackfilled:
         )
 
         entry, store = self._entry([self._hist("a", 27)])
-        entry.runtime_data.hass_ref.async_create_task.side_effect = RuntimeError("no")
+        entry.async_create_task.side_effect = RuntimeError("no")
 
         assert await async_sync_prime_missions(entry) == 1
         store.async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_backfill_that_never_became_a_task_is_closed(self):
+        """Otherwise it ends as "coroutine ... was never awaited"."""
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus.prime_mission_sync import (
+            async_sync_prime_missions,
+        )
+
+        entry, store = self._entry([self._hist("a", 27)])
+        backfill = MagicMock()
+        store.async_backfill_statistics = MagicMock(return_value=backfill)
+        entry.async_create_task.side_effect = RuntimeError("no")
+
+        await async_sync_prime_missions(entry)
+
+        backfill.close.assert_called_once()
 
 
 class TestPartsRefreshOnMissionEnd:
@@ -648,6 +675,7 @@ class TestPartsRefreshOnMissionEnd:
         entry = MagicMock()
         parts = MagicMock(async_request_refresh=AsyncMock())
         entry.runtime_data.prime_parts_coordinator = parts
+        close_entry_tasks(entry)
         coordinator.config_entry = entry
         coordinator.entry = entry
         return coordinator, parts, report
@@ -669,7 +697,7 @@ class TestPartsRefreshOnMissionEnd:
 
         coordinator._request_parts_refresh_on_mission_end(report)
 
-        coordinator.hass.async_create_task.assert_called_once()
+        coordinator.entry.async_create_task.assert_called_once()
 
     def test_a_fin_entry_in_the_general_list_triggers_a_refresh(self):
         """The delta can carry it either way depending on how it
@@ -680,7 +708,7 @@ class TestPartsRefreshOnMissionEnd:
 
         coordinator._request_parts_refresh_on_mission_end(report)
 
-        coordinator.hass.async_create_task.assert_called_once()
+        coordinator.entry.async_create_task.assert_called_once()
 
     def test_a_mid_mission_event_does_not_trigger_a_refresh(self):
         """Every travel and room event would otherwise mean a cloud
@@ -691,7 +719,7 @@ class TestPartsRefreshOnMissionEnd:
 
         coordinator._request_parts_refresh_on_mission_end(report)
 
-        coordinator.hass.async_create_task.assert_not_called()
+        coordinator.entry.async_create_task.assert_not_called()
 
     def test_evac_alone_does_not_trigger_a_refresh(self):
         """A self-emptying base can empty MID-mission and the robot
@@ -704,7 +732,7 @@ class TestPartsRefreshOnMissionEnd:
 
         coordinator._request_parts_refresh_on_mission_end(report)
 
-        coordinator.hass.async_create_task.assert_not_called()
+        coordinator.entry.async_create_task.assert_not_called()
 
     def test_the_field_names_match_the_library_model(self):
         """A first draft read `report.events`, which does not exist. The
@@ -738,7 +766,7 @@ class TestPartsRefreshOnMissionEnd:
 
         coordinator._request_parts_refresh_on_mission_end(report)
 
-        coordinator.hass.async_create_task.assert_not_called()
+        coordinator.entry.async_create_task.assert_not_called()
 
 
 class TestRoomDataFromTheRealTimeline:
@@ -1642,11 +1670,13 @@ class TestPrimeMissionCompletedHasTheClassicShape:
                        timestamp=datetime(2026, 9, 20, 9, tzinfo=timezone.utc)),
             ]
         )
-        # hass_mock closes the backfill coroutine the sync schedules; a
-        # bare MagicMock leaves it unawaited, and pytest then reports it
-        # against whichever test happens to be running.
-        from tests.conftest import hass_mock
+        # The backfill the sync schedules goes onto the entry (4.5.0);
+        # close_entry_tasks closes it. A bare MagicMock leaves it
+        # unawaited, and pytest then reports it against whichever test
+        # happens to be running.
+        from tests.conftest import close_entry_tasks, hass_mock
 
+        close_entry_tasks(entry)
         entry.runtime_data.hass_ref = hass_mock()
         bus = entry.runtime_data.hass_ref.bus
 

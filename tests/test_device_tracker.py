@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.conftest import robot_mock, hass_mock
+from tests.conftest import entry_mock, robot_mock, hass_mock
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -382,6 +382,7 @@ class TestTheRoomNameCacheRefillsWhenEmpty:
         tracker = RoombaDeviceTracker.__new__(RoombaDeviceTracker)
         tracker._prime_rooms = dict(cached)
         tracker.hass = hass_mock()
+        tracker._config_entry = entry_mock()
         tracker.async_write_ha_state = MagicMock()
         return tracker
 
@@ -391,7 +392,8 @@ class TestTheRoomNameCacheRefillsWhenEmpty:
         tracker._handle_prime_update()
 
         tracker.async_write_ha_state.assert_called_once()
-        tracker.hass.async_create_task.assert_called_once()
+        # On the entry since 4.5.0.
+        tracker._config_entry.async_create_task.assert_called_once()
 
     def test_a_filled_cache_does_not(self):
         """A robot with named rooms must not refetch the list on every

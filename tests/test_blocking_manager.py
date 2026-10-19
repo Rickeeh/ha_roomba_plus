@@ -5,6 +5,8 @@ Async paths (queue, timeout) are tested with AsyncMock where needed.
 """
 import asyncio
 import pytest
+
+from tests.conftest import EntryTasksViaHass, entry_tasks_via_hass
 import types
 import tests.conftest  # noqa: F401
 
@@ -76,7 +78,7 @@ class _FakeHass:
 
 
 def _make_entry(sensors: list[str], behavior: str = "abort", timeout: int = 30):
-    class _Entry:
+    class _Entry(EntryTasksViaHass):
         options = {
             CONF_BLOCKING_SENSORS: sensors,
             CONF_BLOCKING_BEHAVIOR: behavior,
@@ -116,7 +118,7 @@ def _make_prime_entry(sensors: list[str], behavior: str = "abort", timeout: int 
     Prime config entry (data.roomba is None)."""
     from unittest.mock import AsyncMock
 
-    class _Entry:
+    class _Entry(EntryTasksViaHass):
         options = {
             CONF_BLOCKING_SENSORS: sensors,
             CONF_BLOCKING_BEHAVIOR: behavior,
@@ -515,6 +517,7 @@ def _bm(hass, **runtime):
     entry.entry_id = "e1"
     for k, v in runtime.items():
         setattr(entry.runtime_data, k, v)
+    entry_tasks_via_hass(entry, hass)
     return BlockingManager(hass, entry)
 
 

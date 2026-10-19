@@ -2693,9 +2693,7 @@ class TestPrimeMapImageWatchRetry:
 
         entity._prime_robot.watch_live_map = fake_watch_live_map
 
-        with patch("asyncio.sleep", new=AsyncMock()), patch(
-            "custom_components.roomba_plus.image.async_get_clientsession", return_value=MagicMock()
-        ):
+        with patch("asyncio.sleep", new=AsyncMock()):
             with pytest.raises(asyncio.CancelledError):
                 await entity._async_watch_live_map()
 
@@ -2728,9 +2726,7 @@ class TestPrimeMapImageWatchRetry:
         async def _fake_sleep(seconds):
             sleep_calls.append(seconds)
 
-        with patch("asyncio.sleep", new=_fake_sleep), patch(
-            "custom_components.roomba_plus.image.async_get_clientsession", return_value=MagicMock()
-        ):
+        with patch("asyncio.sleep", new=_fake_sleep):
             with pytest.raises(asyncio.CancelledError):
                 await entity._async_watch_live_map()
 
@@ -3559,17 +3555,51 @@ class TestUnnamedZonesShowTheirNumber:
 # (with weekday and hour of stuck events), outline and room segmentation.
 # Built through the real constructor, which no test used before.
 
-def _entry(**runtime):
+def _drive(coro):
+    """Run a coroutine that never really suspends (its awaits are mocks)."""
+    for _ in range(1000):
+        try:
+            coro.send(None)
+        except StopIteration as stop:
+            return stop.value
+    raise AssertionError("the coroutine kept suspending")
+
+
+def _wire_async_recompute(seg):
+    """The off-loop recompute (4.5.0) answers as the mock's maybe_recompute."""
+    if isinstance(seg, MagicMock) and "async_maybe_recompute" not in vars(seg) \
+            and "async_maybe_recompute" not in seg._mock_children:
+        seg.async_maybe_recompute = AsyncMock(
+            side_effect=lambda _hass, cells, **kw: seg.maybe_recompute(cells, **kw)
+        )
+
+
+def _drive_segmentation(scheduled):
+    """Run the room segmentation a mission end scheduled (4.5.0), as the
+    event loop would, and take it off the list."""
+    for coro in list(scheduled):
+        if getattr(coro, "__qualname__", "").endswith("_async_segment_rooms_after_mission"):
+            scheduled.remove(coro)
+            _drive(coro)
+
+
+def _entry(drive=True, **runtime):
+    """`drive`: run the room segmentation the mission end schedules (4.5.0),
+    as the event loop would; other scheduled coroutines are closed."""
     entry = MagicMock()
     entry.options = {}
     scheduled = []
 
     def _task(_hass, coro, *a, **k):
-        scheduled.append(getattr(coro, "__qualname__", repr(coro)))
-        if hasattr(coro, "close"):
+        name = getattr(coro, "__qualname__", repr(coro))
+        scheduled.append(name)
+        if drive and name.endswith("_async_segment_rooms_after_mission"):
+            _drive(coro)
+        elif hasattr(coro, "close"):
             coro.close()
 
     entry.async_create_task = _task
+    _wire_async_recompute(runtime.get("room_seg_store"))
     for k in ("geometry_store", "grid_store", "outline_store", "room_seg_store",
               "freeze_snapshot_store", "mission_store"):
         setattr(entry.runtime_data, k, runtime.get(k))
@@ -3677,9 +3707,16 @@ def _prime_map(hass, monkeypatch, streams, *, status=200, decode=b"PNG"):
     m.hass = hass
     m.async_write_ha_state = MagicMock()
     m._async_save_png = MagicMock()
-    session = MagicMock()
-    session.get = lambda url: _Resp(status)
-    monkeypatch.setattr(img, "async_get_clientsession", lambda _h: session)
+
+    # The download goes through the library since 4.5.0.
+    async def _download(url):
+        if status != 200:
+            from roombapy_prime import RestHTTPError
+
+            raise RestHTTPError(f"HTTP {status}", status, "<error/>")
+        return b"RAW"
+
+    robot.download_map_bundle = AsyncMock(side_effect=_download)
     from roombapy_prime.models import livemap
 
     monkeypatch.setattr(livemap, "decode_rawmap_to_png", lambda raw: decode)
@@ -3845,6 +3882,27 @@ def _rooms_attrs(hass, *, aligned=True, rendered=True, polygons=None, aligner=Tr
     return r.extra_state_attributes
 
 
+class TestMapAttributesStayOutOfTheRecorder:
+    """4.5.0: room outlines, calibration points, zones, doors and furniture
+    were written to the recorder with every image update."""
+
+    def test_the_rooms_map_records_only_its_small_flags(self, hass):
+        attrs = _rooms_attrs(hass)
+        assert {"rooms", "calibration_points", "door_markers"} <= set(attrs)
+        recorded = set(attrs) - img.RoombaRoomsImage._unrecorded_attributes
+        assert recorded == {"alignment_pending"}
+
+    @pytest.mark.parametrize("cls", ["RoombaMapImage", "RoombaRoomsImage", "PrimeRoomsImage"])
+    def test_every_map_with_rooms_leaves_them_out(self, cls):
+        assert getattr(img, cls)._unrecorded_attributes == img.MAP_ATTRIBUTES_NOT_RECORDED
+
+    def test_home_assistant_takes_the_set(self, hass):
+        """The name Home Assistant reads; a typo would be silently ignored."""
+        from homeassistant.helpers.entity import Entity
+
+        assert "_unrecorded_attributes" in vars(Entity)
+
+
 class TestMissionEnd:
 
     def test_no_path_saves_nothing_but_clears_the_checkpoint(self):
@@ -3901,22 +3959,56 @@ class TestGridAtMissionEnd:
         assert args[1] == [(100.0, 0.0)] and kwargs["stuck_wh"] is not None
         grid.record_processed_nmssn.assert_called_once_with(7)
 
-    def test_new_unconfirmed_rooms_raise_the_zone_issue(self, monkeypatch):
+    def test_the_segmentation_is_scheduled_not_run_in_the_mission_end(self, monkeypatch):
+        """4.5.0: it blocked the event loop for up to 1.5 s."""
         grid = MagicMock(cells={})
         seg = MagicMock()
         seg.unconfirmed_rooms = []
-        def _recompute(*_a, **_k):
-            seg.unconfirmed_rooms = ["r1"]
-            return True
-        seg.maybe_recompute = _recompute
         outline = MagicMock()
-        entry, scheduled = _entry(grid_store=grid, room_seg_store=seg, outline_store=outline)
+        entry, scheduled = _entry(drive=False, grid_store=grid, room_seg_store=seg, outline_store=outline)
         m = _map(MapCapability.EPHEMERAL, entry, renderer=MagicMock(has_data=False, _breaks=[]))
         m._mission_points = _path(5)
         monkeypatch.setattr(img, "_anchored_mission_points", lambda pts, *_a, **_k: pts)
         m._handle_mission_end("charge")
         outline.recompute_sync.assert_called_once()
+        seg.maybe_recompute.assert_not_called()
+        seg.async_maybe_recompute.assert_not_called()
+        assert any("_async_segment_rooms_after_mission" in s for s in scheduled)
+
+    @pytest.mark.asyncio
+    async def test_new_unconfirmed_rooms_raise_the_zone_issue(self):
+        seg = MagicMock()
+        seg.unconfirmed_rooms = []
+
+        async def _recompute(*_a, **_k):
+            seg.unconfirmed_rooms = ["r1"]
+            return True
+
+        seg.async_maybe_recompute = _recompute
+        entry, scheduled = _entry(grid_store=MagicMock(cells={}), room_seg_store=seg)
+        m = _map(MapCapability.EPHEMERAL, entry, renderer=MagicMock(has_data=False, _breaks=[]))
+        await m._async_segment_rooms_after_mission(
+            entry.runtime_data, unconfirmed_before=0, driven_before=set(),
+            missions_seen=3, paths=[], learned_paths=[],
+        )
         assert any("trigger_zone_issue" in s for s in scheduled)
+        assert any("async_save" in s for s in scheduled)
+        # A new picture once the areas are back (review, 4.5.0).
+        assert any("coverage_signal" in s for s in scheduled)
+        assert m._cache is None
+
+    @pytest.mark.asyncio
+    async def test_a_failed_segmentation_leaves_the_rooms_alone(self):
+        seg = MagicMock()
+        seg.unconfirmed_rooms = []
+        seg.async_maybe_recompute = AsyncMock(side_effect=ValueError("bad grid"))
+        entry, scheduled = _entry(grid_store=MagicMock(cells={}), room_seg_store=seg)
+        m = _map(MapCapability.EPHEMERAL, entry, renderer=MagicMock(has_data=False, _breaks=[]))
+        await m._async_segment_rooms_after_mission(
+            entry.runtime_data, unconfirmed_before=0, driven_before=set(),
+            missions_seen=3, paths=[], learned_paths=[],
+        )
+        assert scheduled == []
 
 
 class TestPrimeLiveMap:
@@ -3941,6 +4033,25 @@ class TestPrimeLiveMap:
         assert m._png_bytes == b"PNG"
         m._async_save_png.assert_called_once()
         assert m._live_map_stats()["decode_ok"] == 1
+        # Through the library since 4.5.0, not a GET of our own.
+        m._prime_robot.download_map_bundle.assert_awaited_once_with("https://x/raw")
+
+    @pytest.mark.asyncio
+    async def test_a_timeout_is_a_failed_download_not_a_decode_error(self, hass, monkeypatch, caplog):
+        """Review, 4.5.0: a timeout fell into the decode handler and was
+        logged as a decode failure with the previous frame's status."""
+        from roombapy_prime import RestTimeoutError
+
+        msg = MapUpdateMessage(livemap_url=None, livemap_url_raw="https://x/raw", timestamp=0)
+        m, _e = _prime_map(hass, monkeypatch, [[msg], asyncio.CancelledError()])
+        m._prime_robot.download_map_bundle = AsyncMock(side_effect=RestTimeoutError("slow"))
+        m._png_bytes = b"OLD"
+        with pytest.raises(asyncio.CancelledError):
+            await m._async_watch_live_map()
+        stats = m._live_map_stats()
+        assert stats["download_failed"] == 1 and stats["decode_failed"] == 0
+        assert m._png_bytes == b"OLD"
+        assert "failed to decode" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_a_failed_download_keeps_the_previous_image(self, hass, monkeypatch):
@@ -5657,9 +5768,10 @@ class TestAMissionThatStartedOffTheDockIsNotLearnedFrom:
         scheduled = []
         with patch.object(
             entry, "async_create_task",
-            side_effect=lambda _h, coro, *_a: scheduled.append(coro) or MagicMock(),
+            side_effect=lambda _h, coro, *_a, **_k: scheduled.append(coro) or MagicMock(),
         ):
             route._handle_mission_end()
+            _drive_segmentation(scheduled)
         for coro in scheduled:
             coro.close()
         return entry
@@ -5714,9 +5826,10 @@ class TestAMissionThatStartedOffTheDockIsNotLearnedFrom:
         scheduled = []
         with patch.object(
             entry, "async_create_task",
-            side_effect=lambda _h, coro, *_a: scheduled.append(coro) or MagicMock(),
+            side_effect=lambda _h, coro, *_a, **_k: scheduled.append(coro) or MagicMock(),
         ):
             route._handle_mission_end()
+            _drive_segmentation(scheduled)
         for coro in scheduled:
             coro.close()
         kwargs = entry.runtime_data.trajectory_store.record_mission.call_args.kwargs
@@ -6199,6 +6312,7 @@ class TestARobotCarriedBackIsNotDrift:
         entry.runtime_data.room_seg_store.unconfirmed_rooms = []
         entry.runtime_data.room_seg_store.driven_doors = []
         entry.runtime_data.room_seg_store.maybe_recompute.return_value = False
+        _wire_async_recompute(entry.runtime_data.room_seg_store)
         entry.runtime_data.outline_store = None
         entry.runtime_data.geometry_store = None
         entry.runtime_data.freeze_snapshot_store = None
@@ -6224,9 +6338,10 @@ class TestARobotCarriedBackIsNotDrift:
         scheduled = []
         with patch.object(
             entry, "async_create_task",
-            side_effect=lambda _h, coro, *_a: scheduled.append(coro) or MagicMock(),
+            side_effect=lambda _h, coro, *_a, **_k: scheduled.append(coro) or MagicMock(),
         ):
             route._handle_mission_end()
+            _drive_segmentation(scheduled)
         for coro in scheduled:
             coro.close()
         return entry

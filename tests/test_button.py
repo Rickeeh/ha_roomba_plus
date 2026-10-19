@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
-from tests.conftest import robot_mock
+from tests.conftest import entry_tasks_via_hass, robot_mock
 
 from custom_components.roomba_plus.button import FavoriteButton, ZoneCleanButton
 from custom_components.roomba_plus.room_seg_store import RoomSegStore, SegRoom
@@ -773,13 +773,16 @@ class TestClassicButtonSetup:
         roomba.master_state = {"state": {"reported": state}}
         entry = MagicMock()
         entry.options = {}
+        # The favourite check runs on the entry (4.5.0); run what it hands.
+        entry_tasks_via_hass(entry, hass)
         data = entry.runtime_data
         data.connection_type = ConnectionType.LOCAL_PUSH
         data.roomba, data.blid, data.has_cloud = roomba, "B", True
         data.cloud_coordinator.data = {"favorites": [
             {"favorite_id": "f1", "name": "Mine", "commanddefs": []},
             {"favorite_id": "f2", "name": "Other robot's", "commanddefs": []}]}
-        monkeypatch.setattr(button_prime, "_raw_favorite_is_for", lambda fav, _b: fav["favorite_id"] == "f1")
+        # Imported by button.py from prime_favorites (4.5.0).
+        monkeypatch.setattr(btn, "_raw_favorite_is_for", lambda fav, _b: fav["favorite_id"] == "f1")
         monkeypatch.setattr(btn, "has_smart_map", lambda _s: True, raising=False)
         from custom_components.roomba_plus import const, repairs
 

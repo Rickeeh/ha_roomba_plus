@@ -195,7 +195,7 @@ class TestUidsAndWording:
         lines = _items(todo)["check.bin"].description.split("\n\n")
         assert lines[0] == texts["en"]["clean_bin"]["why"]
         assert lines[1] == "The bin is full."
-        assert lines[2].startswith("[How to do it](/api/roomba_plus/care/test_entry/clean_bin?")
+        assert lines[2].startswith('<a href="/api/roomba_plus/care/test_entry/clean_bin?')
 
     def test_our_care_guide_comes_first_signed_and_relative(self):
         from custom_components.roomba_plus.care_guides import _DATA_KEY, CareGuides
@@ -206,10 +206,22 @@ class TestUidsAndWording:
         ])
         todo.hass.data = {_DATA_KEY: CareGuides(b"k" * 32, {}, {})}
         text = _items(todo)["filter_maintenance"].description
+        # HTML with a target: a Markdown link to Home Assistant's own host
+        # was taken over by the frontend's router and opened the overview.
         assert text.startswith(
-            "[How to do it](/api/roomba_plus/care/test_entry/replace_filter?lang=en&exp="
+            '<a href="/api/roomba_plus/care/test_entry/replace_filter?lang=en&amp;exp='
         ), "no texts loaded: no sentence before it"
-        assert "&sig=" in text and text.endswith(" · [iRobot's guide](https://g)")
+        assert '&amp;sig=' in text and '" target="_blank">How to do it</a>' in text
+        assert text.endswith(" · [iRobot's guide](https://g)"), "another host: Markdown"
+
+    def test_the_calendar_keeps_the_markdown_link(self):
+        """The calendar shows a description as plain text; HTML there
+        would only be noise."""
+        from custom_components.roomba_plus.calendar import RoombaMaintenanceCalendar
+        from custom_components.roomba_plus.todo import RoombaMaintenanceTodo
+
+        assert RoombaMaintenanceTodo._LINKS_AS_HTML is True
+        assert RoombaMaintenanceCalendar._LINKS_AS_HTML is False
 
     def test_a_due_date(self):
         items = _items(_make_todo([

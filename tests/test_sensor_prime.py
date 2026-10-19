@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.roomba_plus.const import ERROR_CODE_LABELS
 from custom_components.roomba_plus.models import ConnectionType
 from custom_components.roomba_plus.sensor_prime import (
     PrimeBatterySensor,
@@ -599,8 +598,7 @@ class TestPrimeSerialNumberSensor:
 
 
 class TestPrimeErrorSensor:
-    """NEW (this session) -- reuses Classic's ERROR_CODE_LABELS and its
-    translation_key, and critically INHERITS Classic's hard-won
+    """NEW (this session) -- reuses Classic's translation_key, and critically INHERITS Classic's hard-won
     stale-error suppression: cleanMissionStatus.error persists across
     missions (the firmware never resets it to 0 on docking), so a naive
     sensor would show a long-finished error forever while charging."""
@@ -618,7 +616,7 @@ class TestPrimeErrorSensor:
         """The CODE, not a label. APK analysis found no error-code table
         in the app at all -- for either generation -- and a field
         capture contradicts the Classic reading outright: error 46 on a
-        physically stuck robot at 55% battery, which ERROR_CODE_LABELS
+        physically stuck robot at 55% battery, which the Classic label
         calls "Low battery".
 
         Same reasoning as consumable parts 202/212: a wrong label gets
@@ -627,15 +625,27 @@ class TestPrimeErrorSensor:
 
         assert sensor.native_value == "Error 46"
 
-    def test_the_classic_reading_survives_as_a_flagged_attribute(self):
-        """Thrown away would be wrong too -- it is probably right more
-        often than not. It just must not be asserted, and the attribute
-        name has to say so."""
-        sensor = self._entity(cycle="clean", phase="run", error=46)
+    def test_the_words_are_the_prime_apps(self):
+        """4.5.0: `classic_label_unconfirmed` is gone with the table it
+        came from; the Prime app's own text is the attribute, with the
+        robot's name in place of `@val`."""
+        sensor = self._entity(cycle="clean", phase="run", error=22)
+        sensor._config_entry.title = "Robbie"
 
         attrs = sensor.extra_state_attributes
-        assert attrs["error_code"] == 46
-        assert attrs["classic_label_unconfirmed"] == ERROR_CODE_LABELS[46]
+        assert attrs["error_code"] == 22
+        assert "classic_label_unconfirmed" not in attrs
+        assert attrs["error_title"].startswith("Robbie")
+        assert "@val" not in attrs["error_title"]
+        assert attrs["error_text_source"] == "prime_app"
+
+    def test_irobots_article_for_the_code(self):
+        """The Prime catalogue files charging errors under the full code."""
+        sensor = self._entity(cycle="clean", phase="stuck", error=104)
+        sensor._config_entry.runtime_data.help_catalogue = {
+            "chargingerror104": "https://help.example/10604.html",
+        }
+        assert sensor.extra_state_attributes["help_url"] == "https://help.example/10604.html"
 
     def test_an_unknown_code_still_reports_something_useful(self):
         """234-style values that map to nothing used to render as
@@ -1734,8 +1744,8 @@ class TestTheBlockingReportDoesNotBlock:
             get_localized_error_entry,
         )
 
-        assert get_localized_error_entry(287, "en").get("label")
-        assert get_localized_error_entry(290, "de").get("label")
+        assert get_localized_error_entry(287, "en", prime=True).get("label")
+        assert get_localized_error_entry(290, "de", prime=True).get("label")
 
     def test_the_message_works_for_a_readiness_refusal_too(self):
         """`error_title` only fills when `status.error` is set. A

@@ -903,6 +903,23 @@ class TestErrorRecurrence:
         assert data["error_code"] == 15
 
     @pytest.mark.asyncio
+    async def test_a_classic_robot_gets_its_apps_words_and_irobots_article(self):
+        """4.5.0b2: the label is the Classic app's for a Classic entry,
+        and the event carries iRobot's article for the code."""
+        from custom_components.roomba_plus.repairs import async_check_error_recurrence
+        ms    = self._ms_with_errors(15, 3)
+        entry = self._entry(ms)
+        entry.runtime_data.prime_robot = None
+        entry.runtime_data.roomba_reported_state.return_value = {"sku": "R980020"}
+        entry.runtime_data.help_catalogue = {"error15": "https://help.example/5743.html"}
+        hass  = MagicMock()
+        hass.config.language = "en"
+        await async_check_error_recurrence(hass, entry)
+        _event_type, data = hass.bus.async_fire.call_args[0]
+        assert data["label"] == "Robot rebooted"
+        assert data["help_url"] == "https://help.example/5743.html"
+
+    @pytest.mark.asyncio
     async def test_most_frequent_code_chosen(self):
         from custom_components.roomba_plus.repairs import async_check_error_recurrence
         from custom_components.roomba_plus.mission_store import MissionStore
@@ -2085,6 +2102,18 @@ class TestMakeMapUpdatingCallback:
             }
         }
 
+    @pytest.fixture(autouse=True)
+    def _patch_slot(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        from custom_components.roomba_plus import repairs
+
+        self._check = MagicMock()
+        monkeypatch.setattr(repairs, "async_check_map_retrain_workflow", self._check)
+
+    def _patched_check(self):
+        return self._check
+
     def test_wire_67_means_the_map_is_updating(self):
         """CORRECTED: notReady is a scalar index, not a bitmask.
 
@@ -2097,6 +2126,7 @@ class TestMakeMapUpdatingCallback:
         unrelated states told the user to wait for a map update.
         """
         from custom_components.roomba_plus.callbacks import make_map_updating_callback
+        check = self._patched_check()
 
         hass = MagicMock()
         entry = MagicMock()
@@ -2104,17 +2134,19 @@ class TestMakeMapUpdatingCallback:
 
         cb(self._msg(67))
 
-        assert hass.loop.call_soon_threadsafe.call_count == 1
-        args = hass.loop.call_soon_threadsafe.call_args[0]
-        assert args[1] is hass
-        assert args[2] is entry
-        assert args[3] is True
+        # Called directly since 4.5.0 (the callback runs on the loop).
+        assert check.call_count == 1
+        args = check.call_args[0]
+        assert args[0] is hass
+        assert args[1] is entry
+        assert args[2] is True
 
     def test_states_that_merely_share_bit_64_do_not_count(self):
         """The whole point of the correction. Every one of these used to
         raise "the robot is updating its Smart Map" at a user who could
         do nothing about it."""
         from custom_components.roomba_plus.callbacks import make_map_updating_callback
+        check = self._patched_check()
 
         for wire, meaning in ((64, "FleetDisabled"), (65, "SubscriptionExpired"),
                               (66, "DeadNavigationBoard"), (69, "TankLeaking")):
@@ -2123,11 +2155,12 @@ class TestMakeMapUpdatingCallback:
 
             cb(self._msg(wire))
 
-            args = hass.loop.call_soon_threadsafe.call_args[0]
-            assert args[3] is False, f"wire {wire} ({meaning}) read as map-updating"
+            args = check.call_args[0]
+            assert args[2] is False, f"wire {wire} ({meaning}) read as map-updating"
 
     def test_other_bits_without_64_means_not_updating(self):
         from custom_components.roomba_plus.callbacks import make_map_updating_callback
+        check = self._patched_check()
 
         hass = MagicMock()
         entry = MagicMock()
@@ -2135,11 +2168,12 @@ class TestMakeMapUpdatingCallback:
 
         cb(self._msg(34))  # "Not ready" but NOT the map-updating bit
 
-        args = hass.loop.call_soon_threadsafe.call_args[0]
-        assert args[3] is False
+        args = check.call_args[0]
+        assert args[2] is False
 
     def test_no_clean_mission_status_is_noop(self):
         from custom_components.roomba_plus.callbacks import make_map_updating_callback
+        check = self._patched_check()
 
         hass = MagicMock()
         entry = MagicMock()
@@ -2147,7 +2181,7 @@ class TestMakeMapUpdatingCallback:
 
         cb({"state": {"reported": {}}})
 
-        hass.loop.call_soon_threadsafe.assert_not_called()
+        check.assert_not_called()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -2893,8 +2927,10 @@ class TestDecodeNotReady:
 
         reachable = set(READINESS_WIRE_TO_INDEX.values())
         # 20 (Lid open) and 25 (Bumper offline) became reachable once
-        # lewis' own table was read -- ruby does not carry them.
-        for unreachable in (48, 53, 36, 24, 72):
+        # lewis' own table was read -- ruby does not carry them. 36
+        # (Charge timeout) once the Classic app's refusal table was (4.5.0):
+        # wire 38.
+        for unreachable in (48, 53, 24, 72):
             assert unreachable not in reachable
 
     def test_a_non_integer_is_rejected(self):
@@ -3574,15 +3610,36 @@ class TestMaintenanceRepairFlow:
         item = MaintenanceItem("replace.filter", "replace", "filter", guide_id="replace_filter")
         rp.async_sync_maintenance_issues(hass, mine, [item], ("bin", 14))
         issue = _issue(hass, f"maintenance_overdue_{mine.entry_id}_replace.filter")
+        # HTML with a target: the repairs dialog renders Markdown, and a
+        # Markdown link to the own host went to the overview.
+        assert issue.translation_placeholders["guide"].endswith('" target="_blank">Replace the filter</a>')
         assert issue.translation_placeholders["guide"].startswith(
-            f"[Replace the filter](/api/roomba_plus/care/{mine.entry_id}/replace_filter?"
+            f'<a href="/api/roomba_plus/care/{mine.entry_id}/replace_filter?'
         )
         error = _issue(hass, f"maintenance_error_care_{mine.entry_id}_bin")
         assert error.translation_placeholders["code"] == "14"
         assert error.translation_placeholders["task"] == "clean_bin", "no text: the key"
+        assert error.learn_more_url is None, "no catalogue, no link"
         rp.async_sync_maintenance_issues(hass, mine, [], None)
         assert _issue(hass, f"maintenance_overdue_{mine.entry_id}_replace.filter") is None
         assert _issue(hass, other) is not None
+
+    async def test_learn_more_is_irobots_article_for_the_code(self, hass):
+        """4.5.0b2: our guide says how to clean the part, iRobot's article
+        (from the help catalogue, for the robot's model) what the error
+        means. A refusal reason has no code and no article."""
+        from types import SimpleNamespace
+
+        mine = MockConfigEntry(domain=DOMAIN, title="Robo")
+        mine.add_to_hass(hass)
+        mine.runtime_data = SimpleNamespace(
+            prime_robot=None, help_catalogue={"error14": "https://help.example/8966.html"},
+        )
+        rp.async_sync_maintenance_issues(hass, mine, [], ("bin", 14))
+        issue = _issue(hass, f"maintenance_error_care_{mine.entry_id}_bin")
+        assert issue.learn_more_url == "https://help.example/8966.html"
+        rp.async_sync_maintenance_issues(hass, mine, [], ("bin", "bin_full"))
+        assert _issue(hass, f"maintenance_error_care_{mine.entry_id}_bin").learn_more_url is None
 
 
 class TestTheExceptionsBlueprint:

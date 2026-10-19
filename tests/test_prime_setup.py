@@ -42,6 +42,14 @@ def _make_hass_and_entry() -> tuple[MagicMock, MagicMock]:
     hass.config.country = "US"
     hass.config_entries.async_forward_entry_setups = AsyncMock()
     config_entry = entry_mock()
+    # Demand cleaning off, as on a new entry: the mock answers every
+    # `.get()` with a truthy MagicMock, which since 4.5.0 builds the Prime
+    # demand cleaning manager (its store needs a real hass).
+    _any_option = MagicMock()
+    config_entry.options = MagicMock()
+    config_entry.options.get.side_effect = (
+        lambda key, default=None: False if key == "demand_cleaning_enabled" else _any_option
+    )
     config_entry.data = {
         CONF_CONNECTION_TYPE: ConnectionType.CLOUD_ONLY.value,
         CONF_BLID: "BLID123",
@@ -570,9 +578,9 @@ class TestNothingWasFetchingTheTimeEstimates:
 
         # KNOWN, EACH WITH ITS REASON.
         #
-        #   CONF_CERT / DEFAULT_CERT        config keys kept for
-        #       migration compatibility; removing them would break
-        #       reading an old entry.
+        #   (CONF_CERT / DEFAULT_CERT were listed here "for migration
+        #   compatibility". Nothing read them, so an old entry's
+        #   "certificate" key is only an unused key; removed in 4.5.0.)
         #   ROOMBA_CLEAN_WIDTH_MM           a physical constant, used by
         #       coverage maths that is currently disabled.
         #   MAP_UPDATING_NOT_READY_BIT      documents a notReady bit.
@@ -595,8 +603,6 @@ class TestNothingWasFetchingTheTimeEstimates:
         # reads it.
         known = {
             "__init__.py:CONFIG_SCHEMA",
-            "const.py:CONF_CERT",
-            "const.py:DEFAULT_CERT",
             "const.py:ROOMBA_CLEAN_WIDTH_MM",
             "const.py:MAP_UPDATING_NOT_READY_BIT",
             "const.py:BIN_LABELS",
@@ -708,17 +714,17 @@ class TestDroppedFavouritesAreReported:
     """
 
     def test_the_filter_still_drops_what_it_should(self):
-        from custom_components.roomba_plus import button_prime
+        from custom_components.roomba_plus import prime_favorites  # the list moved there (4.5.0)
 
-        assert "is_deleted" in inspect_source(button_prime)
-        assert "is_hidden" in inspect_source(button_prime)
+        assert "is_deleted" in inspect_source(prime_favorites)
+        assert "is_hidden" in inspect_source(prime_favorites)
 
     def test_the_drop_is_logged_with_both_counts(self):
         """"7 of 7 not offered" is a next step; "no buttons" is a
         shrug."""
-        from custom_components.roomba_plus import button_prime
+        from custom_components.roomba_plus import prime_favorites  # the list moved there (4.5.0)
 
-        source = inspect_source(button_prime)
+        source = inspect_source(prime_favorites)
 
         assert "were not offered as buttons" in source
         assert "dropped," in source and "len(favorites or [])," in source
@@ -970,10 +976,15 @@ class TestClassicShapedReadsOnPrime:
         # Prime robot draws the e/i/j underside.
         # 37 since the guides read one context (care_guides.context_for)
         # instead of the form reading the SKU itself.
-        assert count == 37, (
-            f"{count} call sites, expected 37 — a new one needs a decision "
+        # 38 with the error recurrence check (4.5.0b2), for the SKU and the
+        # Clean Base that pick the Classic app's wording.
+        #
+        # DECIDED: read only when the entry has no Prime robot; a Prime
+        # entry takes the Prime app's text, which has no SKU variants.
+        assert count == 38, (
+            f"{count} call sites, expected 38 — a new one needs a decision "
             "about whether a Prime entry reaches it, and a Prime fallback "
-            "if it does. Four of the 37 are inside the fallback helpers "
+            "if it does. Four of the 38 are inside the fallback helpers "
             "themselves, which read Classic first on purpose."
         )
 
@@ -1132,3 +1143,59 @@ class TestRoomPreferencesReachTheDiagnostics:
 
         assert "last_operating_mode" in source
         assert "no rooms map entity" in source
+
+
+class TestDemandCleaningIsBuiltOnPrime:
+    """4.5.0: the Prime branch of the demand cleaning manager was written
+    and tested and never built, so nothing called it: `prime_clean_scores`
+    stayed empty, and with it the mission sensor's `unfinished_rooms`."""
+
+    async def _setup(self, options):
+        from roombapy_prime.models import RobotSerialInfo
+
+        hass, config_entry = _make_hass_and_entry()
+        config_entry.options = options
+        robot = MagicMock()
+        robot.connect = AsyncMock()
+        robot.get_named_shadow = AsyncMock(return_value=MagicMock(payload={"state": {"reported": {}}}))
+        robot.get_state = AsyncMock(return_value=MagicMock(payload={"state": {"reported": {}}}))
+        robot.get_household_id = AsyncMock(return_value="hh1")
+        robot.get_serial_number_data = AsyncMock(
+            return_value=RobotSerialInfo(serial_number="SN1", sku="G185020")
+        )
+
+        async def _no_updates():
+            return
+            yield  # pragma: no cover
+
+        robot.watch_named_shadows_updates = _no_updates
+        hass.data = {}
+        from custom_components.roomba_plus.dirt_threshold_manager import (
+            DirtThresholdManager,
+        )
+
+        import custom_components.roomba_plus as pkg
+
+        # A real options dict reaches the entity-registry cleanup, which
+        # this mocked hass has no registry for; it is not under test.
+        with patch.object(_CURRENT["account"], "prime_robot", new=AsyncMock(return_value=robot)), \
+                patch.object(pkg, "_remove_switched_off_optional_entities", new=MagicMock()), \
+                patch.object(DirtThresholdManager, "async_load", new=AsyncMock()) as load:
+            assert await _async_setup_entry_prime(hass, config_entry) is True
+        return config_entry.runtime_data, load
+
+    @pytest.mark.asyncio
+    async def test_switched_on_it_is_there(self):
+        from custom_components.roomba_plus.dirt_threshold_manager import (
+            DirtThresholdManager,
+        )
+
+        data, load = await self._setup({"demand_cleaning_enabled": True})
+        assert isinstance(data.dirt_threshold_manager, DirtThresholdManager)
+        load.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_switched_off_it_is_not(self):
+        data, load = await self._setup({})
+        assert data.dirt_threshold_manager is None
+        load.assert_not_awaited()

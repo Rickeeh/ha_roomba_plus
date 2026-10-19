@@ -19,7 +19,6 @@ import sys
 import os
 import tests.conftest
 from custom_components.roomba_plus.sensor import _area_cleaned_today
-from custom_components.roomba_plus.const import ERROR_CODE_LABELS
 from custom_components.roomba_plus.sensor import SENSORS
 from custom_components.roomba_plus.mission_store import MissionStore
 import time as _time_mod
@@ -1271,44 +1270,32 @@ from custom_components.roomba_plus.sensor import _phase_value
 
 
 class TestErrorCodeLabels:
-    def test_zero_is_none(self):
-        assert ERROR_CODE_LABELS[0] == "None"
+    """The English label a Classic error sensor reports (4.5.0): the
+    Classic app's, ours only for 101-121."""
 
-    def test_common_errors_present(self):
-        # CORRECTED: "Main brushes stuck" is the SKU override the app
-        # applies for the MARCONI prefix only; the default is "Debris
-        # extractors stuck". We were showing the special case to every
-        # robot, and this test pinned it.
-        assert ERROR_CODE_LABELS[2] == "Debris extractors stuck"
-        assert ERROR_CODE_LABELS[6] == "Stuck near a cliff"
-        assert ERROR_CODE_LABELS[14] == "Bin missing"
-        assert ERROR_CODE_LABELS[36] == "Bin full"
+    def _label(self, code, **kw):
+        from custom_components.roomba_plus.const import error_label
 
-    def test_battery_errors_present(self):
-        assert ERROR_CODE_LABELS[106] == "Battery too warm"
-        assert ERROR_CODE_LABELS[119] == "Charging timeout"
+        return error_label(code, prime=False, **kw)
 
-    def test_216_is_the_robots_own_bin(self):
-        """CORRECTED: the wrong part. Enum STARTING_ERROR_BIN_FULL, app
-        text "Bin full" -- the robot's bin, not the Clean Base bag. This
-        sent people to replace a bag when the bin needed emptying."""
-        assert ERROR_CODE_LABELS[216] == "Bin full"
+    def test_the_apps_wording(self):
+        assert self._label(2) == "Brushes need cleaning"
+        assert self._label(6) == "Stuck near a cliff"
+        assert self._label(14) == "Bin missing"
+        assert self._label(36) == "Bin and sensors need cleaning"
+        assert self._label(216) == "Bin full"
+        assert self._label(68) == "Camera issue"
 
-    def test_68_is_a_camera_fault_not_a_map_update(self):
-        """Neither the enum name (CAMERA_HARDWARE_FAILURE) nor the app's
-        text supports "Updating map", and the two agree with each other.
-        A user was told to wait while the robot reported a hardware
-        fault."""
-        assert ERROR_CODE_LABELS[68] == "Camera issue"
+    def test_a_69x_gets_its_own_brush(self):
+        assert self._label(2, sku="R694020") == "Main Brushes stuck"
 
-    def test_total_coverage(self):
-        assert len(ERROR_CODE_LABELS) >= 70
+    def test_battery_errors_are_ours(self):
+        assert self._label(106) == "Battery too warm"
+        assert self._label(119) == "Charging timeout"
 
-    def test_all_values_are_strings(self):
-        assert all(isinstance(v, str) for v in ERROR_CODE_LABELS.values())
-
-    def test_all_keys_are_ints(self):
-        assert all(isinstance(k, int) for k in ERROR_CODE_LABELS.keys())
+    def test_no_text_is_none(self):
+        assert self._label(99999) is None
+        assert self._label("x") is None
 
 
 # ── L3-FIX: consecutive_mission_anomalies sensor (v3.0.0) ────────────────────

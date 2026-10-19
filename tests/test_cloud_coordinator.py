@@ -548,14 +548,15 @@ class TestClassifyMissionResultError:
         from custom_components.roomba_plus.cloud_coordinator import classify_mission_result
         assert classify_mission_result({"done": "stuck", "pauseId": 224}) == "error_224"
 
-    def test_error_code_in_error_catalogue(self):
-        """Every error_{code} result should map to a known ERROR_CATALOGUE entry."""
+    def test_error_code_has_a_text(self):
+        """Every error_{code} result should have a text for a Classic
+        robot (the Classic cloud's history; 4.5.0: the Classic app's)."""
         from custom_components.roomba_plus.cloud_coordinator import classify_mission_result
-        from custom_components.roomba_plus.const import ERROR_CATALOGUE
+        from custom_components.roomba_plus.const import get_localized_error_entry
         for code in (1, 2, 4, 5, 6, 9, 17, 18, 32, 36, 42, 224):
             result = classify_mission_result({"done": "stuck", "pauseId": code})
             assert result == f"error_{code}"
-            assert code in ERROR_CATALOGUE, f"pauseId {code} missing from ERROR_CATALOGUE"
+            assert get_localized_error_entry(code, "en", prime=False).get("label"), code
 
 
 class TestClassifyMissionResultStuck:

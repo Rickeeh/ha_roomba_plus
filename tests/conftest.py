@@ -329,6 +329,59 @@ def robot_mock(**attrs: object) -> "MagicMock":
     return mock
 
 
+class EntryTasksViaHass:
+    """For a hand-written fake config entry: its task methods hand the
+    coroutine to `hass`, as Home Assistant's own ConfigEntry does, so a
+    test that drives `hass` sees the task (4.5.0: the managers' tasks
+    went onto the entry)."""
+
+    def async_create_task(self, hass, target, name=None, eager_start=True):  # type: ignore[no-untyped-def]
+        return hass.async_create_task(target, name=name)
+
+    def async_create_background_task(self, hass, target, name, eager_start=True):  # type: ignore[no-untyped-def]
+        create = getattr(hass, "async_create_background_task", None)
+        if create is None:
+            return hass.async_create_task(target, name=name)
+        return create(target, name)
+
+
+def entry_tasks_via_hass(entry: "MagicMock", hass: object) -> "MagicMock":
+    """The same for a MagicMock entry, keeping the calls recorded."""
+    from unittest.mock import MagicMock
+
+    helper = EntryTasksViaHass()
+    entry.async_create_task = MagicMock(
+        side_effect=lambda h, target, name=None, eager_start=True:
+            helper.async_create_task(hass, target, name=name)
+    )
+    entry.async_create_background_task = MagicMock(
+        side_effect=lambda h, target, name, eager_start=True:
+            helper.async_create_background_task(hass, target, name)
+    )
+    return entry
+
+
+def close_entry_tasks(entry: "MagicMock") -> "MagicMock":
+    """Give a mocked config entry task methods that close their coroutine.
+
+    Work bound to the entry (`entry.async_create_task`, 4.5.0) leaks
+    against a bare MagicMock the same way `hass.async_create_task` does;
+    see `hass_mock`. The mocks still record their calls.
+    """
+    import asyncio
+    from unittest.mock import MagicMock
+
+    def _close_coroutines(*args: object, **kwargs: object) -> MagicMock:
+        for arg in args:
+            if asyncio.iscoroutine(arg):
+                arg.close()
+        return MagicMock()
+
+    entry.async_create_task = MagicMock(side_effect=_close_coroutines)
+    entry.async_create_background_task = MagicMock(side_effect=_close_coroutines)
+    return entry
+
+
 def hass_mock(**attrs: object) -> "MagicMock":
     """A stand-in for `hass` that does not leak unawaited coroutines.
 
@@ -537,3 +590,23 @@ def _options_flow_config_entry_as_in_ha_2026(monkeypatch):
         return self.hass.config_entries.async_get_known_entry(self._config_entry_id)
 
     monkeypatch.setattr(_ce.OptionsFlow, "config_entry", property(_get))
+
+
+# ── Roomba+'s translations, fresh in every test ─────────────────────────────
+#
+# The test plugin loads translations once per session into one shared cache
+# (`translations_once`). A test that asks for Roomba+'s texts WITHOUT custom
+# integrations enabled -- a repair flow reading the item wording, say -- finds
+# no integration, and the cache marks `roomba_plus` as loaded for that
+# language with nothing in it. The plugin's eviction at module end only
+# clears integrations it found, so the empty entry stayed: the next test that
+# did enable custom integrations got an empty table for that one language
+# (`test_home_assistant_can_format_every_message[en]` after test_repairs.py,
+# "flaky" under xdist because it depended on which file ran before it).
+
+@pytest.fixture(autouse=True)
+def _roomba_plus_translations_fresh(translations_once):
+    cache = translations_once.kwargs["return_value"]
+    for loaded in cache.loaded.values():
+        loaded.discard("roomba_plus")
+    yield

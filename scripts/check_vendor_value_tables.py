@@ -89,12 +89,14 @@ NO_VENDOR_ENUM: dict[str, str] = {
     # modelling them, which is why `DeviceFault` lists 113 codes and no
     # enum names them.
     "const.ERROR_CATALOGUE": (
-        "iRobot's own error texts, extracted from the app's string "
-        "resources. Verified complete: 112 codes, matching the vendor's "
-        "112 texts exactly."
+        "Our own texts for the battery and charging errors 101-121, where "
+        "the Classic app shows only a shared line; every other code's text "
+        "is the robot's app's (roombapy_prime.vendor_errors[_classic])."
     ),
-    "const.ERROR_CODE_LABELS": "Short labels over the same code space.",
-    "sensor_prime.ERROR_CODE_LABELS": "Re-export of const.ERROR_CODE_LABELS.",
+    "const.OWN_ERROR_SOURCES": (
+        "The iRobot help page behind each of ERROR_CATALOGUE's texts, same "
+        "keys. Error codes are not an enum in either app."
+    ),
     "const.PRIME_ERROR_SEVERITY": (
         "Severity and allowed-modes pairs from iRobot's status spec. "
         "The allowed_modes bits are deliberately NOT decoded -- three "
@@ -110,7 +112,7 @@ NO_VENDOR_ENUM: dict[str, str] = {
     ),
     "sensor_prime.READINESS_STATE_LABELS": "Re-export of the same table.",
     "const.CLEAN_BASE_STATUS_SLUGS": (
-        "Twelve dock state codes. `DockMode` names dock TYPES, not "
+        "Sixteen dock state codes. `DockMode` names dock TYPES, not "
         "states, and no vendor enum covers the 3xx state space. "
         "(Renamed from CLEAN_BASE_LABELS when the values became "
         "translation slugs.)"

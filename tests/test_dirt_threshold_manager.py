@@ -782,6 +782,8 @@ class TestDirtThresholdPrime:
         from custom_components.roomba_plus import dirt_threshold_manager as dtm
 
         monkeypatch.setattr(dtm, "prime_mission_cycle", lambda _d: None)
+        # And on its dock (4.5.0: an unattended start needs that too).
+        monkeypatch.setattr(dtm, "prime_robot_docked", lambda _d: True)
         caplog.set_level(logging.DEBUG)
 
     @pytest.mark.asyncio
@@ -825,7 +827,9 @@ class TestDirtThresholdPrime:
         robot.get_clean_score_raw = AsyncMock(side_effect=RuntimeError("cloud down"))
         m = _dtm(hass, _enabled(), presence_manager=None, blocking_manager=None,
                  prime_robot=robot, prime_selected_map_id="m1")
-        monkeypatch.setattr(dtm, "async_get_room_cleaning_backend", lambda *_a: MagicMock())
+        backend = MagicMock()
+        backend.where_the_robot_is = AsyncMock(return_value=("m1", True))
+        monkeypatch.setattr(dtm, "async_get_room_cleaning_backend", lambda *_a: backend)
         failures = []
         monkeypatch.setattr(dtm, "record_failure", lambda *a: failures.append(a))
         await m.async_evaluate_prime("e1")

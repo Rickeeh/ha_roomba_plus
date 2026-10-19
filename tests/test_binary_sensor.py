@@ -2192,7 +2192,7 @@ def _prime_blocked(monkeypatch, *, faults, state=True):
     s.__class__ = type("_S", (bs.PrimeStartBlockedSensor,),
                        {"_current_state": property(lambda _s: SimpleNamespace(clean_mission_status={}) if state else None)})
     monkeypatch.setattr(bs, "_blocking_faults", lambda _cms: faults)
-    monkeypatch.setattr(bs, "get_localized_error_entry", lambda code, _l: {"label": f"Fehler {code}"})
+    monkeypatch.setattr(bs, "get_localized_error_entry", lambda code, _l, **_kw: {"label": f"Fehler {code}"})
     return s
 
 

@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from custom_components.roomba_plus import prime_coordinator as pc
 from custom_components.roomba_plus.prime_coordinator import add_prime_entities_when_available
+from tests.conftest import entry_tasks_via_hass
 
 
 def _make_coordinator() -> tuple[PrimeCoordinator, MagicMock, MagicMock]:
@@ -711,6 +712,92 @@ class TestMissionHistorySyncsAtMissionEnd:
         assert "except Exception" in source
 
 
+class TestDemandCleaningAfterTheMission:
+    """4.5.0: the Prime demand cleaning runs after a mission end the cloud
+    has recorded -- not after setup's history import or the six-hourly
+    reconcile, which would start a room on a restart."""
+
+    async def _run(self, added, *, evaluate=None, watched=True):
+        from custom_components.roomba_plus import prime_mission_sync
+
+        c = object.__new__(PrimeStatusCoordinator)
+        c._watched_a_mission = watched
+        entry = MagicMock()
+        dtm = MagicMock()
+        dtm.async_evaluate_prime = evaluate or AsyncMock()
+        entry.runtime_data.dirt_threshold_manager = dtm
+        c.config_entry = entry
+        scheduled = []
+        c.hass = MagicMock()
+        c.hass.async_create_task = lambda coro, *a, **k: scheduled.append(coro)
+        entry.async_create_task = lambda _h, coro, *a, **k: scheduled.append(coro)
+        entry.async_create_background_task = lambda _h, coro, *a, **k: scheduled.append(coro)
+        sync = AsyncMock(return_value=added) if not isinstance(added, Exception) \
+            else AsyncMock(side_effect=added)
+        with patch.object(prime_mission_sync, "async_sync_prime_missions", sync):
+            c._schedule_mission_history_sync()
+            for coro in scheduled:
+                await coro
+        return dtm
+
+    @pytest.mark.asyncio
+    async def test_new_missions_are_evaluated(self):
+        dtm = await self._run(1)
+        dtm.async_evaluate_prime.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_backlog_after_a_restart_is_not(self):
+        """Missions that ran while Home Assistant was down arrive with the
+        first sync; they must not start a room (review, 4.5.0)."""
+        dtm = await self._run(3, watched=False)
+        dtm.async_evaluate_prime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_watched_mission_is_evaluated_once(self):
+        from custom_components.roomba_plus import prime_mission_sync
+
+        c = object.__new__(PrimeStatusCoordinator)
+        c._watched_a_mission = True
+        c.config_entry = MagicMock()
+        dtm = MagicMock(async_evaluate_prime=AsyncMock())
+        c.config_entry.runtime_data.dirt_threshold_manager = dtm
+        c.hass = MagicMock()
+        scheduled = []
+        c.config_entry.async_create_background_task = lambda _h, coro, *a, **k: scheduled.append(coro)
+        with patch.object(prime_mission_sync, "async_sync_prime_missions", AsyncMock(return_value=1)):
+            for _ in range(2):
+                c._schedule_mission_history_sync()
+                while scheduled:
+                    await scheduled.pop()
+        dtm.async_evaluate_prime.assert_awaited_once()
+
+    def test_the_run_phase_marks_a_watched_mission(self):
+        c = object.__new__(PrimeStatusCoordinator)
+        c.entry = MagicMock()
+        c.entry.runtime_data.mission_timer_store = MagicMock()
+        c._schedule_mission_history_sync = MagicMock()
+        c._note_dock_position = MagicMock()
+        c._note_phase_for_timer({"ro-currentstate": {"cleanMissionStatus": {"phase": "run", "cycle": "evac"}}})
+        assert getattr(c, "_watched_a_mission", False) is False, "a dock bin empty is not a mission"
+        c._note_phase_for_timer({"ro-currentstate": {"cleanMissionStatus": {"phase": "run", "cycle": "clean"}}})
+        assert c._watched_a_mission is True
+
+    @pytest.mark.asyncio
+    async def test_nothing_new_is_not(self):
+        dtm = await self._run(0)
+        dtm.async_evaluate_prime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failed_sync_is_not(self):
+        dtm = await self._run(RuntimeError("cloud"))
+        dtm.async_evaluate_prime.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_failing_evaluation_stays_inside(self):
+        dtm = await self._run(1, evaluate=AsyncMock(side_effect=RuntimeError("boom")))
+        dtm.async_evaluate_prime.assert_awaited_once()
+
+
 class TestPrimeFiresRoomCompleted:
     """Classic has fired `roomba_plus_room_completed` all along; Prime
     never did, because it comes from callbacks.py and that is a
@@ -1228,21 +1315,21 @@ class TestScheduleCoordinator:
 
     @pytest.mark.asyncio
     async def test_favourites_are_replaced_in_place(self, hass, monkeypatch):
-        from custom_components.roomba_plus import button_prime
+        from custom_components.roomba_plus import prime_coordinator as _pc_mod
 
         shared = ["old"]
         c = _sched(hass, prime_robot=MagicMock(), prime_favorites=shared)
-        monkeypatch.setattr(button_prime, "async_favorites_attribute", AsyncMock(return_value=["a", "b"]))
+        monkeypatch.setattr(_pc_mod, "async_favorites_attribute", AsyncMock(return_value=["a", "b"]))
         await c._async_refresh_favourites()
         assert shared == ["a", "b"], "the same list object other code holds"
 
     @pytest.mark.asyncio
     async def test_a_failing_favourites_read_keeps_them(self, hass, monkeypatch):
-        from custom_components.roomba_plus import button_prime
+        from custom_components.roomba_plus import prime_coordinator as _pc_mod
 
         shared = ["old"]
         c = _sched(hass, prime_robot=MagicMock(), prime_favorites=shared)
-        monkeypatch.setattr(button_prime, "async_favorites_attribute", AsyncMock(side_effect=RuntimeError()))
+        monkeypatch.setattr(_pc_mod, "async_favorites_attribute", AsyncMock(side_effect=RuntimeError()))
         await c._async_refresh_favourites()
         assert shared == ["old"]
 
@@ -1295,11 +1382,13 @@ class TestHistorySyncAfterMission:
         sync = AsyncMock(side_effect=[2, RuntimeError("cloud")])
         monkeypatch.setattr(prime_mission_sync, "async_sync_prime_missions", sync)
         c = _status(hass)
+        # On the entry since 4.5.0; the real hass runs what it is handed.
+        entry_tasks_via_hass(c.config_entry, hass)
         c._history_sync_running = False
         c._schedule_mission_history_sync()
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         c._schedule_mission_history_sync()
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert sync.await_count == 2
         assert c._history_sync_running is False
 
@@ -1549,3 +1638,29 @@ class TestRoomCompletedSaysHowLong:
 
         _name, payload = c.hass.bus.async_fire.call_args[0]
         assert payload["duration_sec"] is None
+
+
+class TestNoCycleThroughTheButtons:
+    """4.5.0: button_prime imports prime_coordinator, and the coordinator
+    reached the favourites list in button_prime through a late import --
+    a cycle held apart by where an import stood (B48)."""
+
+    def test_the_coordinator_does_not_import_the_buttons(self):
+        import inspect
+
+        assert "button_prime" not in inspect.getsource(pc).replace(
+            "# From prime_favorites (4.5.0): no cycle through button_prime.", ""
+        )
+
+    def test_the_favourites_module_imports_neither(self):
+        import ast
+        import inspect
+
+        from custom_components.roomba_plus import prime_favorites
+
+        tree = ast.parse(inspect.getsource(prime_favorites))
+        imported = {
+            node.module for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        }
+        assert not imported & {"button_prime", "prime_coordinator"}, imported

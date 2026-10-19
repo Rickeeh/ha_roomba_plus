@@ -1048,11 +1048,28 @@ class TestMissionCompleteCallback:
     def _msg(self, phase: str) -> dict:
         return {"state": {"reported": {"cleanMissionStatus": {"phase": phase}}}}
 
+    @pytest.fixture(autouse=True)
+    def _close_the_loops(self):
+        """Each test makes its own loop; close it after the test. Left to
+        the garbage collector, Python 3.14 closed one in `__del__` at a
+        moment of its choosing and reported the error against whichever
+        test was being set up (4.5.0)."""
+        self._loops: list[asyncio.AbstractEventLoop] = []
+        yield
+        for loop in self._loops:
+            if not loop.is_closed():
+                loop.close()
+
+    def _new_loop(self) -> asyncio.AbstractEventLoop:
+        loop = asyncio.new_event_loop()
+        self._loops.append(loop)
+        return loop
+
     def _setup(self, latest_record=None):
         cc = MagicMock()
         cc.async_request_refresh = AsyncMock()
         hass = hass_mock()
-        hass.loop = asyncio.new_event_loop()
+        hass.loop = self._new_loop()
         entry = entry_mock(schedule_on=hass)
         entry.runtime_data.mission_store.latest.return_value = latest_record
         return cc, hass, entry
@@ -1197,7 +1214,7 @@ class TestMissionCompleteCallback:
         cc = MagicMock()
         cc.async_request_refresh = AsyncMock()
         hass = hass_mock()
-        hass.loop = asyncio.new_event_loop()
+        hass.loop = self._new_loop()
         entry = entry_mock(schedule_on=hass)
         entry.runtime_data.mission_store.latest.side_effect = lambda: state["latest"]
 
@@ -1246,7 +1263,7 @@ class TestMissionCompleteCallback:
         cc = MagicMock()
         cc.async_request_refresh = AsyncMock()
         hass = hass_mock()
-        hass.loop = asyncio.new_event_loop()
+        hass.loop = self._new_loop()
         entry = entry_mock(schedule_on=hass)
         entry.runtime_data.mission_store.latest.side_effect = lambda: state["latest"]
 
@@ -2860,10 +2877,11 @@ class TestCrossCorrCaptureGlue:
         # same technique the fixture itself uses for _capture_append.
         created: list[Any] = []
 
-        def _capture_task(coro, name=None):
+        def _capture_task(_hass, coro, name=None, **_kw):
             created.append(coro)
 
-        hass.async_create_task = _capture_task
+        # On the entry since 4.5.0, so an unload waits for the save.
+        entry.async_create_task = _capture_task
 
         cb = make_mission_callback(hass, entry)
         cb(self._msg("run"))
@@ -5219,7 +5237,9 @@ class TestSeedMaintenanceBaselines:
         cb._seed_maintenance_baselines(entry, reported)
         assert store.filter_reset_hr == 500 and store.filter_baseline_seeded is True
         assert store.brush_reset_hr == 0, "an already seeded part is left alone"
-        entry.runtime_data.hass_ref.async_create_task.assert_called_once()
+        # On the entry since 4.5.0, through the hass on the runtime data.
+        entry.async_create_task.assert_called_once()
+        assert entry.async_create_task.call_args.args[0] is entry.runtime_data.hass_ref
 
     def test_a_part_with_reset_history_is_not_reseeded(self):
         store = self._store()

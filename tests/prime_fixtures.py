@@ -126,7 +126,7 @@ def favorites():
 
 
 def favorites_attribute() -> list[dict[str, str]]:
-    """What button_prime.async_favorites_attribute() puts in
+    """What prime_favorites.async_favorites_attribute() puts in
     runtime_data.prime_favorites -- NOT the raw server JSON. The two
     differ (`id` vs `favorite_id`), and using the wrong one raises
     KeyError deep inside button setup."""

@@ -109,6 +109,82 @@ class TestMaybeRecompute:
         assert store.maybe_recompute(fewer) is False
 
 
+class TestRecomputeOffTheLoop:
+    """4.5.0: the segmentation ran on the event loop, up to 1.5 s on a
+    large home. It now runs in the executor; the store is only touched
+    on the loop."""
+
+    @pytest.mark.asyncio
+    async def test_the_segmentation_runs_in_the_executor(self, hass, monkeypatch):
+        import threading
+
+        from custom_components.roomba_plus import room_seg_store as mod
+
+        threads = []
+        real = mod.segment_rooms
+
+        def _spy(*a, **k):
+            threads.append(threading.current_thread())
+            return real(*a, **k)
+
+        monkeypatch.setattr(mod, "segment_rooms", _spy)
+        store = _store()
+        assert await store.async_maybe_recompute(hass, _two_room_grid()) is True
+        assert threads and threads[0] is not threading.current_thread()
+
+    @pytest.mark.asyncio
+    async def test_the_same_rooms_as_the_synchronous_way(self, hass):
+        sync, off_loop = _store(), _store()
+        sync.maybe_recompute(_two_room_grid())
+        await off_loop.async_maybe_recompute(hass, _two_room_grid())
+        assert {r: sorted(v.cells) for r, v in sync.rooms.items()} == {
+            r: sorted(v.cells) for r, v in off_loop.rooms.items()
+        }
+        assert off_loop.last_cell_count == len(_two_room_grid())
+
+    @pytest.mark.asyncio
+    async def test_the_gates_hold(self, hass):
+        store = _store()
+        assert await store.async_maybe_recompute(hass, {}) is False
+        assert await store.async_maybe_recompute(hass, _two_room_grid(), missions_seen=0) is False
+        assert store.rooms == {}
+
+    @pytest.mark.asyncio
+    async def test_one_at_a_time(self, hass, monkeypatch):
+        import asyncio
+
+        store = _store()
+        gate = asyncio.Event()
+        real_job = hass.async_add_executor_job
+
+        async def _slow(fn, *a):
+            await gate.wait()
+            return await real_job(fn, *a)
+
+        monkeypatch.setattr(hass, "async_add_executor_job", _slow)
+        first = asyncio.ensure_future(store.async_maybe_recompute(hass, _two_room_grid()))
+        await asyncio.sleep(0)
+        assert await store.async_maybe_recompute(hass, _two_room_grid()) is False
+        gate.set()
+        assert await first is True
+
+    @pytest.mark.asyncio
+    async def test_the_grid_can_change_meanwhile(self, hass, monkeypatch):
+        """The executor works on a copy, not the dict the loop writes."""
+        store = _store()
+        cells = _two_room_grid()
+        seen = []
+        real = store._segment
+
+        def _record(c):
+            seen.append(c)
+            return real(c)
+
+        monkeypatch.setattr(store, "_segment", _record)
+        await store.async_maybe_recompute(hass, cells)
+        assert seen[0] == cells and seen[0] is not cells
+
+
 class TestIdentityMatchingAcrossRecomputes:
     def test_name_and_confirmation_survive_recompute(self):
         store = _store()

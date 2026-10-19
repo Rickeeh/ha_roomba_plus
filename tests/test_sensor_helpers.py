@@ -116,12 +116,21 @@ class TestReadinessStateDecoding:
         assert self._value(24) == "map_version_mismatch"
         assert self._value(34) == "invalid_pad"
 
-    def test_three_wire_values_share_one_state(self):
-        """The app has only `BatteryAuthError` for four firmware
-        constants. Collapsing them is the app's doing, not ours."""
+    def test_the_three_battery_values_are_three_states(self):
+        """4.5.0: 37 and 38 were collapsed onto `BatteryAuthError` for
+        want of a closer state. The Classic app's own refusal table
+        (keyed by the wire value) names them."""
         assert self._value(23) == "battery_auth_error"
-        assert self._value(37) == "battery_auth_error"
-        assert self._value(38) == "battery_auth_error"
+        assert self._value(37) == "sm_bus_permanent_failure"
+        assert self._value(38) == "charge_timeout"
+
+    def test_the_apps_table_fills_the_gaps(self):
+        """Values that showed as a bare number, now with the state the
+        Classic app files them under -- 27 among them, the `PP_COMM`
+        whose bridge to MobilityOffline waited for a confirmation."""
+        assert self._value(27) == "mobility_offline"
+        assert self._value(14) == "invalid_command"
+        assert self._value(271) == "dead_floor_type_sensor"
 
     def test_states_the_firmware_cannot_express(self):
         """`LocalizationFailed`, `NotDocked`, `LidOpen`, `ChargeTimeout`,
@@ -150,9 +159,6 @@ class TestReadinessStateDecoding:
         should say so -- guessing one is what caused the bug above."""
         assert self._value(200) == "not_ready_200"
         assert self._value(45) == "not_ready_45"
-        # 40 is lewis' hardware mismatch; which state it is was not
-        # confirmed, so it stays a number rather than a guess.
-        assert self._value(40) == "not_ready_40"
 
     def test_a_non_integer_does_not_raise(self):
         assert self._value("nonsense") is not None
@@ -694,6 +700,14 @@ class TestPhaseValue:
         e = _FakeEntity({"cleanMissionStatus": {"phase": "run", "cycle": "clean"}, "batPct": 90})
         assert _phase_value(e) == "running"
 
+    def test_a_bin_empty_on_the_dock_is_not_running(self):
+        """4.5.0: a dock command to a docked robot empties the bin with
+        `cycle` evac while `phase` alternates charge and run. Read as run
+        it said Running and fired *Cleaning started*."""
+        for phase in ("run", "charge"):
+            e = _FakeEntity({"cleanMissionStatus": {"phase": phase, "cycle": "evac"}, "batPct": 100})
+            assert _phase_value(e) == "emptying_bin", phase
+
     def test_stuck(self):
         e = _FakeEntity({"cleanMissionStatus": {"phase": "stuck", "cycle": "clean"}, "batPct": 60})
         assert _phase_value(e) == "stuck"
@@ -861,15 +875,13 @@ class TestTheWireTableTravelsBetweenFamilies:
     """
 
     def test_the_two_family_specific_values_do_not_collide(self):
-        """40 and 78 both mean hardware mismatch, on different
-        generations. Neither family knows the other's number, so no
-        robot can send both."""
+        """40 (lewis) and 78 (ruby) are two different states: the Classic
+        app files 40 as NewCleaningHead, 78 is CleaningHeadHwMismatch."""
         from custom_components.roomba_plus.const import (
             READINESS_WIRE_TO_INDEX,
         )
 
-        assert 78 in READINESS_WIRE_TO_INDEX
-        assert 40 not in READINESS_WIRE_TO_INDEX
+        assert READINESS_WIRE_TO_INDEX[78] != READINESS_WIRE_TO_INDEX[40]
 
     def test_the_shared_values_are_the_bulk_of_the_table(self):
         """33 wire values appear in both firmwares and agree in every
@@ -931,16 +943,17 @@ class TestSixtyEightIsSettledThreeWaysOver:
         )
         assert READINESS_STATE_LABELS[READINESS_WIRE_TO_INDEX[69]] == "Off dock"
 
-    def test_wire_forty_stays_unmapped(self):
+    def test_wire_forty_is_the_new_cleaning_head(self):
         """Read from lewis as `HARDWARE_MISMATCH`, shown by the app as
-        "Software update required". When the firmware constant and the
-        user-facing label disagree, neither is a safe basis for a
-        state name."""
+        "Software update required" -- and both make sense now that the
+        app's own refusal table files 40 as NewCleaningHead: "New
+        cleaning head detected. Please update the software." (4.5.0)."""
         from custom_components.roomba_plus.const import (
+            READINESS_STATE_LABELS,
             READINESS_WIRE_TO_INDEX,
         )
 
-        assert 40 not in READINESS_WIRE_TO_INDEX
+        assert READINESS_STATE_LABELS[READINESS_WIRE_TO_INDEX[40]] == "New cleaning head"
 
 
 # ── formerly tests/test_coverage_mid_gaps_4.py ──────────────────────────────────

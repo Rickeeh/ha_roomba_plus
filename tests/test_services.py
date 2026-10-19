@@ -1691,6 +1691,67 @@ class TestAutoCleanDirtyRooms:
             await async_handle_auto_clean_dirty_rooms(call)
         assert hass.services.async_call.call_args[0][2]["room_name"] == ["Kitchen"]
 
+    async def _prime(self, scores, where=None, **extra):
+        """4.5.0: on Prime the Classic dirt index never qualified a room,
+        so every call cleaned the whole house."""
+        from custom_components.roomba_plus import services as svc_mod
+
+        entry = self._entry([])
+        robot = MagicMock()
+        robot.get_clean_score_raw = AsyncMock(return_value=scores)
+        robot.send_simple_command = AsyncMock(return_value=True)
+        entry.runtime_data.prime_robot = robot
+        entry.runtime_data.prime_selected_map_id = "M1"
+        backend = MagicMock()
+        backend.clean_rooms = AsyncMock()
+        backend.where_the_robot_is = AsyncMock(return_value=where or (None, False))
+        hass = hass_mock()
+        hass.services.async_call = AsyncMock()
+        call = self._call(hass, entry, **extra)
+        ent = MagicMock(); ent.config_entry_id = "ce1"
+        with patch("custom_components.roomba_plus.services.er.async_get") as er_m, \
+                patch.object(svc_mod, "async_get_room_cleaning_backend", return_value=backend):
+            er_m.return_value.async_get.return_value = ent
+            await svc_mod.async_handle_auto_clean_dirty_rooms(call)
+        return backend, robot, hass
+
+    @staticmethod
+    def _scores(*pairs):
+        return {"clean_score_ranges": [0.7],
+                "regions": [{"region_id": r, "clean_score": v} for r, v in pairs]}
+
+    @pytest.mark.asyncio
+    async def test_prime_cleans_the_rooms_the_robot_rates_dirty(self):
+        backend, robot, hass = await self._prime(self._scores(("10", 0.75), ("12", 0.95), ("4", 0.1)))
+        robot.get_clean_score_raw.assert_awaited_once_with("M1")
+        # Qualified with the map the scores were read for (4.5.0).
+        backend.clean_rooms.assert_awaited_once_with(["M1/12", "M1/10"])
+        hass.services.async_call.assert_not_awaited()
+        robot.send_simple_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prime_max_rooms_caps_them(self):
+        backend, _r, _h = await self._prime(
+            self._scores(("10", 0.75), ("12", 0.95)), max_rooms=1
+        )
+        backend.clean_rooms.assert_awaited_once_with(["M1/12"])
+
+    @pytest.mark.asyncio
+    async def test_prime_reads_the_floor_the_robot_is_on(self):
+        """The map select is what somebody last looked at; the robot's
+        own location comes first."""
+        backend, robot, _h = await self._prime(
+            self._scores(("12", 0.95)), where=("DOWNSTAIRS", True)
+        )
+        robot.get_clean_score_raw.assert_awaited_once_with("DOWNSTAIRS")
+        backend.clean_rooms.assert_awaited_once_with(["DOWNSTAIRS/12"])
+
+    @pytest.mark.asyncio
+    async def test_prime_with_nothing_dirty_cleans_the_house(self):
+        backend, robot, _h = await self._prime(self._scores(("4", 0.1)))
+        backend.clean_rooms.assert_not_awaited()
+        robot.send_simple_command.assert_awaited_once_with("start")
+
 
 class TestRouteOptimizeOrder:
     """v3.3.0 SMART-ORDER routing — greedy NN from the dock over UMF room
@@ -3270,8 +3331,69 @@ class TestCleanSequence:
         hass.states.async_set(a, "cleaning")
         await svc.async_handle_clean_sequence(_call(hass, entity_id=a, target_entity_id=b, delay_minutes=3))
         hass.states.async_set(a, "docked")
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         assert 180 in waited and len(starts) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unload_ends_the_sequence(self, hass):
+        """4.5.0: the listener outlived an unload or reload, and robot B
+        could still be started by an integration that was gone."""
+        a, b = _two_vacuums(hass)
+        entry = hass.config_entries.async_entries(DOMAIN)[0]
+        starts = async_mock_service(hass, "vacuum", "start")
+        hass.states.async_set(a, "cleaning")
+        await svc.async_handle_clean_sequence(_call(hass, entity_id=a, target_entity_id=b))
+        await entry._async_process_on_unload(hass)
+        hass.states.async_set(a, "docked")
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert starts == []
+
+    @pytest.mark.asyncio
+    async def test_a_finished_sequence_leaves_nothing_behind(self, hass):
+        """Review, 4.5.0: every call added its own unload callback to both
+        entries, kept until the next reload. One per entry now, and a
+        finished sequence leaves it empty."""
+        a, b = _two_vacuums(hass)
+        entry = hass.config_entries.async_entries(DOMAIN)[0]
+        starts = async_mock_service(hass, "vacuum", "start")
+        before = len(entry._on_unload or [])
+        for _ in range(3):
+            hass.states.async_set(a, "cleaning")
+            await svc.async_handle_clean_sequence(_call(hass, entity_id=a, target_entity_id=b))
+            hass.states.async_set(a, "docked")
+            await hass.async_block_till_done(wait_background_tasks=True)
+        assert len(starts) == 3
+        assert len(entry._on_unload or []) - before <= 1
+        assert svc._SEQUENCE_ENDS.get(entry.entry_id) == set()
+
+    @pytest.mark.asyncio
+    async def test_an_unload_cancels_a_waiting_start(self, hass, monkeypatch):
+        import asyncio
+
+        gate = asyncio.Event()
+        real_sleep = asyncio.sleep
+
+        async def _sleep(s, *a, **k):
+            if s >= 60:
+                await gate.wait()   # the delay: until the test says so
+            else:
+                await real_sleep(s, *a, **k)
+
+        monkeypatch.setattr(asyncio, "sleep", _sleep)
+        a, b = _two_vacuums(hass)
+        entry = hass.config_entries.async_entries(DOMAIN)[0]
+        starts = async_mock_service(hass, "vacuum", "start")
+        hass.states.async_set(a, "cleaning")
+        await svc.async_handle_clean_sequence(_call(hass, entity_id=a, target_entity_id=b, delay_minutes=5))
+        hass.states.async_set(a, "docked")
+        # Not async_block_till_done: it would wait for the gated start
+        # itself if that ever went back onto hass, and hang, not fail.
+        for _ in range(5):
+            await real_sleep(0)
+        await entry._async_process_on_unload(hass)
+        gate.set()
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert starts == []
 
     @pytest.mark.asyncio
     async def test_a_foreign_entity_is_refused_with_a_translated_message(self, hass):

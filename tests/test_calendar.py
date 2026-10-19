@@ -655,12 +655,14 @@ class TestThePrimeCalendarIsDrivenByTheCoordinator:
         cal.async_write_ha_state = MagicMock()
         cal._async_recompute = AsyncMock()
 
+        cal._config_entry.async_create_task = MagicMock()
         cal._handle_coordinator_update()
 
-        cal.hass.async_create_task.assert_called_once()
-        # The task is created, not awaited here -- close the coroutine
-        # so the test does not leave one unawaited.
-        cal.hass.async_create_task.call_args.args[0].close()
+        # On the entry since 4.5.0. The task is created, not awaited
+        # here -- close the coroutine so the test does not leave one
+        # unawaited.
+        cal._config_entry.async_create_task.assert_called_once()
+        cal._config_entry.async_create_task.call_args.args[1].close()
 
 
 class TestAFailedReadDoesNotCostTheCalendarEntity:

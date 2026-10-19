@@ -23,7 +23,6 @@ from custom_components.roomba_plus.sensor import _problem_zone_value
 from custom_components.roomba_plus.sensor import _last_error_code_value
 from custom_components.roomba_plus.sensor import _mission_store_value
 from custom_components.roomba_plus.const import ERROR_CATALOGUE
-from custom_components.roomba_plus.const import ERROR_CODE_LABELS
 import time as _time_mod
 import types
 import sys

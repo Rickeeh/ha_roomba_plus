@@ -140,6 +140,10 @@ def _make_options_flow(room_seg_store=None):
     config_entry = entry_mock()
     config_entry.runtime_data.map_capability = MapCapability.EPHEMERAL
     config_entry.runtime_data.room_seg_store = room_seg_store
+    # A Classic robot, as its runtime data has it: no Prime robot. A bare
+    # mock answers every attribute, and steps that branch on it (demand
+    # cleaning, 4.5.0) took every Classic flow for Prime.
+    config_entry.runtime_data.prime_robot = None
     config_entry.options = {}
     config_entry.entry_id = "test_entry"
     flow._config_entry = config_entry
@@ -268,7 +272,8 @@ class TestSaveZoneEditsAtomicEphemeral:
 
         assert rss.rooms["room_1"].name == "Kitchen"
         assert rss.rooms["room_1"].confirmed is True
-        flow.hass.async_create_task.assert_called_once()
+        # On the entry since 4.5.0, so an unload waits for the save.
+        flow._config_entry.async_create_task.assert_called_once()
 
     def test_hide_edit_does_not_crash_on_string_room_id(self):
         """Regression check: SegRoom.id is a string ('room_1') -- the old
@@ -1299,11 +1304,77 @@ class TestMaintenancePage:
                             remaining=8.0, unit="hours", interval_source="profile"),
             MaintenanceItem("replace.battery", "replace", "battery"),
         ])
-        result = await self._flow(tracker=tracker).async_step_maintenance()
+        with patch(
+            "custom_components.roomba_plus.config_flow._maintenance_levels",
+            AsyncMock(return_value={"soon": "Soon", "ok": "OK"}),
+        ):
+            result = await self._flow(tracker=tracker).async_step_maintenance()
         assert result["menu_options"] == ["maintenance_settings", "maintenance_report", "maintenance_forget"]
         overview = result["description_placeholders"]["overview"]
-        assert "| `replace.filter` | soon | 8 hours | profile |" in overview
-        assert "| `replace.battery` | ok | – | – |" in overview
+        # In words, as the list says it -- it showed `replace.filter`,
+        # `soon`, `profile` and an empty header row (18.10.).
+        assert overview.startswith("| Part or task | Status | Left | Interval |\n|---|")
+        assert "| Replace the filter | Soon | 8 hours | from the series profile |" in overview
+        assert "| Replace the battery | OK | – | – |" in overview
+
+    @pytest.mark.asyncio
+    async def test_the_levels_come_from_the_status_sensor(self):
+        """The status sensor's own state names, read where Home Assistant
+        keeps them -- the key checked against strings.json, so a renamed
+        sensor key cannot leave the overview in raw words."""
+        import json
+        from pathlib import Path
+
+        from custom_components.roomba_plus import config_flow as cf
+
+        strings = json.loads(
+            (Path(cf.__file__).parent / "strings.json").read_text(encoding="utf-8")
+        )
+        states = strings["entity"]["sensor"]["maintenance_status"]["state"]
+        table = {
+            f"component.roomba_plus.entity.sensor.maintenance_status.state.{k}": v
+            for k, v in states.items()
+        }
+        with patch(
+            "homeassistant.helpers.translation.async_get_translations",
+            AsyncMock(return_value=table),
+        ):
+            levels = await cf._maintenance_levels(hass_mock())
+        assert levels == {"ok": "OK", "soon": "Soon", "due": "Due", "overdue": "Overdue"}
+        with patch(
+            "homeassistant.helpers.translation.async_get_translations",
+            AsyncMock(side_effect=RuntimeError("no table")),
+        ):
+            assert await cf._maintenance_levels(hass_mock()) == {}
+
+    @pytest.mark.asyncio
+    async def test_maintenance_comes_last_in_the_menu(self):
+        """Second, under the connection, only because its settings came
+        out of Settings (18.10.): it belongs at the end."""
+        flow = self._flow()
+        menu = (await flow.async_step_init())["menu_options"]
+        assert menu.count("maintenance") == 1 and menu[-1] == "maintenance"
+
+    @pytest.mark.asyncio
+    async def test_presence_scheduling_is_offered_on_prime(self):
+        """4.5.0: the menu asked for the local `schedHold`, which a Prime
+        robot never has."""
+        flow = self._flow()
+        flow._config_entry.runtime_data.roomba = None
+        flow._config_entry.runtime_data.prime_robot = None
+        assert "presence_scheduling" not in (await flow.async_step_init())["menu_options"]
+        flow._config_entry.runtime_data.prime_robot = MagicMock()
+        assert "presence_scheduling" in (await flow.async_step_init())["menu_options"]
+
+    @pytest.mark.asyncio
+    async def test_demand_cleaning_is_offered_on_prime(self):
+        """4.5.0: Prime robots never saw the entry."""
+        flow = self._flow()
+        flow._config_entry.runtime_data.has_cloud = False
+        flow._config_entry.runtime_data.prime_robot = None
+        assert "demand_cleaning" not in (await flow.async_step_init())["menu_options"]
+        flow._config_entry.runtime_data.prime_robot = MagicMock()
+        assert "demand_cleaning" in (await flow.async_step_init())["menu_options"]
 
     @pytest.mark.asyncio
     async def test_both_generations_get_it_in_the_menu(self):
@@ -1476,10 +1547,33 @@ class TestMaintenancePage:
             "![Filter reinigen](/api/roomba_plus/care/E1/clean_filter/schema.svg?lang=de&exp="
         )
         assert "**So geht's**" in placeholders["guide"]
-        assert placeholders["link"].startswith("/api/roomba_plus/care/E1/clean_filter?lang=de")
+        # HTML with a target, in a placeholder: a Markdown link to the own
+        # host went to the overview, and the frontend's message format
+        # rejects a tag in the translation itself.
+        assert placeholders["page_link"].startswith(
+            '<a href="/api/roomba_plus/care/E1/clean_filter?lang=de'
+        )
+        assert placeholders["page_link"].endswith('" target="_blank">Als Seite öffnen</a>')
+        assert placeholders["irobot"] == "", "no iRobot link for this robot"
         assert set(self._fields(form)) == {"done"}
         await flow.async_step_maintenance_guide_show({"done": True})
         tracker.async_done.assert_awaited_once_with("clean.filter", via="settings")
+
+    @pytest.mark.asyncio
+    async def test_irobots_guide_in_the_dialog_too(self):
+        """It was only on the page (18.10.): the replacement twin's link
+        serves the cleaning guide, as on the page."""
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+
+        flow, _tracker = self._guide_flow([
+            MaintenanceItem("replace.filter", "replace", "filter", guide_id="replace_filter",
+                            guide_url="https://irobot.example/filter"),
+            MaintenanceItem("clean.filter", "clean", "filter", guide_id="clean_filter"),
+        ])
+        form = await flow.async_step_maintenance_guide({"guide": "clean_filter"})
+        assert form["description_placeholders"]["irobot"] == (
+            "\n\n[iRobots Anleitung für dein Modell](https://irobot.example/filter)"
+        )
 
     @pytest.mark.asyncio
     async def test_when_and_both_drawings_of_the_contacts(self):
@@ -2926,6 +3020,28 @@ class TestSimpleOptionSteps:
         assert result["type"] == "create_entry"
         assert result["data"][CONF_DEMAND_CLEANING_ENABLED] is True
         assert result["data"][CONF_DEMAND_MULTIPLIER] == 1.5
+
+    @pytest.mark.asyncio
+    async def test_a_prime_robot_gets_the_switch_alone(self):
+        """4.5.0: the step aborted on every Prime robot. The robot sends
+        its own threshold, so there is no multiplier to set."""
+        from custom_components.roomba_plus.const import (
+            CONF_DEMAND_CLEANING_ENABLED,
+            CONF_DEMAND_MULTIPLIER,
+        )
+
+        flow = _make_options_flow()
+        flow._config_entry.runtime_data.prime_robot = MagicMock()
+        flow.async_show_form = MagicMock(return_value={"type": "form"})
+        await flow.async_step_demand_cleaning()
+        kwargs = flow.async_show_form.call_args.kwargs
+        assert kwargs["step_id"] == "demand_cleaning_prime"
+        assert [str(k) for k in kwargs["data_schema"].schema] == [CONF_DEMAND_CLEANING_ENABLED]
+
+        result = await flow.async_step_demand_cleaning({CONF_DEMAND_CLEANING_ENABLED: True})
+        assert result["type"] == "create_entry"
+        assert result["data"][CONF_DEMAND_CLEANING_ENABLED] is True
+        assert CONF_DEMAND_MULTIPLIER not in result["data"]
 
     @pytest.mark.asyncio
     async def test_demand_cleaning_shows_its_form(self):

@@ -2843,9 +2843,26 @@ class TestErrorsPointToCareTasks:
             i.id for i in mm.classic_items(store, self._state(14, "none", "charge"), {}, now=_NOW)
         }
 
-    def test_a_camera_error_has_nothing_to_record(self):
-        items = {i.id: i for i in mm.classic_items(MaintenanceStore(), self._state(68), {}, now=_NOW)}
+    def test_a_camera_refusal_has_nothing_to_record(self):
+        """Error 68 no longer points to the camera (4.5.0b2): the Classic
+        app says hold CLEAN 10 s, a reboot. A refusal for a dead camera
+        (notReady 51) still does, and there is nothing to record."""
+        state = {**_980(), "cleanMissionStatus": {"cycle": "none", "phase": "charge", "error": 0, "notReady": 51}}
+        items = {i.id: i for i in mm.classic_items(MaintenanceStore(), state, {}, now=_NOW)}
         assert items["check.camera"].done == "none"
+        assert not any(i.action == "check" for i in mm.classic_items(MaintenanceStore(), self._state(68), {}, now=_NOW))
+
+    def test_the_bridge_follows_irobots_help_pages(self):
+        """4.5.0b2: rebuilt from iRobot's pages for each code, not from our
+        old action sentences."""
+        assert mm.ERROR_CARE_TASKS_CLASSIC[8] == "filter"
+        for code in (1, 3, 13):
+            assert mm.ERROR_CARE_TASKS_CLASSIC[code] == "wheel"
+        for code in (6, 25):
+            assert mm.ERROR_CARE_TASKS_CLASSIC[code] == "cliff_sensors"
+        assert mm.ERROR_CARE_TASKS_CLASSIC[121] == "contact"
+        for code in (11, 20, 27, 38, 68, 78, 79, 102, 103):
+            assert code not in mm.ERROR_CARE_TASKS_CLASSIC, code
 
     def test_with_the_task_its_own_entry_carries_the_error(self):
         """Never two entries for one task."""
@@ -2863,10 +2880,14 @@ class TestErrorsPointToCareTasks:
             for i in mm.classic_items(store, self._state(14), {"care_guide_on_error": "off"}, now=_NOW)
         )
 
-    def test_prime_only_the_codes_the_apps_pictures_confirm(self):
+    def test_prime_the_codes_irobots_prime_pages_name_a_part_for(self):
+        """D3 (19.10.2026): 4/5, 14, 26, 104/105/119/121 and 517 join 2, 6,
+        201, 1000, 1001 on the strength of iRobot's Prime help pages."""
         store = MaintenanceStore()
         assert {i.id for i in mm.prime_items(store, {}, {}, error=1001, now=_NOW)} == {"check.side_brush"}
-        assert mm.prime_items(store, {}, {}, error=26, now=_NOW) == []
+        assert {i.id for i in mm.prime_items(store, {}, {}, error=26, now=_NOW)} == {"check.filter"}
+        assert {i.id for i in mm.prime_items(store, {}, {}, error=104, now=_NOW)} == {"check.contact"}
+        assert mm.prime_items(store, {}, {}, error=48, now=_NOW) == []
         counted = mm.prime_items(
             store, {"213": _prime_part("213", used=1, left=1, category="maintenance")}, {},
             error=201, now=_NOW,
@@ -2896,22 +2917,36 @@ class TestErrorsPointToCareTasks:
         await tracker.async_refresh(_NOW + timedelta(hours=1))
         assert tracker.item("clean.wheel").level == "ok"
 
+    async def test_stuck_near_a_cliff_goes_with_the_error(self, hass):
+        """Classic 6 and 25 point to the cliff sensors (iRobot pages 8960,
+        8974) but say the robot is stuck near an edge -- most often a real
+        one. The guide shows; the cleaning is not made due (4.5.0b2)."""
+        store = MaintenanceStore(care_since=_NOW.isoformat())
+        state = self._state(6)
+        tracker = _tracker(hass, store=store, state=state, options={"care_reminders": True})
+        await tracker.async_refresh(_NOW)
+        assert tracker.item("clean.cliff_sensors").error == 6
+        state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 6}
+        await tracker.async_refresh(_NOW + timedelta(hours=1))
+        assert tracker.item("clean.cliff_sensors").level == "ok"
+        assert "forced_due" not in store.maintenance_state.get("clean.cliff_sensors", {})
+
     async def test_done_while_the_error_lasts_keeps_it_out_until_it_returns(self, hass):
-        state = self._state(68)
+        state = self._state(7)
         tracker = _tracker(hass, state=state)
         got = _listen(hass, "x")
         await tracker.async_refresh()
-        await tracker.async_done("check.camera")
+        await tracker.async_done("check.wheel")
         await hass.async_block_till_done()
-        assert tracker.item("check.camera") is None
-        assert ("done", "check.camera") in got
+        assert tracker.item("check.wheel") is None
+        assert ("done", "check.wheel") in got
         store = tracker.config_entry.runtime_data.maintenance_store
-        assert store.maintenance_log[-1]["id"] == "check.camera"
+        assert store.maintenance_log[-1]["id"] == "check.wheel"
         state["cleanMissionStatus"] = {"cycle": "none", "phase": "charge", "error": 0}
         await tracker.async_refresh()
-        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 68}
+        state["cleanMissionStatus"] = {"cycle": "clean", "phase": "stuck", "error": 7}
         await tracker.async_refresh()
-        assert tracker.item("check.camera") is not None
+        assert tracker.item("check.wheel") is not None
 
     async def test_a_check_with_a_cleaning_records_it_with_reminders_on(self, hass):
         store = MaintenanceStore(care_since=_NOW.isoformat())

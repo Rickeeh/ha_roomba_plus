@@ -1459,3 +1459,26 @@ class TestSelectorOptionKeysAreChecked:
 
         assert module._report_key_syntax() == 1
         assert "__none__" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("lang", _LANGS)
+def test_no_html_tag_in_a_translation(lang):
+    """The frontend formats every text with its message format, which takes
+    `<a ...>` for a tag it cannot parse: the dialog shows "Translation
+    error". A link with a target goes in a placeholder's value instead
+    (care_guides.page_anchor) -- 18.10., the guide dialog's page link."""
+    import json
+    import re
+
+    path = PKG / "translations" / f"{lang}.json"
+    found: list[str] = []
+
+    def walk(node, where):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{where}.{key}")
+        elif isinstance(node, str) and re.search(r"<[A-Za-z/]", node):
+            found.append(where)
+
+    walk(json.loads(path.read_text(encoding="utf-8")), lang)
+    assert found == []

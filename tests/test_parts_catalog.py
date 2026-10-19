@@ -137,6 +137,7 @@ class TestTheEntriesHearOfIt:
         data = SimpleNamespace(blid="B1", parts_catalogue={})
         sent = []
         with patch.object(pc, "async_fetch_catalogue", AsyncMock(return_value={"35": {"part_name": "Filter"}})), \
+                patch.object(pc, "async_fetch_help", AsyncMock(return_value={})), \
                 patch.object(pc, "async_dispatcher_send", lambda hass, signal: sent.append(signal)):
             await pc.async_load_into(MagicMock(), data, "R980020")
         assert data.parts_catalogue == {"35": {"part_name": "Filter"}}
@@ -147,6 +148,89 @@ class TestTheEntriesHearOfIt:
         data = SimpleNamespace(blid="B1", parts_catalogue={})
         sent = []
         with patch.object(pc, "async_fetch_catalogue", AsyncMock(return_value={})), \
+                patch.object(pc, "async_fetch_help", AsyncMock(return_value={})), \
                 patch.object(pc, "async_dispatcher_send", lambda hass, signal: sent.append(signal)):
             await pc.async_load_into(MagicMock(), data, "R980020")
         assert sent == []
+
+
+#: The shape of the help catalogue's answer (read 19.10.2026 for R980020
+#: and G185020), trimmed: placeholder URLs, two of the real id spellings.
+HELP = {
+    "customerCarePhone": "+00 0000000",
+    "otherContent": [
+        {"id": "Error 2", "content": "https://help.example/8957.html"},
+        {"id": "Charging Error 4", "content": "https://help.example/19560.html"},
+        {"id": "Charging Error19", "content": "https://help.example/19562.html"},
+        {"id": "Charging error 21", "content": "https://help.example/26166.html"},
+        {"id": "Charging Error 104", "content": "https://help.example/10604.html"},
+        {"id": "Start-Refuse 22", "content": "https://help.example/222.html"},
+        {"id": "Error 9", "content": "http://insecure.example/9"},
+        {"id": None, "content": "https://help.example/none"},
+        "not an entry",
+    ],
+}
+
+
+class TestTheHelpCatalogue:
+    """4.5.0: iRobot's article for an error, per robot model and language."""
+
+    def test_ids_are_compared_without_case_and_spaces(self):
+        """The Classic catalogue spells 119 and 121 two ways each."""
+        parsed = pc.parse_help(HELP)
+        assert parsed["chargingerror19"].endswith("/19562.html")
+        assert parsed["chargingerror21"].endswith("/26166.html")
+        assert "error9" not in parsed, "https only"
+
+    @pytest.mark.parametrize("payload", [None, [], {"otherContent": None}, "x"])
+    def test_anything_else_is_empty(self, payload):
+        assert pc.parse_help(payload) == {}
+
+    def test_classic_and_prime_number_charging_errors_differently(self):
+        data = SimpleNamespace(help_catalogue=pc.parse_help(HELP))
+        assert pc.help_url_for(data, 104, prime=False).endswith("/19560.html")
+        assert pc.help_url_for(data, 104, prime=True).endswith("/10604.html")
+        assert pc.help_url_for(data, 121, prime=False).endswith("/26166.html")
+        assert pc.help_url_for(data, 222, prime=True).endswith("/222.html")
+        assert pc.help_url_for(data, 2, prime=False).endswith("/8957.html")
+
+    def test_no_link_without_an_entry(self):
+        data = SimpleNamespace(help_catalogue=pc.parse_help(HELP))
+        assert pc.help_url_for(data, 48, prime=False) is None
+        assert pc.help_url_for(data, 0, prime=False) is None
+        assert pc.help_url_for(SimpleNamespace(), 2, prime=False) is None
+        assert pc.help_url_for(None, 2, prime=False) is None
+
+    @pytest.mark.asyncio
+    async def test_the_url_carries_the_bare_language_and_the_month(self):
+        hass = SimpleNamespace(config=SimpleNamespace(language="de", country="DE"))
+        session = TestFetch()._session(payload=HELP)
+        with patch.object(pc, "async_get_clientsession", return_value=session):
+            parsed = await pc.async_fetch_help(hass, "R980020")
+        assert session.get.call_args.args[0] == (
+            "https://content-prod.iot.irobotapi.com/v2/help/de/DE/R980020"
+        )
+        assert session.get.call_args.kwargs["params"]["track"].count(".") == 1
+        assert parsed["error2"].endswith("/8957.html")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kwargs", [{"status": 404}, {"raises": OSError("down")}])
+    async def test_a_failed_read_costs_the_links_only(self, kwargs):
+        hass = SimpleNamespace(config=SimpleNamespace(language="en", country="US"))
+        with patch.object(pc, "async_get_clientsession", return_value=TestFetch()._session(**kwargs)):
+            assert await pc.async_fetch_help(hass, "R980020") == {}
+
+    @pytest.mark.asyncio
+    async def test_no_sku_no_request(self):
+        session = TestFetch()._session()
+        with patch.object(pc, "async_get_clientsession", return_value=session):
+            assert await pc.async_fetch_help(MagicMock(), None) == {}
+        session.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_it_is_read_with_the_parts_catalogue(self):
+        data = SimpleNamespace(blid="B1", parts_catalogue={}, help_catalogue={})
+        with patch.object(pc, "async_fetch_catalogue", AsyncMock(return_value={})), \
+                patch.object(pc, "async_fetch_help", AsyncMock(return_value={"error2": "https://h/2"})):
+            await pc.async_load_into(MagicMock(), data, "R980020")
+        assert data.help_catalogue == {"error2": "https://h/2"}

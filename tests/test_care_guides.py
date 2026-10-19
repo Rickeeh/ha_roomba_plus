@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -359,6 +359,50 @@ class TestTheViews:
         assert bad.status == 404 and "Nettoyer le filtre" not in bad.text
         assert guides.text("fr")["_page"]["unknown_title"] in bad.text
 
+    async def test_the_page_says_when_like_the_dialog(self, hass):
+        """4.5.0b2: the page lacked the dialog's "When". It comes from the
+        robot's entry when the page is opened, in the link's language."""
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.roomba_plus.const import DOMAIN
+        from custom_components.roomba_plus.maintenance_model import MaintenanceItem
+        from custom_components.roomba_plus.models import ConnectionType
+
+        guides = _guides()
+        hass.data[cg._DATA_KEY] = guides
+        entry = MockConfigEntry(domain=DOMAIN, title="Robo")
+        entry.add_to_hass(hass)
+        entry.runtime_data = SimpleNamespace(
+            connection_type=ConnectionType.LOCAL_PUSH,
+            roomba_reported_state=lambda: {"sku": "R980020"},
+            maintenance=SimpleNamespace(items=[
+                MaintenanceItem("replace.filter", "replace", "filter", guide_id="clean_filter",
+                                remaining=99.0, unit="hours"),
+                MaintenanceItem("clean.filter", "clean", "filter", guide_id="clean_filter",
+                                interval=7.0, interval_unit="days", interval_source="calendar",
+                                remaining=3.0, unit="days"),
+            ]),
+        )
+        wording = {"interval_line": "Interval {value} {unit}, {source}",
+                   "left": "{value} {unit} left", "unit_days": "days",
+                   "source_calendar": "on the care calendar"}
+        path = guides.page_path(entry.entry_id, "clean_filter", "en")
+        with patch.object(cg, "async_wording", AsyncMock(return_value=wording)) as words:
+            page = await cg.CareGuidePageView().get(
+                _request(hass, _query(path)), entry.entry_id, "clean_filter",
+            )
+        words.assert_awaited_once_with(hass, "en")
+        assert page.status == 200
+        when = f"<h2>{guides.text('en')['_page']['when']}</h2>"
+        assert when in page.text, "the care task's entry, not the replacement's"
+        assert "3 days left" in page.text and "99 hours" not in page.text
+        assert page.text.index(when) < page.text.index(f"<h2>{guides.text('en')['_page']['how']}</h2>")
+
+        gone = guides.page_path("gone", "clean_filter", "en")
+        with patch.object(cg, "async_wording", AsyncMock(return_value=wording)):
+            page = await cg.CareGuidePageView().get(_request(hass, _query(gone)), "gone", "clean_filter")
+        assert page.status == 200 and when not in page.text, "no entry, no When"
+
     async def test_an_expired_link_says_so_in_its_language(self, hass):
         guides = _guides()
         hass.data[cg._DATA_KEY] = guides
@@ -406,3 +450,56 @@ def test_the_title_for_a_notification():
     assert cg.guide_title(hass, "clean_filter") == "Filter reinigen"
     assert cg.guide_title(hass, None) is None
     assert cg.guide_title(SimpleNamespace(data={}), "clean_filter") is None
+
+
+# ── The guides on GitHub: docs/care/ (4.5.0) ────────────────────────────────
+
+def _care_docs():
+    import importlib.util
+
+    path = Path(__file__).parent.parent / "scripts" / "build_care_docs.py"
+    spec = importlib.util.spec_from_file_location("build_care_docs", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestTheGuidesOnGitHub:
+    """docs/care/ is made from the integration's own texts and drawings by
+    scripts/build_care_docs.py. Changed a text and forgot the script: this
+    fails."""
+
+    def test_docs_care_is_what_the_script_writes(self):
+        module = _care_docs()
+        files = module.build()
+        docs = module.DOCS
+        on_disk = {str(p.relative_to(docs)) for p in docs.rglob("*") if p.is_file()}
+        assert on_disk == set(files), "run: python scripts/build_care_docs.py"
+        stale = [p for p, text in files.items() if (docs / p).read_text(encoding="utf-8") != text]
+        assert stale == [], "run: python scripts/build_care_docs.py"
+
+    def test_every_language_and_guide_with_its_drawings(self):
+        files = _care_docs().build()
+        for lang in cg.LANGUAGES:
+            assert f"{lang}/README.md" in files
+            for guide in cg.GUIDES:
+                page = files[f"{lang}/{guide}.md"]
+                for image in re.findall(r"\]\(\.\./(img/[^)]+)\)", page):
+                    assert image in files, (lang, guide, image)
+
+    def test_a_page_names_only_the_robots_it_is_for(self):
+        files = _care_docs().build()
+        filters = files["en/clean_filter.md"]
+        assert "## Roomba 600 and 700 series\n" in filters and "## Roomba s series\n" in filters
+        assert "Braava" not in filters, "a Braava has no filter"
+        bag = files["en/replace_bag.md"]
+        assert "## " not in bag and "600" not in bag, "the same for every Clean Base robot"
+        contacts = files["de/clean_contact.md"]
+        assert "## Clean Base: Roomba e, i und j, Combo j · Prime-Roboter und andere Modelle" in contacts
+
+
+def test_an_expired_link_points_to_the_guides_on_github():
+    guides = _guides()
+    page = guides.notice("pl", "expired")
+    assert 'href="https://github.com/johnnyh1975/ha_roomba_plus/blob/main/docs/care/pl/README.md"' in page
+    assert guides.text("pl")["_page"]["docs"] in page

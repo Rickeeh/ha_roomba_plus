@@ -672,6 +672,20 @@ class TestErrorValueReturnsRealNone:
         assert result is None
         assert result != "None"
 
+    def test_an_error_reads_the_classic_apps_label(self):
+        """4.5.0: the Classic app's words, with the robot's own variant."""
+        from custom_components.roomba_plus.sensor_helpers import _error_value
+
+        entity = MagicMock()
+        entity.clean_mission_status = {"cycle": "clean", "phase": "stuck", "error": 2}
+        entity.vacuum_state = {"sku": "R694020"}
+        entity.vacuum.error_message = "roombapy's own"
+        assert _error_value(entity) == "Main Brushes stuck"
+        entity.vacuum_state = {"sku": "j755020"}
+        assert _error_value(entity) == "Brushes need cleaning"
+        entity.clean_mission_status["error"] = 9999
+        assert _error_value(entity) == "roombapy's own"
+
 class _FakeEntity:
     def __init__(self, vacuum_state=None, clean_mission_status=None):
         self.vacuum_state = vacuum_state or {}
@@ -765,6 +779,24 @@ class TestEnumSensorsReturnTranslationReadySlugs:
         ]
 
         assert not offenders
+
+    def test_the_classic_apps_dock_states_are_named(self):
+        """4.5.0 (D4): 304, 354, 355 and 365 are Clean Base states in the
+        Classic app (`evac_dock_status_<N>`) that read "unknown" here.
+        Every slug has its text in all eight languages."""
+        import json
+        from pathlib import Path
+
+        from custom_components.roomba_plus.const import CLEAN_BASE_STATUS_SLUGS
+
+        assert CLEAN_BASE_STATUS_SLUGS[304] == "stopping"
+        assert CLEAN_BASE_STATUS_SLUGS[354] == "motor_problem"
+        assert CLEAN_BASE_STATUS_SLUGS[355] == "bag_almost_full"
+        assert CLEAN_BASE_STATUS_SLUGS[365] == "hardware_issue"
+        base = Path("custom_components/roomba_plus")
+        for path in [base / "strings.json", *sorted((base / "translations").glob("*.json"))]:
+            states = json.loads(path.read_text(encoding="utf-8"))["entity"]["sensor"]["clean_base_status"]["state"]
+            assert set(CLEAN_BASE_STATUS_SLUGS.values()) <= set(states), path.name
 
 
 
@@ -982,10 +1014,22 @@ class TestSensorAttributes:
         assert s.extra_state_attributes == {"threshold_hours": 60, "max_hours": 150}
 
     def test_an_error_code_carries_its_localised_text(self, monkeypatch):
-        monkeypatch.setattr(sc, "get_localized_error_entry",
-                            lambda code, lang: {"description": f"Fehler {code}", "action": "Rad reinigen"})
+        """The Classic chain (4.5.0): asked as a Classic robot, with the
+        source named and iRobot's article where the catalogue has one."""
+        seen = {}
+
+        def entry(code, lang, **kw):
+            seen.update(kw)
+            return {"description": f"Fehler {code}", "action": "Rad reinigen", "source": "classic_app"}
+
+        monkeypatch.setattr(sc, "get_localized_error_entry", entry)
+        monkeypatch.setattr(sc, "help_url_for", lambda _rt, code, prime: f"https://example.com/{code}")
         attrs = _full_sensor("last_error_code", value=17).extra_state_attributes
-        assert attrs == {"description": "Fehler 17", "action": "Rad reinigen"}
+        assert attrs == {
+            "description": "Fehler 17", "action": "Rad reinigen",
+            "text_source": "classic_app", "help_url": "https://example.com/17",
+        }
+        assert seen["prime"] is False
 
     def test_no_error_code_has_no_text(self):
         assert _full_sensor("last_error_code", value=None).extra_state_attributes == {}

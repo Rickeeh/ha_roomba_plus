@@ -962,6 +962,10 @@ class TestTheTrailIsClearedPerMission:
         entry.runtime_data.prime_positions = positions
         entry.runtime_data.mission_timer_store = MagicMock()
         coordinator.config_entry = entry
+        # Mission-end work goes onto the entry (4.5.0); a bare mock
+        # would leave its coroutine unawaited.
+        from tests.conftest import close_entry_tasks
+        close_entry_tasks(entry)
         coordinator.entry = entry
         shadows = {
             "ro-currentstate": {
@@ -1932,6 +1936,10 @@ class TestTheTrailClearsOnANewMissionNumber:
             mission_timer_store=MagicMock(),
         )
         coordinator.config_entry = entry
+        # Mission-end work goes onto the entry (4.5.0); a bare mock
+        # would leave its coroutine unawaited.
+        from tests.conftest import close_entry_tasks
+        close_entry_tasks(entry)
         coordinator.entry = entry
         return coordinator
 
@@ -2056,6 +2064,10 @@ class TestTheDockIsLearnedWhileCharging:
             mission_timer_store=MagicMock(),
         )
         coordinator.config_entry = entry
+        # Mission-end work goes onto the entry (4.5.0); a bare mock
+        # would leave its coroutine unawaited.
+        from tests.conftest import close_entry_tasks
+        close_entry_tasks(entry)
         coordinator.entry = entry
         shadows = {"ro-currentstate": {
             "cleanMissionStatus": {"phase": phase, "nMssn": 1}

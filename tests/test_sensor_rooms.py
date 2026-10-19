@@ -338,6 +338,18 @@ class TestRoomCleaningHistorySensor:
         assert attrs["Kitchen"] == "2026-06-29T08:45:00"
         assert attrs["Living Room"] == "2026-06-29T08:45:00"
 
+    def test_the_nested_copy_stays_out_of_the_recorder(self):
+        """4.5.0: the flat keys are recorded already; the copy under
+        `rooms` doubled every write."""
+        from custom_components.roomba_plus.sensor_rooms import (
+            ROOMS_ATTRIBUTE,
+            PrimeRoomCleaningHistorySensor,
+            RoombaRoomCleaningHistorySensor,
+        )
+
+        for cls in (RoombaRoomCleaningHistorySensor, PrimeRoomCleaningHistorySensor):
+            assert cls._unrecorded_attributes == frozenset({ROOMS_ATTRIBUTE})
+
     def test_the_rooms_are_also_nested(self):
         """@mrsnyds listed his rooms by rejecting `friendly_name` and
         `state_class`, which breaks once another attribute appears.
@@ -757,6 +769,19 @@ class TestRoomsOverdueSensor:
         k = attrs["rooms"]["Kitchen"]
         assert k["source"] == "configured" and k["status"] == "overdue"
         assert attrs["overdue_rooms"] == ["Kitchen"]
+
+    def test_the_per_room_dicts_stay_out_of_the_recorder(self):
+        """4.5.0: rewritten on every update; the list of overdue rooms is
+        what history and automations use, and it stays."""
+        from custom_components.roomba_plus.sensor import (
+            PrimeRoomsOverdueSensor,
+            RoombaRoomsOverdueSensor,
+        )
+
+        for cls in (RoombaRoomsOverdueSensor, PrimeRoomsOverdueSensor):
+            assert {"rooms", "suggested_interval_days"} <= cls._unrecorded_attributes
+            assert "overdue_rooms" not in cls._unrecorded_attributes
+            assert "daily_suggested" not in cls._unrecorded_attributes
 
     def test_self_calibration_attributes_with_name_resolution(self):
         from custom_components.roomba_plus.robot_profile_store import (

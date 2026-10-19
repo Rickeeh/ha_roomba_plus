@@ -13,6 +13,8 @@ import asyncio
 import datetime
 import pytest
 
+from tests.conftest import EntryTasksViaHass, entry_tasks_via_hass
+
 from tests.conftest import robot_mock
 import sys
 import types
@@ -155,7 +157,7 @@ class _FakeRuntimeData:
         self.presence_manager = None
 
 
-class _FakeEntry:
+class _FakeEntry(EntryTasksViaHass):
     def __init__(self, options: dict, sched_hold=False, phase="charge"):
         self.options = options
         self.runtime_data = _FakeRuntimeData(sched_hold=sched_hold, phase=phase)
@@ -170,6 +172,7 @@ def _make_pm(person_ids: list[str] | None = None) -> PresenceManager:
         "presence_mode": "away_only",
     }
     entry.entry_id = "test_pm"
+    entry_tasks_via_hass(entry, hass)
     return PresenceManager(hass, entry)
 
 
@@ -765,7 +768,8 @@ class TestTotalEnergyConsumed:
         entity.battery_stats = {"estCap": 3000, "nLithChrg": 101}
         risen = _total_energy_consumed_kwh(entity)
         assert risen > mission_end
-        entity.hass.async_create_task.assert_called_once()
+        # On the entry since 4.5.0, so an unload waits for the save.
+        entity._config_entry.async_create_task.assert_called_once()
         store.async_save.assert_called_once_with(
             entity.hass, entity._config_entry.entry_id
         )
@@ -1109,9 +1113,22 @@ class TestGateBlocked:
         assert blocked is True
         assert "robot_busy" in reason
 
+    def test_gate_blocked_true_when_a_blocking_sensor_is_on(self):
+        """4.5.0: only a QUEUED start blocked. With the behaviour "abort"
+        nothing is ever queued, so an active sensor let demand cleaning
+        start the robot."""
+        dtm = self._make_dtm({})
+        dtm._entry.runtime_data.blocking_manager = MagicMock()
+        dtm._entry.runtime_data.blocking_manager.is_queued = False
+        dtm._entry.runtime_data.blocking_manager.blocking_entities = ["binary_sensor.door"]
+        blocked, reason = dtm.gate_blocked()
+        assert blocked is True
+        assert reason == "blocking_sensor_active"
+
     def test_gate_blocked_true_when_blocking_manager_queued(self):
         dtm = self._make_dtm({})
         dtm._entry.runtime_data.blocking_manager = MagicMock()
+        dtm._entry.runtime_data.blocking_manager.blocking_entities = []
         dtm._entry.runtime_data.blocking_manager.is_queued = True
         blocked, reason = dtm.gate_blocked()
         assert blocked is True
@@ -1404,6 +1421,7 @@ def _presence(hass, options):
 
     entry = MagicMock()
     entry.options = options
+    entry_tasks_via_hass(entry, hass)
     return PresenceManager(hass, entry)
 
 
@@ -1720,3 +1738,33 @@ class TestPrimeSchedulesAfterAFailure:
         await manager._away_delay(0)
         assert manager._paused_schedule_ids == set()
         assert manager._did_unfreeze is True
+
+
+class TestTheAwayDelayEndsWithTheEntry:
+    """4.5.0: the away delay ran on `hass` and outlived an unload, so a
+    robot could be started by an integration that was gone."""
+
+    @pytest.mark.asyncio
+    async def test_an_unload_cancels_a_waiting_away_delay(self, hass):
+        import asyncio
+
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.roomba_plus.const import DOMAIN
+        from custom_components.roomba_plus.presence_manager import PresenceManager
+
+        entry = MockConfigEntry(domain=DOMAIN, data={"blid": "B"}, options={"away_delay_min": 30})
+        entry.add_to_hass(hass)
+        pm = PresenceManager(hass, entry)
+        acted = AsyncMock()
+        pm._act_on_all_away = acted
+        await pm._handle_all_away()
+        task = pm._away_task
+        await asyncio.sleep(0)
+        assert not task.done()
+
+        await entry._async_process_on_unload(hass)
+        await asyncio.sleep(0)
+
+        assert task.done()
+        acted.assert_not_awaited()

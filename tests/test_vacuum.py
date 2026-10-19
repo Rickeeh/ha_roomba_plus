@@ -3050,11 +3050,25 @@ def _braava():
 class TestVacuumAttributes:
 
     def test_an_error_carries_its_message_and_code(self):
+        """The Classic app's label (4.5.0), not roombapy's own message."""
         v = _make_vacuum_entity({"cleanMissionStatus": {"phase": "stuck", "error": 17}})
         v.hass = MagicMock()
         v.vacuum.error_code, v.vacuum.error_message = 17, "Wheel stuck"
         attrs = v.extra_state_attributes
-        assert attrs[vac.ATTR_ERROR] == "Wheel stuck" and attrs[vac.ATTR_ERROR_CODE] == 17
+        assert attrs[vac.ATTR_ERROR] == "Path blocked" and attrs[vac.ATTR_ERROR_CODE] == 17
+
+    def test_a_code_no_table_has_keeps_roombapys_message(self):
+        v = _make_vacuum_entity({"cleanMissionStatus": {"phase": "stuck", "error": 9999}})
+        v.hass = MagicMock()
+        v.vacuum.error_code, v.vacuum.error_message = 9999, "Unknown"
+        assert v.extra_state_attributes[vac.ATTR_ERROR] == "Unknown"
+
+    def test_the_help_article_is_linked(self):
+        v = _make_vacuum_entity({"cleanMissionStatus": {"phase": "stuck", "error": 2}})
+        v.hass = MagicMock()
+        v.vacuum.error_code, v.vacuum.error_message = 2, "x"
+        v._config_entry.runtime_data.help_catalogue = {"error2": "https://example.com/8957"}
+        assert v.extra_state_attributes["help_url"] == "https://example.com/8957"
 
     def test_the_position_is_given_in_millimetres(self):
         v = _make_vacuum_entity({"pose": {"point": {"x": 10, "y": -5}, "theta": 90}})

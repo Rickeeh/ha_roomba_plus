@@ -565,3 +565,80 @@ class TestDeviceTriggerLookups:
             MagicMock(), {"type": "no_such_trigger", "device_id": "d1"}, MagicMock(), {})
         assert detach() is None
         assert "unknown trigger type" in caplog.text
+
+
+class TestTheStateTriggersFireOnTheSensorsValues:
+    """4.5.0. The phase and error triggers compared with display words --
+    "Running", "Charging", "Stuck", "None" -- while the sensors report
+    `running`, `charging`, `stuck` and no value at all. None of them ever
+    fired. Here in Home Assistant itself: a device automation, a state
+    change of the sensor, and whether the action ran. The phase values are
+    the ones both generations report (PHASE_LABELS)."""
+
+    async def _automation(self, hass, trigger_type, key):
+        from homeassistant.helpers import device_registry as dr, entity_registry as er
+        from homeassistant.setup import async_setup_component
+        from pytest_homeassistant_custom_component.common import (
+            MockConfigEntry,
+            async_mock_service,
+        )
+
+        entry = MockConfigEntry(domain=DOMAIN, title="Robo")
+        entry.add_to_hass(hass)
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, "blid1")},
+        )
+        sensor = er.async_get(hass).async_get_or_create(
+            "sensor", DOMAIN, f"blid1_{key}", config_entry=entry, device_id=device.id,
+            translation_key=key, suggested_object_id=f"robo_{key}",
+        )
+        hass.states.async_set(sensor.entity_id, "unavailable")
+        calls = async_mock_service(hass, "test", "fired")
+        assert await async_setup_component(hass, "automation", {"automation": {
+            "trigger": {"platform": "device", "domain": DOMAIN,
+                        "device_id": device.id, "type": trigger_type},
+            "action": {"service": "test.fired"},
+        }})
+        await hass.async_block_till_done()
+        return sensor.entity_id, calls
+
+    async def _walk(self, hass, entity_id, states):
+        for state in states:
+            hass.states.async_set(entity_id, state)
+            await hass.async_block_till_done()
+
+    @pytest.mark.parametrize(("trigger_type", "key", "states", "fires"), [
+        # Start of a mission; not the return from a mid-mission recharge.
+        ("cleaning_started", "phase", ["charging", "running"], 1),
+        ("cleaning_started", "phase", ["running", "charging_mid_mission", "running"], 0),
+        ("cleaning_started", "phase", ["running"], 0),  # restart while cleaning
+        # Back on the dock after the mission, or sent home.
+        ("cleaning_finished", "phase", ["running", "returning_after_mission", "charging"], 1),
+        ("cleaning_finished", "phase", ["running", "sent_home", "charging"], 1),
+        ("cleaning_finished", "phase", ["running", "charging_mid_mission"], 0),
+        ("stuck", "phase", ["running", "stuck"], 1),
+        ("stuck", "phase", ["stuck"], 0),  # restart while stuck
+        ("docked", "phase", ["returning_after_mission", "charging"], 1),
+        ("docked", "phase", ["charging"], 0),  # restart on the dock
+        # Review, 4.5.0: a docked robot reads idle at 100 % and charging at
+        # 99 %; that is no docking. A Clean Base empties after docking.
+        ("docked", "phase", ["returning_after_mission", "charging", "idle", "charging"], 1),
+        ("cleaning_finished", "phase",
+         ["running", "returning_after_mission", "emptying_bin", "charging"], 1),
+        ("cleaning_started", "phase", ["charging", "emptying_bin", "charging"], 0),
+        ("error", "error", ["unknown", "Error 48", "unknown", "Debris extractors stuck"], 2),
+        ("error", "error", ["Error 48"], 0),  # restart with an error showing
+    ])
+    async def test_a_change_of_the_sensor_fires_the_trigger(
+        self, hass, enable_custom_integrations, trigger_type, key, states, fires,
+    ):
+        entity_id, calls = await self._automation(hass, trigger_type, key)
+        await self._walk(hass, entity_id, states)
+        assert len(calls) == fires, (trigger_type, states)
+
+    def test_the_phase_values_come_from_the_one_table(self):
+        from custom_components.roomba_plus import device_trigger as dt
+        from custom_components.roomba_plus.const import PHASE_LABELS
+
+        labels = set(PHASE_LABELS.values())
+        assert dt._CLEANING_PHASES | dt._ACTIVE_PHASES | {dt._DOCKED_PHASE, dt._STUCK_PHASE} <= labels

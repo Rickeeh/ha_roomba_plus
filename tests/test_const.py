@@ -29,7 +29,6 @@ from custom_components.roomba_plus.const import (
     has_smart_map,
     is_mop,
 )
-from custom_components.roomba_plus.const import ERROR_CODE_LABELS
 import time as _time_mod
 from custom_components.roomba_plus.const import ROBOT_PROFILES
 import ast
@@ -86,73 +85,128 @@ async def _store_with(*records) -> MissionStore:
     return store
 
 
-class TestErrorCatalogueBackwardCompat:
-    def test_every_old_key_in_catalogue(self):
-        """Every error code that existed in ERROR_CODE_LABELS is still present."""
-        # Spot-check key codes that sensors rely on
-        for code in [0, 2, 6, 14, 17, 18, 36, 46, 48, 68, 224]:
-            assert code in ERROR_CATALOGUE, f"Code {code} missing from ERROR_CATALOGUE"
+class TestOurOwnTextsAreTheBatteryErrors:
+    """4.5.0: ours only where the Classic app says nothing specific and
+    iRobot's help page for the code does."""
 
-    def test_catalogue_entries_have_required_keys(self):
-        for code, entry in ERROR_CATALOGUE.items():
-            assert "label" in entry, f"Code {code} missing 'label'"
-            assert "description" in entry, f"Code {code} missing 'description'"
-            assert "action" in entry, f"Code {code} missing 'action'"
+    def test_only_101_to_121(self):
+        assert set(ERROR_CATALOGUE) == {
+            101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+            114, 115, 117, 119, 120, 121,
+        }
 
-    def test_all_values_are_strings(self):
-        for code, entry in ERROR_CATALOGUE.items():
-            for field in ("label", "description", "action"):
-                assert isinstance(entry[field], str), \
-                    f"Code {code} field '{field}' is not a string"
+    def test_every_one_names_its_source(self):
+        from custom_components.roomba_plus.const import OWN_ERROR_SOURCES
 
-    def test_derived_error_code_labels_matches_catalogue(self):
-        for code, label in ERROR_CODE_LABELS.items():
-            assert ERROR_CATALOGUE[code]["label"] == label, \
-                f"Code {code}: ERROR_CODE_LABELS={label!r} != catalogue label={ERROR_CATALOGUE[code]['label']!r}"
+        assert set(OWN_ERROR_SOURCES) == set(ERROR_CATALOGUE)
+        assert all(OWN_ERROR_SOURCES.values())
+
+    def test_every_one_in_every_language(self):
+        for lang in ("de", "es", "fr", "it", "nl", "pl", "pt"):
+            for code, entry in ERROR_CATALOGUE.items():
+                localised = ERROR_CATALOGUE_TRANSLATIONS[lang][code]
+                for field in ("label", "description", "action"):
+                    assert localised[field], (lang, code, field)
+                    assert localised[field] != entry[field] or lang == "en", (lang, code, field)
+
+    def test_corrected_against_the_help_pages(self):
+        """107 is cold (Prime 10607), 108 temperature or a foreign
+        battery (Classic 10803), 110 a replacement (Prime 10610), 103
+        support only (Classic 8980)."""
+        assert "cold" in ERROR_CATALOGUE[107]["label"].lower()
+        assert "communicat" not in ERROR_CATALOGUE[108]["description"].lower()
+        assert "temperature" in ERROR_CATALOGUE[108]["description"].lower()
+        assert "discharge" not in ERROR_CATALOGUE[110]["action"].lower()
+        assert ERROR_CATALOGUE[103]["action"] == "Contact iRobot support."
+        assert "15 minutes" in ERROR_CATALOGUE[109]["action"]
+        assert "15 minutes" in ERROR_CATALOGUE[111]["action"]
 
 
-class TestErrorCatalogueV341Additions:
-    """v3.4.1 — codes confirmed via direct iRobot Home app APK analysis."""
+class TestTheRobotsOwnAppSpeaks:
+    """4.5.0: a Classic robot's code in the Classic app's words, a Prime
+    robot's in the Prime app's. Until b2 the Prime table answered for
+    every robot."""
 
-    def test_new_individual_codes_present(self):
-        for code in [78, 79, 85, 86, 91, 92, 93, 98, 99]:
-            assert code in ERROR_CATALOGUE, f"Code {code} missing from ERROR_CATALOGUE"
+    def test_error_2_on_a_j7_is_its_rubber_brushes(self):
+        entry = get_localized_error_entry(2, "en", prime=False, sku="j755020")
+        assert entry["label"] == "Brushes need cleaning"
+        assert entry["source"] == "classic_app"
 
-    def test_dock_category_present(self):
-        for code in [*range(450, 464), *range(501, 510)]:
-            assert code in ERROR_CATALOGUE, f"Dock code {code} missing from ERROR_CATALOGUE"
+    def test_error_2_on_a_prime_robot_is_the_prime_apps(self):
+        entry = get_localized_error_entry(2, "en", prime=True)
+        assert entry["label"] == "Main Brush stuck"
+        assert entry["source"] == "prime_app"
 
-    def test_terra_mower_codes_excluded(self):
-        """Codes confirmed via Klartext as iRobot's Terra lawn-mower line
-        (shared app namespace) must NOT be added to this vacuum/mop catalogue
-        — the original APK analysis pass mistakenly proposed the whole
-        54-72/94-97 numeric neighbourhood before the Klartext check caught
-        the mix-up. Note: 65/66/68 are deliberately excluded from this list
-        — those are pre-existing, legitimate vacuum-relevant entries already
-        in the catalogue before this range was ever examined, not Terra codes."""
-        terra_codes = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 67, 69, 70, 71, 72, 94, 95, 96, 97]
-        for code in terra_codes:
-            assert code not in ERROR_CATALOGUE, \
-                f"Code {code} is a Terra mower code and should not be in ERROR_CATALOGUE"
+    def test_a_69x_and_a_clean_base(self):
+        assert get_localized_error_entry(
+            2, "en", prime=False, sku="R694020"
+        )["label"] == "Main Brushes stuck"
+        assert "Absaugstation" not in get_localized_error_entry(
+            36, "de", prime=False, clean_base=True
+        )["description"]
 
-    def test_codes_without_any_source_are_not_in_the_catalogue(self):
-        """130-134, 140/141 and 160-163 came in with v2.5.0, credited to
-        "ia74/jeremywillans references". Neither project has them, nor
-        roombapy, dorita980, rest980, the Classic app 7.18.0 or the Prime
-        app 3.2.0. A text nobody can source is worse than none: the robot
-        reporting one of these codes gets "Error 131", not a guess."""
-        unsourced = [130, 131, 132, 133, 134, 140, 141, 160, 161, 162, 163]
-        for code in unsourced:
-            assert code not in ERROR_CATALOGUE, f"Code {code} has no source"
-            assert get_localized_error_entry(code, "de") == {}, code
+    def test_the_battery_errors_are_ours_on_classic(self):
+        entry = get_localized_error_entry(110, "de", prime=False)
+        assert entry["label"] == "Ungleichgewicht der Batteriezellen"
+        assert entry["source"] == "roomba_plus"
+        assert entry["action"]
 
-    def test_dock_category_mentions_vacuum_only_degradation(self):
-        """Spot-check the documented 'switched to vacuum only' degradation
-        pattern survived verbatim from the source strings for a few codes."""
-        for code in [450, 451, 453, 457, 463]:
-            assert "vacuum only" in ERROR_CATALOGUE[code]["description"].lower(), \
-                f"Code {code} description missing expected vacuum-only degradation note"
+    def test_prime_keeps_its_apps_battery_texts(self):
+        """The Prime app says what is wrong for 104; it is only where it
+        has no entry (108) that ours answers."""
+        assert get_localized_error_entry(104, "en", prime=True)["source"] == "prime_app"
+        assert get_localized_error_entry(108, "en", prime=True)["source"] == "roomba_plus"
 
+    def test_112_has_the_classic_apps_charging_text(self):
+        entry = get_localized_error_entry(112, "en", prime=False)
+        assert entry["source"] == "classic_app"
+        assert entry["label"] == "Charging error"
+
+    def test_a_dock_code_in_a_classic_error_field_reads_the_dock_text(self):
+        entry = get_localized_error_entry(450, "en", prime=False)
+        assert entry["label"] == "Dock: tank missing"
+        assert entry["description"].endswith("(450)")
+
+    def test_the_other_app_only_where_the_own_has_nothing(self):
+        assert get_localized_error_entry(671, "en", prime=False)["source"] == "prime_app"
+        assert get_localized_error_entry(8, "en", prime=True)["source"] == "classic_app"
+
+    def test_codes_nobody_documents_have_no_text(self):
+        """53, 122, 123, 130-134, 140/141 and 160-163 are in neither app
+        nor any help page: "Error 131", not a guess. (112, 116 and 118
+        were thought to be in neither too; the Classic app's status card
+        files all of 101-121 under its charging texts.)"""
+        for code in (53, 122, 123, 130, 134, 140, 141, 160, 163, 99999):
+            for prime in (False, True):
+                assert get_localized_error_entry(code, "de", prime=prime) == {}, (code, prime)
+        assert get_localized_error_entry("x", "de", prime=False) == {}
+
+    def test_the_robots_name_replaces_the_placeholder(self):
+        entry = get_localized_error_entry(22, "en", prime=True, robot_name="Robbie")
+        assert entry["label"].startswith("Robbie")
+        assert "@val" not in entry["label"]
+
+    def test_without_a_name_the_placeholder_is_not_shown(self):
+        """Diagnostics and the cloud's raw attributes have no robot name;
+        "@val" must not reach the screen there either."""
+        for code, prime in ((22, True), (1010, False), (91, False)):
+            label = get_localized_error_entry(code, "en", prime=prime)["label"]
+            assert "@val" not in label and "Roomba" in label, (code, label)
+        entry = get_localized_error_entry(1010, "en", prime=False, robot_name="")
+        assert "@val" not in entry["label"]
+
+    def test_the_english_label_does_not_follow_the_language(self):
+        from custom_components.roomba_plus.const import error_label
+
+        assert error_label(2, prime=False) == "Brushes need cleaning"
+        assert error_label(99999, prime=False) is None
+
+    def test_the_help_ids_differ_for_charging_errors(self):
+        from custom_components.roomba_plus.const import error_help_id
+
+        assert error_help_id(104, prime=False) == "Charging Error 4"
+        assert error_help_id(104, prime=True) == "Charging Error 104"
+        assert error_help_id(2, prime=False) == "Error 2"
 
 
 class TestRF0IMAH:
@@ -402,162 +456,34 @@ class TestIsMop:
         assert is_mop(STATE_EMPTY) is False
 
 
-class TestVendorTextTakesPrecedence:
-    """Of 126 labels written here, exactly two matched iRobot's.
-
-    Ours said "Left wheel off floor"; iRobot says "@val moved or on an
-    uneven surface". The first names a sensor reading, the second
-    describes what happened -- and it is what the user sees in the app
-    beside ours.
-    """
-
-    def test_a_code_the_vendor_documents_uses_their_wording(self):
-        from custom_components.roomba_plus.const import (
-            ERROR_CATALOGUE,
-            get_localized_error_entry,
-        )
-
-        entry = get_localized_error_entry(1, "en")
-
-        assert entry["label"] != ERROR_CATALOGUE[1]["label"]
-        assert "uneven surface" in entry["label"]
-
-    def test_their_explanation_replaces_ours(self):
-        from custom_components.roomba_plus.const import get_localized_error_entry
-
-        entry = get_localized_error_entry(46, "en")
-
-        assert "charge" in entry["description"].lower()
-
-    def test_the_placeholder_is_left_alone(self):
-        """`@val` is the robot's name in iRobot's own strings. A caller
-        that knows it substitutes; one that does not gets a sentence with
-        a placeholder rather than a mangled one."""
-        from custom_components.roomba_plus.const import get_localized_error_entry
-
-        assert "@val" in get_localized_error_entry(1, "en")["label"]
-
-    def test_a_code_only_we_know_still_answers(self):
-        """Ours covers 75 codes iRobot does not document. The vendor
-        text wins where both have an entry; ours answers where the
-        vendor is silent."""
-        from custom_components.roomba_plus.const import (
-            ERROR_CATALOGUE,
-            get_localized_error_entry,
-        )
-
-        ours_only = next(
-            c for c in ERROR_CATALOGUE
-            if __import__(
-                "roombapy_prime.vendor_errors",
-                fromlist=["vendor_error"],
-            ).vendor_error(c) is None and c != 0
-        )
-        entry = get_localized_error_entry(ours_only, "en")
-
-        assert entry["label"] == ERROR_CATALOGUE[ours_only]["label"]
-
-    def test_our_action_field_survives(self):
-        """iRobot has no equivalent, so replacing their two fields must
-        not drop our third."""
-        from custom_components.roomba_plus.const import get_localized_error_entry
-
-        assert "action" in get_localized_error_entry(1, "en")
-
-
-#: A code iRobot's own catalogue has no text for, so these tests keep
-#: exercising OUR translation chain rather than the vendor override that
-#: now sits in front of it.
-_OURS_ONLY = 3
-_DE_LABEL = "Rechtes Rad hebt ab"
-
-
 class TestGetLocalizedErrorEntry:
-    """v3.4.1 — get_localized_error_entry() and the ERROR_CATALOGUE_TRANSLATIONS
-    parallel structure in error_translations.py."""
+    """Our texts (101-121), localised, with English per field."""
 
-    def test_none_language_returns_english_base(self):
-        entry = get_localized_error_entry(_OURS_ONLY, None)
-        assert entry == ERROR_CATALOGUE[_OURS_ONLY]
+    def test_english_and_no_language(self):
+        assert get_localized_error_entry(121, None, prime=False)["label"] == ERROR_CATALOGUE[121]["label"]
+        assert get_localized_error_entry(121, "en", prime=False)["label"] == ERROR_CATALOGUE[121]["label"]
 
-    def test_en_language_returns_english_base(self):
-        entry = get_localized_error_entry(_OURS_ONLY, "en")
-        assert entry == ERROR_CATALOGUE[_OURS_ONLY]
+    def test_a_translation(self):
+        assert get_localized_error_entry(121, "de", prime=False)["label"] == "In der Basis, lädt aber nicht"
+        assert get_localized_error_entry(121, "pt-BR", prime=False)["label"] == "Na base mas sem carregar"
 
-    def test_de_returns_translated_text_not_english(self):
-        entry = get_localized_error_entry(_OURS_ONLY, "de")
-        assert entry["label"] != ERROR_CATALOGUE[_OURS_ONLY]["label"]
-        assert entry["label"] == _DE_LABEL
+    def test_an_uncovered_language_reads_english(self):
+        entry = get_localized_error_entry(121, "ja", prime=False)
+        assert entry["label"] == ERROR_CATALOGUE[121]["label"]
 
-    def test_unsupported_language_falls_back_to_english(self):
-        """A language never covered by ERROR_CATALOGUE_TRANSLATIONS (e.g.
-        Japanese) must silently degrade to English, not raise or return
-        blanks."""
-        entry = get_localized_error_entry(_OURS_ONLY, "ja")
-        assert entry == ERROR_CATALOGUE[_OURS_ONLY]
-
-    def test_unknown_error_code_returns_empty_dict_like_base(self):
-        assert get_localized_error_entry(99999, None) == {}
-        assert get_localized_error_entry(99999, "de") == {}
-
-    def test_partial_translation_falls_back_field_by_field(self, monkeypatch):
-        """A code with only a partial translation (e.g. label translated,
-        description/action missing) must never produce a blank string for
-        the missing fields — each field falls back to English independently."""
-        import custom_components.roomba_plus.const as const_module
-        partial = {"de": {_OURS_ONLY: {"label": "Nur Label übersetzt"}}}
+    def test_a_missing_field_reads_english(self, monkeypatch):
+        partial = {"de": {121: {"label": "Nur Label übersetzt"}}}
         monkeypatch.setattr(
             "custom_components.roomba_plus.error_translations.ERROR_CATALOGUE_TRANSLATIONS",
             partial,
         )
-        entry = get_localized_error_entry(_OURS_ONLY, "de")
+        entry = get_localized_error_entry(121, "de", prime=False)
         assert entry["label"] == "Nur Label übersetzt"
-        assert entry["description"] == ERROR_CATALOGUE[_OURS_ONLY]["description"]
-        assert entry["action"] == ERROR_CATALOGUE[_OURS_ONLY]["action"]
+        assert entry["description"] == ERROR_CATALOGUE[121]["description"]
+        assert entry["action"] == ERROR_CATALOGUE[121]["action"]
 
-    def test_all_six_languages_present(self):
-        assert set(ERROR_CATALOGUE_TRANSLATIONS.keys()) == {
-            "de", "fr", "it", "es", "pt", "nl",
-        }
-
-    def test_every_catalogue_code_translated_in_every_language(self):
-        """Regression guard: every code in ERROR_CATALOGUE (including the v3.4.1 additions) must have a translation entry in
-        every one of the six supported languages — no silent gaps, no
-        orphaned codes translated that no longer exist in the catalogue."""
-        all_codes = set(ERROR_CATALOGUE.keys())
-        for lang, entries in ERROR_CATALOGUE_TRANSLATIONS.items():
-            translated = set(entries.keys())
-            missing = all_codes - translated
-            orphaned = translated - all_codes
-            assert not missing, f"{lang} is missing translations for codes: {sorted(missing)}"
-            assert not orphaned, f"{lang} has orphaned translations for codes: {sorted(orphaned)}"
-
-    def test_new_v341_codes_are_translated(self):
-        """Spot-check that the v3.4.1 error-catalogue additions specifically
-        got translations, not just the pre-existing 224 codes."""
-        new_codes = [78, 79, 85, 86, 91, 92, 93, 98, 99, 450, 463, 501, 509]
-        for lang in ERROR_CATALOGUE_TRANSLATIONS:
-            for code in new_codes:
-                assert code in ERROR_CATALOGUE_TRANSLATIONS[lang], \
-                    f"Code {code} missing {lang} translation"
-
-    def test_duplicate_english_text_codes_share_identical_translation(self):
-        """Codes 8 and 11 share the exact same English text ('Bin error')
-        in ERROR_CATALOGUE — the group-based dedup mechanism in
-        error_translations.py must therefore give them identical
-        translations too, not two independently (and potentially
-        inconsistently) typed-out versions."""
-        assert ERROR_CATALOGUE[8]["label"] == ERROR_CATALOGUE[11]["label"] == "Bin error"
-        for lang in ERROR_CATALOGUE_TRANSLATIONS:
-            assert ERROR_CATALOGUE_TRANSLATIONS[lang][8] == ERROR_CATALOGUE_TRANSLATIONS[lang][11]
-
-    def test_translated_entries_have_all_three_fields(self):
-        for lang, entries in ERROR_CATALOGUE_TRANSLATIONS.items():
-            for code, entry in entries.items():
-                for field in ("label", "description", "action"):
-                    assert field in entry, f"{lang} code {code} missing '{field}'"
-                    assert isinstance(entry[field], str), \
-                        f"{lang} code {code} field '{field}' is not a string"
+    def test_the_seven_translated_languages(self):
+        assert set(ERROR_CATALOGUE_TRANSLATIONS) == {"de", "es", "fr", "it", "nl", "pl", "pt"}
 
 
 class TestMapCapabilityGatingNoLocalPose:
@@ -696,7 +622,7 @@ class TestTheVendorTextComesFromTheLibrary:
         from custom_components.roomba_plus.const import get_localized_error_entry
         from roombapy_prime.vendor_errors import vendor_error
 
-        entry = get_localized_error_entry(234, "de")
+        entry = get_localized_error_entry(234, "de", prime=True)
 
         assert entry["description"] == vendor_error(234, "de")["content"]
         assert entry["description"].startswith("Setzen Sie den Wischmopp ein")
@@ -713,7 +639,7 @@ class TestTheVendorTextComesFromTheLibrary:
         bad = []
         for code in VENDOR_ERROR_TEXTS:
             for locale in ("en", "de", "es", "fr", "it", "nl", "pl", "pt"):
-                entry = get_localized_error_entry(code, locale)
+                entry = get_localized_error_entry(code, locale, prime=True)
                 # Title and description checked apart: joined, a title
                 # ending in `@val` before a capital reads as glued.
                 for text in (entry.get("label", ""), entry.get("description", "")):
@@ -724,7 +650,7 @@ class TestTheVendorTextComesFromTheLibrary:
     def test_an_ordinary_message_is_untouched(self):
         from custom_components.roomba_plus.const import get_localized_error_entry
 
-        assert get_localized_error_entry(46, "de")["label"] == "Akkustand zu niedrig für die Reinigung"
+        assert get_localized_error_entry(46, "de", prime=True)["label"] == "Akkustand zu niedrig für die Reinigung"
 
 
 class TestEveryInitiatorHasALabel:

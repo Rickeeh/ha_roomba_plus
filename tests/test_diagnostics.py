@@ -702,6 +702,32 @@ class TestCredentialsNeverReachTheDump:
 
         assert dump["rw-settings"] == {"childLock": True, "suctionLevel": 2}
 
+    def test_a_prime_login_does_not_get_through(self):
+        """4.5.0: a Prime login is AWS credentials. `SecretKey` and
+        `SessionToken` matched before; `AccessKeyId`, the Cognito
+        identity and the IoT endpoint did not. A built-up dump with all
+        of them, in every spelling, at depth and in a list."""
+        import json
+
+        from custom_components.roomba_plus.diagnostics import _redact_secrets_everywhere
+
+        login = {
+            "AccessKeyId": "example-access-key-id-1",
+            "SecretKey": "secret-example",
+            "SessionToken": "session-example",
+            "CognitoId": "eu-west-1:00000000-0000-0000-0000-000000000000",
+            "IdentityId": "eu-west-1:11111111-1111-1111-1111-111111111111",
+            "access_key_id": "example-access-key-id-2",
+            "cognito-id": "eu-west-1:22222222-2222-2222-2222-222222222222",
+            "iotEndpoint": "example-ats.iot.eu-west-1.amazonaws.com",
+            "mqtt_endpoint": "example-mqtt.iot.eu-west-1.amazonaws.com",
+        }
+        dump = _redact_secrets_everywhere({"credentials": login, "robots": [{"auth": login}]})
+        text = json.dumps(dump)
+        for value in login.values():
+            assert value not in text, value
+        assert dump["robots"][0]["auth"]["AccessKeyId"] == "**REDACTED**"
+
     def test_hash_alone_does_not_trigger(self):
         """`hash` is deliberately not a marker: it would catch map and
         asset identifiers that are useful for debugging and are not
@@ -1883,11 +1909,13 @@ class TestTheErrorIsDecodedForBothDumps:
     def _decode(code):
         from custom_components.roomba_plus.diagnostics import _decoded_error
 
-        return _decoded_error(code)
+        return _decoded_error(code, prime=True)
 
     def test_a_known_code_carries_its_label(self) -> None:
+        """The cloud-only dump is a Prime robot's: the Prime app's words
+        (4.5.0), not the Classic reading this showed before."""
         assert self._decode(224)["error_message"] == (
-            "Smart Map localization failed"
+            "Unable to start: Map issue, please remap"
         )
 
     def test_no_error_is_not_an_unknown_error(self) -> None:

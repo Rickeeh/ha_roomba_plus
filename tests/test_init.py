@@ -1430,7 +1430,9 @@ class TestOutlineSyncRecomputePrecedesFreezeSnapshot:
 
         src = (Path(pkg.__file__).parent / "image.py").read_text()
         sync_idx = src.find("_gdata.outline_store.recompute_sync(")
-        room_seg_idx = src.find("_gdata.room_seg_store.maybe_recompute(")
+        # 4.5.0: the room-seg block schedules the segmentation (executor)
+        # and its follow-ups, the freeze snapshot among them.
+        room_seg_idx = src.find("self._async_segment_rooms_after_mission(")
         assert sync_idx != -1, "outline_store.recompute_sync() call missing from image.py"
         assert room_seg_idx != -1
         assert sync_idx < room_seg_idx, (
@@ -1693,6 +1695,27 @@ class TestReloadOnOptionsChangeIncludesCalendar:
         await _async_reload_on_options_change(hass, config_entry)
 
         hass.config_entries.async_reload.assert_awaited_once_with("entry1")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("key", ["presence_scheduling_enabled", "demand_cleaning_enabled"])
+    async def test_a_manager_built_at_setup_reloads_when_switched(self, key):
+        """4.5.0: both managers exist only when their switch was on at
+        setup; switching it in Configure did nothing until a restart."""
+        from custom_components.roomba_plus import _async_reload_on_options_change
+
+        for data, options, reloads in (
+            ({}, {key: True}, True),
+            ({key: True}, {key: False}, True),
+            ({}, {key: False}, False),
+        ):
+            config_entry = MagicMock()
+            config_entry.data = data
+            config_entry.options = options
+            config_entry.entry_id = "entry1"
+            hass = MagicMock()
+            hass.config_entries.async_reload = AsyncMock()
+            await _async_reload_on_options_change(hass, config_entry)
+            assert hass.config_entries.async_reload.await_count == int(reloads), (data, options)
 
     @pytest.mark.asyncio
     async def test_switching_care_reminders_on_reloads(self):
@@ -2936,3 +2959,102 @@ class TestMapFontsFromTheConfigFolder:
         monkeypatch.setattr("custom_components.roomba_plus.find_fallback_fonts", broken)
         await _async_setup_map_fonts(hass)
         assert mr.fallback_font_names() == []
+
+
+class TestBackgroundWorkIsBoundToTheEntry:
+    """4.5.0: work started with `hass.async_create_task` outlived an
+    unload or reload -- a store save on a closing store, a presence or
+    blocking timer starting a robot of an integration that was gone.
+    Started on the entry, an unload waits for it (or, for the long timers,
+    cancels it)."""
+
+    @staticmethod
+    def _calls(pattern):
+        import re
+        from pathlib import Path
+
+        import custom_components.roomba_plus as pkg
+
+        found = []
+        for path in sorted(Path(pkg.__file__).parent.glob("*.py")):
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if re.search(pattern, code) and not code.strip().startswith(('"', "'")):
+                    found.append(f"{path.name}:{n}")
+        return found
+
+    def test_no_task_is_started_on_hass(self):
+        found = self._calls(r"\bhass\.async_create_task\(")
+        # The one exception: clean_sequence when neither entity has an
+        # entry, which a validated call cannot reach.
+        assert [f for f in found if not f.startswith("services.py:")] == [], found
+        assert len(found) == 1, found
+
+    def test_no_thread_bridge_is_left(self):
+        """Every callback runs on the event loop since roombapy 2.x and
+        roombapy-prime 0.5.0; call_soon_threadsafe only deferred them."""
+        assert self._calls(r"call_soon_threadsafe\(") == []
+
+
+class TestTheReloadBaselineIsSeeded:
+    """Review, 4.5.0: an entry from before 4.5.0 with presence scheduling or
+    demand cleaning on had the key in `.options` only; the first options
+    write of any kind -- the room select saves zone ids mid-mission --
+    read as a change and reloaded the entry."""
+
+    def test_an_old_entry_gets_its_switches_into_data(self):
+        from custom_components.roomba_plus import _seed_reload_baseline
+
+        hass = MagicMock()
+        entry = MagicMock()
+        entry.data = {"blid": "B"}
+        entry.options = {"presence_scheduling_enabled": True, "demand_cleaning_enabled": False}
+        _seed_reload_baseline(hass, entry)
+        hass.config_entries.async_update_entry.assert_called_once_with(
+            entry, data={"blid": "B", "presence_scheduling_enabled": True,
+                         "demand_cleaning_enabled": False},
+        )
+
+    def test_a_seeded_entry_is_left_alone(self):
+        from custom_components.roomba_plus import _seed_reload_baseline
+
+        hass = MagicMock()
+        entry = MagicMock()
+        entry.data = {"presence_scheduling_enabled": False}
+        entry.options = {"presence_scheduling_enabled": True}
+        _seed_reload_baseline(hass, entry)
+        hass.config_entries.async_update_entry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_then_an_unrelated_write_does_not_reload(self):
+        from custom_components.roomba_plus import (
+            _async_reload_on_options_change,
+            _seed_reload_baseline,
+        )
+
+        entry = MagicMock()
+        entry.entry_id = "e1"
+        entry.data = {}
+        entry.options = {"demand_cleaning_enabled": True}
+        hass = MagicMock()
+        hass.config_entries.async_reload = AsyncMock()
+        hass.config_entries.async_update_entry = MagicMock(
+            side_effect=lambda e, data: setattr(e, "data", data)
+        )
+        _seed_reload_baseline(hass, entry)
+        entry.options = {"demand_cleaning_enabled": True, "discovered_zone_ids": ["1"]}
+        await _async_reload_on_options_change(hass, entry)
+        hass.config_entries.async_reload.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_setup_seeds_it_on_both_generations(self):
+        import custom_components.roomba_plus as pkg
+        from custom_components.roomba_plus.const import CONF_CONNECTION_TYPE
+        from custom_components.roomba_plus.models import ConnectionType
+
+        entry = MagicMock()
+        entry.data = {CONF_CONNECTION_TYPE: ConnectionType.CLOUD_ONLY.value}
+        with patch.object(pkg, "_seed_reload_baseline") as seed, \
+                patch.object(pkg, "_async_setup_entry_prime", AsyncMock(return_value=True)):
+            assert await pkg.async_setup_entry(MagicMock(), entry) is True
+        seed.assert_called_once()

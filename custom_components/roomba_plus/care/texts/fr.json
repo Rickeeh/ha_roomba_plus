@@ -8,7 +8,9 @@
     "expired_text": "Les liens vers les guides d'entretien sont valables 30 jours. Pour en obtenir un nouveau, ouvrez dans Home Assistant Paramètres → Appareils et services → Roomba+ → Configurer → Entretien → Guide d'entretien.",
     "unknown_title": "Aucun guide ici",
     "unknown_text": "Ce guide n'existe pas. Ouvrez Configurer → Entretien → Guide d'entretien dans Home Assistant.",
-    "when": "Quand"
+    "when": "Quand",
+    "open": "Ouvrir en page",
+    "docs": "Tous les guides d'entretien sur GitHub"
   },
   "clean_filter": {
     "title": "Nettoyer le filtre",

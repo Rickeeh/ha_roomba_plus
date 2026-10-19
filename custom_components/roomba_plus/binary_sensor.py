@@ -1768,7 +1768,10 @@ class PrimeStartBlockedSensor(_PrimeStatusSensorBase, BinarySensorEntity):
         texts = [
             t
             for t in (
-                get_localized_error_entry(code, language).get("label")
+                get_localized_error_entry(
+                    code, language, prime=True,
+                    robot_name=getattr(self._config_entry, "title", None),
+                ).get("label")
                 for code in sorted(blocking)
             )
             if t

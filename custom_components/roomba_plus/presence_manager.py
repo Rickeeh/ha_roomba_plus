@@ -151,7 +151,8 @@ class PresenceManager:
         @callback
         def _on_state_changed(event: Any) -> None:
             if event.data.get("entity_id") in person_ids:
-                self._hass.async_create_task(
+                self._entry.async_create_task(
+                    self._hass,
                     self._evaluate_presence(),
                     name="roomba_plus_presence_eval",
                 )
@@ -167,7 +168,7 @@ class PresenceManager:
             self._cancel_listeners.append(register(self._on_connection_state))
 
         # Evaluate on setup so initial state is applied immediately
-        self._hass.async_create_task(self._evaluate_presence())
+        self._entry.async_create_task(self._hass, self._evaluate_presence())
         _LOGGER.debug(
             "PresenceManager: started, tracking %s", person_ids
         )
@@ -216,7 +217,8 @@ class PresenceManager:
         _LOGGER.debug(
             "PresenceManager: all away — %d min delay started", delay_min
         )
-        self._away_task = self._hass.async_create_task(
+        self._away_task = self._entry.async_create_background_task(
+            self._hass,
             self._away_delay(delay_min * 60),
             name="roomba_plus_away_delay",
         )
@@ -314,7 +316,8 @@ class PresenceManager:
     @callback
     def _on_retry_timer(self, _now: Any) -> None:
         self._cancel_retry_timer = None
-        self._hass.async_create_task(
+        self._entry.async_create_task(
+            self._hass,
             self._retry(), name="roomba_plus_presence_retry"
         )
 
@@ -323,7 +326,8 @@ class PresenceManager:
         """roombapy calls this on every transition, on the event loop."""
         if state == "connected" and self._cancel_retry_timer is not None:
             self._cancel_retry()
-            self._hass.async_create_task(
+            self._entry.async_create_task(
+                self._hass,
                 self._retry(), name="roomba_plus_presence_retry"
             )
 

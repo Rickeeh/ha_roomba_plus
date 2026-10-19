@@ -55,13 +55,12 @@ from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfTime
 
 from roombapy_prime.models.mission_history import FaultScene
 
-from .parts_catalog import guide_url_for
+from .parts_catalog import guide_url_for, help_url_for
 from .prime_parts import part_count_in_display_unit
 from .maintenance_model import MaintenanceItem
 from .prime_dirt import unfinished_missions
 from .const import (
     PHASE_LABELS,
-    ERROR_CODE_LABELS,
     CLEANING_PHASES,
     DOCK_TASK_PHASES,
     JOB_INITIATOR_SLUGS,
@@ -1287,8 +1286,8 @@ class PrimeErrorSensor(_PrimeCurrentStateSensorBase):
 
       - A field capture contradicts the label outright (@utkjmitch,
         Y351020): `error: 46` with `phase: "stuck"` on a robot
-        physically confirmed stuck, at 55% battery. ERROR_CODE_LABELS
-        renders 46 as "Low battery".
+        physically confirmed stuck, at 55% battery. The Classic label
+        for 46 is "Low battery".
       - iRobot's own help catalogue gives Prime and Classic DIFFERENT
         articles for the same code. Of 16 codes present in both the i7
         and the Combo 405 catalogue, all 16 point elsewhere:
@@ -1313,14 +1312,13 @@ class PrimeErrorSensor(_PrimeCurrentStateSensorBase):
     than one field capture: iRobot itself treats these as separate
     namespaces.
 
-    ERROR_CODE_LABELS remains community knowledge from rest980,
-    validated by Classic users over years -- real evidence, for Classic.
-
     The reasoning is the same one already applied to consumable parts
     202 and 212 a few screens below: a wrong label gets believed, a
-    number invites a question. The Classic reading stays reachable as
-    an attribute rather than being thrown away -- it is probably right
-    more often than not, it just must not be asserted.
+    number invites a question. The words come as attributes, from the
+    Prime app (`error_title`, `error_description`) and iRobot's article
+    for the robot's model (`help_url`). The Classic guess that stood
+    beside them (`classic_label_unconfirmed`) went in 4.5.0 with the
+    table it came from.
 
     INHERITS CLASSIC'S HARD-WON STALE-ERROR SUPPRESSION, deliberately
     rather than reading the field raw: cleanMissionStatus.error
@@ -1379,15 +1377,10 @@ class PrimeErrorSensor(_PrimeCurrentStateSensorBase):
             "not_ready": status.not_ready,
             "cond_not_ready": status.cond_not_ready,
         }
-        # The Classic reading, offered and labelled as unconfirmed. It
-        # is probably right more often than not; it is simply not
-        # established for this firmware generation, and one field
-        # capture contradicts it. Naming the attribute for its own
-        # uncertainty means nobody builds an automation on it by
-        # accident.
-        guess = ERROR_CODE_LABELS.get(status.error or 0)
-        if guess:
-            attrs["classic_label_unconfirmed"] = guess
+        # `classic_label_unconfirmed` WAS HERE until 4.5.0: our own Classic
+        # label, offered as a guess. The guess's source is gone -- Classic
+        # labels are the Classic app's now -- and the Prime app's own text
+        # follows below as `error_title`.
 
         # SEVERITY IS VENDOR DATA, unlike the label above.
         #
@@ -1439,12 +1432,24 @@ class PrimeErrorSensor(_PrimeCurrentStateSensorBase):
             getattr(getattr(self, "hass", None), "config", None)
             and self.hass.config.language
         ) or "en"
+        robot_name = getattr(getattr(self, "_config_entry", None), "title", None)
         if status.error:
-            entry = get_localized_error_entry(int(status.error), language)
+            entry = get_localized_error_entry(
+                int(status.error), language, prime=True, robot_name=robot_name
+            )
             if entry.get("label"):
                 attrs["error_title"] = entry["label"]
             if entry.get("description"):
                 attrs["error_description"] = entry["description"]
+            if entry.get("source"):
+                attrs["error_text_source"] = entry["source"]
+            help_url = help_url_for(
+                getattr(getattr(self, "_config_entry", None), "runtime_data", None),
+                int(status.error),
+                prime=True,
+            )
+            if help_url:
+                attrs["help_url"] = help_url
 
         # WHAT THE ROBOT WOULD STILL ACCEPT.
         #
@@ -1495,7 +1500,9 @@ class PrimeErrorSensor(_PrimeCurrentStateSensorBase):
             texts = [
                 t
                 for t in (
-                    get_localized_error_entry(code, language).get("label")
+                    get_localized_error_entry(
+                        code, language, prime=True, robot_name=robot_name
+                    ).get("label")
                     for code in sorted(blocking)
                 )
                 if t

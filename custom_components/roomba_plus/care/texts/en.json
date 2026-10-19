@@ -8,7 +8,9 @@
     "expired_text": "Care guide links are valid for 30 days. For a new one, open Settings → Devices & services → Roomba+ → Configure → Maintenance → Care guide in Home Assistant.",
     "unknown_title": "No guide here",
     "unknown_text": "This guide does not exist. Open Configure → Maintenance → Care guide in Home Assistant.",
-    "when": "When"
+    "when": "When",
+    "open": "Open as a page",
+    "docs": "All care guides on GitHub"
   },
   "clean_filter": {
     "title": "Clean the filter",

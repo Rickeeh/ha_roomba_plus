@@ -19,18 +19,13 @@ light, normal and deep. 1 and 0 have never been observed, so they are not
 offered: a level the robot rejects would fail silently, and a level that
 means something else entirely would be worse.
 
-`padWetness` is NOT offered, and that is the more interesting decision.
-It is not a single value -- the model is three separate levels, one per
-pad type (`disposable`, `pad_plate`, `reusable`). Which one applies
-depends on the pad currently fitted, and the robot decides that. Exposing
-one select that writes "the wetness" would mean guessing which of the
-three the user meant.
-
-Classic sidesteps this by offering two selects, one per pad type, because
-its wire format has two separate fields. Prime's has three and a
-fitted-pad concept on top. Until somebody establishes how the robot picks
-between them, a select here would be a control whose effect depends on
-hardware state the user cannot see.
+`padWetness` is offered for the pad plate only (`prime_pad_wetness`,
+`padWetness.padPlate`), and only where the robot reports a wetness
+range (`ppWetLvl` above 0). The model has three levels, one per pad
+type (`disposable`, `pad_plate`, `reusable`), and the robot picks the
+one for the pad fitted; the other two are not offered until somebody
+establishes how the robot chooses between them. Classic offers two
+selects, one per pad type, because its wire format has two fields.
 """
 
 from __future__ import annotations

@@ -195,9 +195,12 @@ class BlockingManager:
             if not self.blocking_entities:
                 # All sensors cleared — start in a new task to avoid blocking
                 # the event loop from within the event callback.
-                self._hass.async_create_task(
+                # Background (4.5.0): it starts the robot through a
+                # blocking service call, which must not hold up an unload.
+                self._entry.async_create_background_task(
+                    self._hass,
                     self._trigger_queued_start(),
-                    name="roomba_plus_blocking_queue_start",
+                    "roomba_plus_blocking_queue_start",
                 )
 
         for eid in sensor_ids:
@@ -212,7 +215,8 @@ class BlockingManager:
             )
             self._cancel_listeners.append(unsub)
 
-        self._timeout_task = self._hass.async_create_task(
+        self._timeout_task = self._entry.async_create_background_task(
+            self._hass,
             self._run_timeout(timeout_min * 60),
             name="roomba_plus_blocking_timeout",
         )
@@ -249,7 +253,8 @@ class BlockingManager:
 
             # F6c — record the timeout as a blocked_timeout mission result
             from .callbacks import async_record_mission
-            self._hass.async_create_task(
+            self._entry.async_create_task(
+                self._hass,
                 async_record_mission(
                     self._hass,
                     self._entry,
@@ -275,7 +280,8 @@ class BlockingManager:
                 # (The consecutive_skips Repair Issue was removed in v3.5.0 —
                 # the count is already exposed by the consecutive_clean_skips
                 # sensor; the store save below still feeds that sensor.)
-                self._hass.async_create_task(
+                self._entry.async_create_task(
+                    self._hass,
                     store.async_save(self._hass, self._entry.entry_id),
                     name="roomba_plus_consecutive_skips_save",
                 )

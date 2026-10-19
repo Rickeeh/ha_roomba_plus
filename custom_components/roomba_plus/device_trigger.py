@@ -64,6 +64,7 @@ from .const import (
     EVENT_MAP_RETRAIN_STARTED,
     EVENT_ROOM_COMPLETED,
     HEALTH_BAND_RANK,
+    PHASE_LABELS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -114,23 +115,37 @@ TRIGGER_SCHEMA = DEVICE_TRIGGER_BASE_SCHEMA.extend(
 )
 
 # ── Phase values from the phase sensor ───────────────────────────────────────
-# These are the human-readable labels produced by sensor.py (PHASE_LABELS).
-# Active cleaning phases — robot is cleaning or navigating during a mission.
-_CLEANING_PHASES = {"Running", "Docking mid-mission"}
+# THE SENSOR'S OWN VALUES, from the one table both generations use.
+#
+# These were display words -- "Running", "Charging", "Stuck", "Docking —
+# end of mission" -- while the phase sensor reports translation keys
+# (`running`, `charging`, ...) since 4.0.0. A state trigger compares the
+# raw state, so cleaning_started, cleaning_finished, stuck and docked
+# never fired on either generation, and nothing said so (4.5.0).
+#
+# Cleaning: the robot sets out. Entering a mid-mission dock is not a
+# start, so it is not here.
+_CLEANING_PHASES = {PHASE_LABELS["run"]}
 
-# Returning phases — robot is heading back to dock after a mission.
-# "hmPostMsn" (Docking — end of mission) is the normal post-mission return.
-# "hmUsrDock" (Sent home) is user-initiated return.
-# "Emptying bin" (evac) means the Clean Base is evacuating mid-mission —
-# this is NOT the end of the mission, so we exclude it here.
-_RETURNING_PHASES = {"Docking — end of mission", "Sent home"}
+# Returning: heading back after the mission, or sent home. Emptying the
+# bin mid-mission is not the end of one.
+_RETURNING_PHASES = {PHASE_LABELS["hmPostMsn"], PHASE_LABELS["hmUsrDock"]}
 
-_DOCKED_PHASE = "Charging"
-_STUCK_PHASE  = "Stuck"
+#: On its dock again. Charging mid-mission (`charging_mid_mission`) is a
+#: pause, not the end.
+_DOCKED_PHASE = PHASE_LABELS["charge"]
+_STUCK_PHASE  = PHASE_LABELS["stuck"]
 
-# All active states: cleaning OR on the way back — used as "from" for
-# the cleaning_finished trigger so it fires after any active mission.
-_ACTIVE_PHASES = _CLEANING_PHASES | _RETURNING_PHASES
+# All active states: cleaning OR on the way back -- the "from" of
+# cleaning_finished, so it fires after any mission.
+_ACTIVE_PHASES = _CLEANING_PHASES | {PHASE_LABELS["hmMidMsn"]} | _RETURNING_PHASES
+
+#: The error sensor without an error: no value, so `unknown`.
+_NO_ERROR_STATES = ["unknown", "unavailable"]
+
+#: Where every entity comes from after a restart. A robot that is still
+#: docked, stuck or showing an error then is not news.
+_RESTART_STATES = ["unavailable", "unknown"]
 
 
 def _find_entity(
@@ -212,7 +227,8 @@ async def async_attach_trigger(
     device_id = config[CONF_DEVICE_ID]
 
     if trigger_type == TRIGGER_CLEANING_STARTED:
-        # Fire when phase sensor enters any cleaning state
+        # Fire when the phase sensor enters a cleaning state -- not when
+        # the robot carries on after a mid-mission recharge or bin empty.
         entity_id = _find_entity(hass, device_id, "phase")
         if not entity_id:
             return lambda: None
@@ -220,7 +236,11 @@ async def async_attach_trigger(
             {
                 CONF_PLATFORM: "state",
                 CONF_ENTITY_ID: entity_id,
-                "to": list(_CLEANING_PHASES),
+                "to": sorted(_CLEANING_PHASES),
+                "not_from": [
+                    PHASE_LABELS["hmMidMsn"], "charging_mid_mission", PHASE_LABELS["evac"],
+                    *_RESTART_STATES,
+                ],
             }
         )
         return await state_trigger.async_attach_trigger(
@@ -236,7 +256,12 @@ async def async_attach_trigger(
             {
                 CONF_PLATFORM: "state",
                 CONF_ENTITY_ID: entity_id,
-                "from": list(_ACTIVE_PHASES),
+                # Also from emptying the bin or a mid-mission recharge
+                # (4.5.0): a Clean Base empties after docking, and a
+                # mission cancelled while recharging ends there.
+                "from": sorted(
+                    _ACTIVE_PHASES | {PHASE_LABELS["evac"], "charging_mid_mission"}
+                ),
                 "to": _DOCKED_PHASE,
             }
         )
@@ -253,6 +278,7 @@ async def async_attach_trigger(
                 CONF_PLATFORM: "state",
                 CONF_ENTITY_ID: entity_id,
                 "to": _STUCK_PHASE,
+                "not_from": _RESTART_STATES,
             }
         )
         return await state_trigger.async_attach_trigger(
@@ -304,6 +330,10 @@ async def async_attach_trigger(
                 CONF_PLATFORM: "state",
                 CONF_ENTITY_ID: entity_id,
                 "to": _DOCKED_PHASE,
+                # Not from `idle` (4.5.0): a docked robot reads `idle` at
+                # 100 % and `charging` once it drops to 99, so it "docked"
+                # again at every top-up.
+                "not_from": [*_RESTART_STATES, "idle"],
             }
         )
         return await state_trigger.async_attach_trigger(
@@ -311,7 +341,9 @@ async def async_attach_trigger(
         )
 
     if trigger_type == TRIGGER_ERROR:
-        # Fire when the error sensor changes to anything other than "None"
+        # Fire when the error sensor gets an error. Without one it has no
+        # value -- `unknown`, never the text "None" this compared with,
+        # so the trigger never fired.
         entity_id = _find_entity(hass, device_id, "error")
         if not entity_id:
             return lambda: None
@@ -319,7 +351,8 @@ async def async_attach_trigger(
             {
                 CONF_PLATFORM: "state",
                 CONF_ENTITY_ID: entity_id,
-                "from": "None",
+                "not_to": _NO_ERROR_STATES,
+                "not_from": ["unavailable"],
             }
         )
         return await state_trigger.async_attach_trigger(

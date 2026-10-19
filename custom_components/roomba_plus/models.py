@@ -148,6 +148,8 @@ class RoombaData:
     #: sensor uses `mission_last_unfinished`. Fetching it twice would
     #: double a cloud call to answer one question.
     prime_clean_scores: Any | None = None
+    #: The map those scores were read for (4.5.0): room ids are per map.
+    prime_clean_scores_map_id: str | None = None
     #: {room_id: name} from the map bundle, which knows names the
     #: schedule coordinator does not. Filled whenever a floor plan is
     #: built, and read by the calendar to fill gaps in its own summaries.
@@ -307,6 +309,9 @@ class RoombaData:
     #: {part_id: {"guide_url", "part_name"}} from iRobot's parts
     #: catalogue, read once per setup (parts_catalog.py, 4.2.19).
     parts_catalogue: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: {help id, normalised: url} from iRobot's help catalogue for the
+    #: robot's model, read once per setup (parts_catalog.py, 4.5.0).
+    help_catalogue: dict[str, str] = field(default_factory=dict)
     map_capability: MapCapability = MapCapability.NONE
     renderer: MapRenderer | None = None
     #: Positions requested from a robot that does not publish its own

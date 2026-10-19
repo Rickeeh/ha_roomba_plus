@@ -330,6 +330,16 @@
           "demand_clean_multiplier": "How far above the usual dirt level triggers a clean: 1.5 means 50% above average."
         }
       },
+      "demand_cleaning_prime": {
+        "title": "Demand cleaning",
+        "description": "Your robot rates how dirty each room is and says from which value a room needs cleaning. With demand cleaning on, Roomba+ asks after each finished mission and starts the dirtiest room past that value: one room at a time, at most every 6 hours, only with the robot on its dock, and only when presence scheduling and the blocking sensors allow a start.",
+        "data": {
+          "demand_cleaning_enabled": "Enable demand cleaning"
+        },
+        "data_description": {
+          "demand_cleaning_enabled": "Starts the dirtiest room the robot reports as needing a clean, after a mission ends."
+        }
+      },
       "test_cloud_connection": {
         "title": "Testing connection",
         "description": "Verifying your iRobot cloud credentials…"
@@ -424,7 +434,7 @@
       },
       "maintenance_guide_show": {
         "title": "{title}",
-        "description": "{guide}\n\n[Open as a page]({link}) – the link is valid for 30 days.",
+        "description": "{guide}\n\n{page_link} – the link is valid for 30 days.{irobot}",
         "data": {
           "done": "Mark as done now"
         },
@@ -612,7 +622,11 @@
           "sealing_problem": "Sealing problem",
           "bag_full": "Bag full",
           "ir_comms_problem": "IR comms problem",
-          "bin_full_sensors_not_cleared": "Bin full — sensors not cleared"
+          "bin_full_sensors_not_cleared": "Bin full — sensors not cleared",
+          "stopping": "Stopping",
+          "motor_problem": "Motor problem",
+          "bag_almost_full": "Bag almost full",
+          "hardware_issue": "Hardware problem"
         }
       },
       "dock_tank_level": {
@@ -2648,7 +2662,11 @@
         "source_profile": "from the series profile",
         "source_irobot_budget": "iRobot's figure",
         "source_calendar": "on the care calendar",
-        "last_done": "Last done {date}"
+        "last_done": "Last done {date}",
+        "overview_item": "Part or task",
+        "overview_level": "Status",
+        "overview_left": "Left",
+        "overview_source": "Interval"
       }
     },
     "maintenance_soon_at": {

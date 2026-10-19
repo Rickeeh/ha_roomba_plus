@@ -1490,6 +1490,10 @@ class RoombaRoomsOverdueSensor(IRobotEntity, SensorEntity):
     events) only exists on cloud-enriched SMART records.
     """
 
+    #: Per-room dicts, rewritten on every update (4.5.0); `overdue_rooms`
+    #: and `daily_suggested` stay for history and automations.
+    _unrecorded_attributes = frozenset({"rooms", "suggested_interval_days"})
+
     entity_description = SensorEntityDescription(
         key="rooms_overdue",
         name="Rooms overdue",
@@ -1805,6 +1809,10 @@ class RoombaRoomCleaningHistorySensor(IRobotEntity, SensorEntity):
     - Automation: template sensor pulling a single room's timestamp for
       a time-based notification.
     """
+
+    #: The nested copy of the flat room keys (4.5.0). The flat keys are
+    #: named after the rooms and cannot be listed here; they stay.
+    _unrecorded_attributes = frozenset({"rooms"})  # ROOMS_ATTRIBUTE, defined below
 
     _attr_translation_key = "room_cleaning_history"
     _attr_entity_category = EntityCategory.DIAGNOSTIC

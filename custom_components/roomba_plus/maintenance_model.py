@@ -114,27 +114,58 @@ ACTION_CLEAN = "clean"
 #: "check the main brushes". There while the robot reports the error.
 ACTION_CHECK = "check"
 
-#: Robot errors that point to a care task. Classic from the error
-#: catalogue's own action sentences; Prime only where the app's error
-#: picture names the part (2, 6, 201, 1000, 1001) -- the other
-#: candidates (26, 104, 119, 517, 520) wait for a tester's real error.
+#: Robot errors that point to a care task (4.5.0b2: checked against
+#: iRobot's help page for each code, claude/IROBOT_PFLEGE_ONLINEINHALTE.md
+#: §6/§7, and the robot's app text).
+#:
+#: CLASSIC WAS FIRST BUILT FROM OUR OWN ERROR TABLE'S ACTION SENTENCES --
+#: the table 4.5.0b2 replaced with the apps' texts. Checked again, code by
+#: code, against iRobot's pages for the 980:
+#:   kept    2 brushes; 4, 5, 7, 10 wheel (pages 8958/8959/8963/8964: free
+#:           the wheel); 12 cliff sensors; 14, 36, 216 bin; 26, 30 filter;
+#:           104, 105, 119 contacts; 453, 454, 460 wash dock; 502 contacts
+#:   new     1, 3, 13 wheel (8955/8956/532: check the wheels when it
+#:           happens on a flat floor); 6, 25 cliff sensors (8960/8974);
+#:           121 contacts (26166)
+#:   moved   8 to the filter (8961: vacuum motor or clogged filter, not
+#:           the bin)
+#:   gone    11 (8965: replace the bin, no care step), 20, 27, 38 (no
+#:           page; the app says "needs maintenance" or "Robot error"),
+#:           68 (the app says hold CLEAN 10 s -- a reboot, not a clean),
+#:           78, 79 (Terra mower codes), 102, 103 (no contact step)
+#:
+#: PRIME WAITED FOR A TESTER'S ERROR (L10) beyond 2, 6, 201, 1000, 1001.
+#: Decided 19.10.2026 (D3): iRobot's own Prime help pages are the
+#: evidence -- 4/5 wheels (10512/10510), 14 bin (10514), 26 filter
+#: (10526), 104/105/119/121 contacts (10604/10605/10619/10622), 517 the
+#: wash system (40517/70517).
 ERROR_CARE_TASKS_CLASSIC: dict[int, str] = {
-    **{code: "filter" for code in (26, 27, 30, 38)},
     2: "brushes",
-    **{code: "wheel" for code in (4, 5, 7, 10, 78, 79)},
-    12: "cliff_sensors",
-    **{code: "contact" for code in (20, 102, 103, 104, 105, 119, 502)},
-    **{code: "bin" for code in (8, 11, 14, 36, 216)},
-    68: "camera",
+    **{code: "filter" for code in (8, 26, 30)},
+    **{code: "wheel" for code in (1, 3, 4, 5, 7, 10, 13)},
+    **{code: "cliff_sensors" for code in (6, 12, 25)},
+    **{code: "contact" for code in (104, 105, 119, 121, 502)},
+    **{code: "bin" for code in (14, 36, 216)},
     **{code: "wash_dock" for code in (453, 454, 460)},
 }
 ERROR_CARE_TASKS_PRIME: dict[int, str] = {
     2: "brushes",
+    **{code: "wheel" for code in (4, 5)},
     6: "cliff_sensors",
+    14: "bin",
+    26: "filter",
+    **{code: "contact" for code in (104, 105, 119, 121)},
     201: "cliff_sensors",
+    517: "wash_dock",
     1000: "side_brush",
     1001: "side_brush",
 }
+#: Classic errors that point to the cliff sensors without saying they
+#: are dirty: 6 and 25 are "stuck near a cliff" -- most often a real edge
+#: or a dark floor (pages 8960/8974). They show the guide and go with the
+#: error; they do not make the cleaning due (E10). Prime 6 does: its app
+#: says "Clean Cliff Sensors".
+CLASSIC_HINT_ONLY_ERRORS = frozenset({6, 25})
 #: Readiness states (decode_not_ready's index) that point to a care
 #: task, by the name of the reason: the robot will not start because it
 #: sees a drop, a brush is stuck, the bin is missing or full, or its
@@ -827,6 +858,7 @@ class MaintenanceTracker:
         if (
             isinstance(error, int)
             and task in DIRT_TASKS
+            and (self._prime or error not in CLASSIC_HINT_ONLY_ERRORS)
             and care_reminders_enabled(self.config_entry.options)
             and store.care_since is not None
         ):
@@ -884,14 +916,16 @@ class MaintenanceTracker:
             self._seen_error = error
             self._schedule()
 
+    @callback
     def _on_robot_message(self, _message: Any) -> None:
-        """A Classic robot's message, from whichever thread delivers it."""
-        self.hass.loop.call_soon_threadsafe(self._on_status)
+        """A Classic robot's message. On the event loop since roombapy 2.x,
+        so called directly (4.5.0; it went through call_soon_threadsafe)."""
+        self._on_status()
 
     @callback
     def _schedule(self) -> None:
-        self.hass.async_create_task(
-            self._safe_refresh(), name="roomba_plus_maintenance_refresh",
+        self.config_entry.async_create_task(
+            self.hass, self._safe_refresh(), name="roomba_plus_maintenance_refresh",
         )
 
     @callback

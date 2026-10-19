@@ -8,7 +8,9 @@
     "expired_text": "As ligações para os guias de cuidados são válidas durante 30 dias. Encontra uma nova no Home Assistant em Definições → Dispositivos e serviços → Roomba+ → Configurar → Manutenção → Guia de cuidados.",
     "unknown_title": "Não há nenhum guia aqui",
     "unknown_text": "Este guia não existe. Abra Configurar → Manutenção → Guia de cuidados no Home Assistant.",
-    "when": "Quando"
+    "when": "Quando",
+    "open": "Abrir como página",
+    "docs": "Todos os guias de cuidados no GitHub"
   },
   "clean_filter": {
     "title": "Limpar o filtro",

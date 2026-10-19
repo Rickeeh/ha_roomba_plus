@@ -224,8 +224,8 @@ class OutlineStore:
         read a stale/previous-mission contour) can call this directly
         before scheduling persistence, instead of only being able to
         reach the up-to-date value after an async_recompute() coroutine
-        — scheduled via run_coroutine_threadsafe from a sync callback
-        thread — has actually finished running. Confirmed in the field:
+        -- scheduled as a task, so not yet run when the next line of the
+        caller reads it -- has actually finished running. Confirmed in the field:
         the very first FreezeSnapshotStore snapshot captured
         outline_points=0 because it read contour_points before this
         mission's async_recompute had executed at all (fires on the

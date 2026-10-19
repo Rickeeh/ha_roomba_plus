@@ -1262,7 +1262,8 @@ def _seed_maintenance_baselines(
         ", ".join(seeded_now), current_hr,
     )
     if hass is not None:
-        hass.async_create_task(
+        entry.async_create_task(
+            hass,
             store.async_save(hass, entry.entry_id),
             eager_start=False,
         )
@@ -1540,13 +1541,14 @@ def _handle_mission_start(
                         _rps_corr.record_correlation_snapshot(
                             values, _t_corr.time()
                         )
-                        hass.async_create_task(
+                        entry.async_create_task(
+                            hass,
                             _rps_corr.async_save(hass, entry.entry_id),
                             name="roomba_plus_corr_snapshot_save",
                         )
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("CROSS-CORR snapshot failed", exc_info=True)
-            hass.loop.call_soon_threadsafe(_capture_corr_snapshot)
+            _capture_corr_snapshot()
 
         # MS1 (v2.6.0): override initiator to "demand" when DirtThresholdManager
         # fired a start command within the last 30 seconds.
@@ -3264,9 +3266,7 @@ def make_mission_complete_callback(
                     "scheduling delayed refresh in %ds",
                     last_phase, phase, CLOUD_CATCHUP_FIRST_DELAY_SEC,
                 )
-                hass.loop.call_soon_threadsafe(
-                    _schedule, 1, CLOUD_CATCHUP_FIRST_DELAY_SEC
-                )
+                _schedule(1, CLOUD_CATCHUP_FIRST_DELAY_SEC)
         last_phase = phase
 
     return _on_roomba_message
@@ -3363,16 +3363,11 @@ def make_map_updating_callback(
         # Equality: notReady is a scalar index, not a mask.
         map_updating = not_ready == MAP_UPDATING_NOT_READY
 
-        # v2.9.0 — this callback runs on roombapy's MQTT thread, not the
-        # event loop thread (same reason make_map_retrain_callback bridges
-        # via run_coroutine_threadsafe above). ir.async_create_issue/
-        # async_delete_issue are plain (non-coroutine) functions that touch
-        # hass's issue registry, so call_soon_threadsafe — not a direct
-        # call — is the correct bridge for a sync callable.
+        # ON THE EVENT LOOP since roombapy 2.x (4.2): called directly
+        # (4.5.0). The call_soon_threadsafe bridge dated from when the
+        # callback ran on roombapy's MQTT thread.
         from .repairs import async_check_map_retrain_workflow
-        hass.loop.call_soon_threadsafe(
-            async_check_map_retrain_workflow, hass, entry, map_updating
-        )
+        async_check_map_retrain_workflow(hass, entry, map_updating)
 
     return _on_roomba_message
 

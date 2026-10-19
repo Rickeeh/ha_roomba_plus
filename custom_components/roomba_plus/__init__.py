@@ -124,6 +124,7 @@ from .presence_manager import PresenceManager
 from .cloud_coordinator import IrobotCloudCoordinator
 from .blocking_manager import BlockingManager
 from .dirt_threshold_manager import DirtThresholdManager
+from .prime_favorites import async_favorites_attribute
 from .outline_store import OutlineStore
 from .mission_trajectory_store import MissionTrajectoryStore
 from .freeze_snapshot_store import FreezeSnapshotStore
@@ -591,7 +592,8 @@ async def _phase_spatial(ctx: _SetupContext) -> None:
                 # single-mission mask the gate exists to reject. The
                 # live path in image.py, which runs after every mission,
                 # does pass the count.
-                room_seg_store.maybe_recompute(grid_store.cells)
+                # In the executor (4.5.0), like the one after each mission.
+                await room_seg_store.async_maybe_recompute(hass, grid_store.cells)
             from .legacy_zone_migration import async_load_legacy_zones
             legacy_zones = await async_load_legacy_zones(hass, config_entry.entry_id)
             if legacy_zones:
@@ -1545,6 +1547,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: RoombaConfigEntry
             f"needs removing.", translation_domain=DOMAIN, translation_key="roombapy_too_old", translation_placeholders={"error": str(ROOMBAPY_IMPORT_ERROR)}
         )
 
+    _seed_reload_baseline(hass, config_entry)
+
     if _connection_type(config_entry) == ConnectionType.CLOUD_ONLY:
         return await _async_setup_entry_prime(hass, config_entry)
 
@@ -1567,6 +1571,28 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: RoombaConfigEntry
         config_entry.data[CONF_BLID],
     )
     return True
+
+
+def _seed_reload_baseline(hass: HomeAssistant, config_entry: RoombaConfigEntry) -> None:
+    """Copy the switches that became reload triggers in 4.5.0 into `.data`.
+
+    `_async_reload_on_options_change` compares `.data` with `.options`.
+    An entry from before 4.5.0 with presence scheduling or demand
+    cleaning already on has the key in `.options` only, so the first
+    options write of ANY kind -- including the zone ids the room select
+    saves during a mission -- read as a change and reloaded the entry
+    mid-mission, losing its path (review, 4.5.0). Done here, before the
+    update listener exists, so the write itself reloads nothing.
+    """
+    seed = {
+        key: config_entry.options[key]
+        for key in (CONF_PRESENCE_SCHEDULING_ENABLED, CONF_DEMAND_CLEANING_ENABLED)
+        if key in config_entry.options and key not in config_entry.data
+    }
+    if seed:
+        hass.config_entries.async_update_entry(
+            config_entry, data={**config_entry.data, **seed}
+        )
 
 
 def _async_note_unknown_sku(sku: str | None, blid: str) -> None:
@@ -2054,7 +2080,6 @@ async def _async_setup_entry_prime(hass: HomeAssistant, config_entry: RoombaConf
     # same list -- and after runtime_data is set, because the read needs
     # the robot object from it.
     try:
-        from .button_prime import async_favorites_attribute  # noqa: PLC0415
 
         prime_favorites.extend(await async_favorites_attribute(config_entry))
 
@@ -2102,6 +2127,18 @@ async def _async_setup_entry_prime(hass: HomeAssistant, config_entry: RoombaConf
             hass, config_entry
         )
         _LOGGER.debug("Roomba+ Prime: presence manager active")
+
+    # DEMAND CLEANING FOR PRIME TOO (4.5.0). The Prime branch of the
+    # manager -- the robot's own per-room score and threshold -- was
+    # written and tested and never built here, so nothing called it:
+    # `prime_clean_scores` stayed empty, and with it the mission
+    # sensor's `unfinished_rooms`. Evaluated after each mission end, by
+    # the mission-end history sync (prime_coordinator).
+    if config_entry.options.get(CONF_DEMAND_CLEANING_ENABLED, False):
+        _dtm = DirtThresholdManager(hass, config_entry)
+        await _dtm.async_load(config_entry.entry_id)
+        config_entry.runtime_data.dirt_threshold_manager = _dtm
+        _LOGGER.debug("Roomba+ Prime: demand cleaning active")
 
     # LIVE STATE FOLLOWS THE CONNECTION — Prime's counterpart to the
     # Classic watcher above, fed from our own connection and the robot's
@@ -2397,6 +2434,12 @@ async def _async_reload_on_options_change(
         CONF_CARE_REMINDERS,
         CONF_REGION_SENSORS,
         CONF_BLOCKING_SENSORS,
+        # BUILT AT SETUP ONLY (4.5.0): the presence manager and the demand
+        # cleaning manager exist when their switch was on at setup.
+        # Switching either on in Configure did nothing until a restart,
+        # and switching it off left the manager running.
+        CONF_PRESENCE_SCHEDULING_ENABLED,
+        CONF_DEMAND_CLEANING_ENABLED,
     }
     # EVERY KEY WITH ITS DEFAULT, on both sides. The maintenance list was
     # missing above, so switching it on reloaded only by accident: the
@@ -2408,6 +2451,8 @@ async def _async_reload_on_options_change(
         CONF_MAINTENANCE_CALENDAR: DEFAULT_MAINTENANCE_CALENDAR,
         CONF_CARE_REMINDERS: DEFAULT_CARE_REMINDERS,
         CONF_REGION_SENSORS: DEFAULT_REGION_SENSORS,
+        CONF_PRESENCE_SCHEDULING_ENABLED: False,
+        CONF_DEMAND_CLEANING_ENABLED: False,
     }
 
     def _get(source: Mapping[str, Any], key: str) -> Any:

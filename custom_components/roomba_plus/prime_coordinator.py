@@ -66,6 +66,7 @@ from roombapy_prime import (
 from roombapy_prime.models import MissionTimelineReport
 
 from .structural_failures import record_failure, record_success
+from .prime_favorites import async_favorites_attribute
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -557,7 +558,8 @@ class PrimeCoordinator(DataUpdateCoordinator[MissionTimelineReport]):
             )
             if parts is None:
                 return
-            self.hass.async_create_task(
+            self.entry.async_create_task(
+                self.hass,
                 parts.async_request_refresh(),
                 name=f"roomba_plus_parts_after_mission_{self.blid}",
             )
@@ -945,10 +947,33 @@ class PrimeStatusCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     "roomba_plus: mission-end history sync failed",
                     exc_info=True,
                 )
+                added = 0
             finally:
                 self._history_sync_running = False
+            # DEMAND CLEANING AFTER THE MISSION (4.5.0), as Classic does
+            # after its cloud records arrive. Only here, at a mission
+            # end the cloud has recorded -- not after setup's import of
+            # the history or the six-hourly reconcile -- and only for a
+            # mission this coordinator watched run, so a backlog synced
+            # after a restart does not start a room.
+            dtm = getattr(entry.runtime_data, "dirt_threshold_manager", None)
+            watched = getattr(self, "_watched_a_mission", False)
+            if added and watched and dtm is not None:
+                self._watched_a_mission = False
+                try:
+                    await dtm.async_evaluate_prime(entry.entry_id)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "roomba_plus: demand cleaning after the mission failed",
+                        exc_info=True,
+                    )
 
-        self.hass.async_create_task(_run())
+        # A background task (4.5.0): cancelled on unload rather than
+        # awaited. It waits on the mission-store lock and the cloud, and
+        # may start a room -- none of which should outlive the entry.
+        entry.async_create_background_task(
+            self.hass, _run(), "roomba_plus_prime_mission_end_sync"
+        )
 
     def _note_dock_position(self) -> None:
         """Records where the robot is while charging, as the dock.
@@ -1001,6 +1026,12 @@ class PrimeStatusCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             phase = status.get("phase")
             if phase is None:
                 return
+            # A MISSION THIS RUN OF HOME ASSISTANT SAW (4.5.0), for the
+            # demand cleaning after it: missions that ran while Home
+            # Assistant was down arrive with the first sync after a
+            # restart and must not start a room.
+            if phase == "run" and status.get("cycle") not in (None, "", "none", "evac"):
+                self._watched_a_mission = True
             # A DOCKED ROBOT IS STANDING ON THE DOCK, which makes the
             # last position in the stream a fresher dock location than
             # the map bundle's -- the bundle remembers where the dock
@@ -1289,12 +1320,10 @@ def get_prime_capability_flags(config_entry: Any) -> tuple[Any | None, Any | Non
     while the config entry is loaded, and the pad-drying switch that
     should now appear will not until the entry is reloaded.
 
-    NOT FIXED HERE, because the fix is not in this function: Home
-    Assistant creates entities at setup, and adding them later means a
-    coordinator listener that calls async_add_entities. That is a real
-    change with its own failure modes, and no field report has asked
-    for it yet. Written down so the next person who sees "my new dock's
-    controls are missing" reaches for reload rather than for a bug."""
+    THE DOCK SIDE IS HANDLED: `add_prime_entities_when_available`
+    adds the dock's controls when its capabilities appear, without a
+    reload. The robot's own `cap` (scrub, suction levels) is still read
+    once at setup; a firmware update that adds one needs a reload."""
     coordinator = config_entry.runtime_data.prime_status_coordinator
     if coordinator is None or coordinator.data is None:
         return None, None
@@ -1629,8 +1658,7 @@ class PrimeScheduleCoordinator(DataUpdateCoordinator[list[tuple[str, list[Any]]]
         if getattr(data, "prime_robot", None) is None:
             return
         try:
-            from .button_prime import async_favorites_attribute  # noqa: PLC0415
-
+            # From prime_favorites (4.5.0): no cycle through button_prime.
             favourites = await async_favorites_attribute(self.entry)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("roomba_plus: could not refresh favourites", exc_info=True)

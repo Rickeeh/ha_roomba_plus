@@ -48,6 +48,7 @@ from . import roomba_reported_state
 from . import cloud_errors
 from .entity_cleanup import async_remove_stale_entities
 from .command_record import record_command
+from .prime_favorites import _raw_favorite_is_for
 from .const import (
     lifetime_hours,
     maintenance_changed_signal,
@@ -430,8 +431,7 @@ async def async_setup_entry(
             # Fails open on a favourite with no attribution at all,
             # matching the Prime rule: only an explicit non-matching
             # id excludes.
-            from .button_prime import _raw_favorite_is_for  # noqa: PLC0415
-
+            
             if not _raw_favorite_is_for(fav, data.blid):
                 continue
 
@@ -439,7 +439,8 @@ async def async_setup_entry(
             from .repairs import async_check_favorite_multi_command
 
             command_defs = fav.get("commanddefs") or []
-            hass.async_create_task(
+            config_entry.async_create_task(
+                hass,
                 async_check_favorite_multi_command(
                     hass,
                     fav.get("favorite_id", ""),
@@ -1306,8 +1307,7 @@ async def async_run_classic_favorite(
     if roomba is None or coordinator is None or coordinator.data is None:
         return False
 
-    from .button_prime import _raw_favorite_is_for  # noqa: PLC0415
-
+    
     for favorite in coordinator.data.get("favorites", []) or []:
         if str(favorite.get("favorite_id", "")) != str(favorite_id):
             continue

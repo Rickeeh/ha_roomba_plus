@@ -8,7 +8,9 @@
     "expired_text": "Linki do instrukcji pielęgnacji są ważne 30 dni. Nowy znajdziesz w Home Assistant w Ustawienia → Urządzenia oraz usługi → Roomba+ → Konfiguruj → Konserwacja → Instrukcja pielęgnacji.",
     "unknown_title": "Tu nie ma instrukcji",
     "unknown_text": "Ta instrukcja nie istnieje. Otwórz Konfiguruj → Konserwacja → Instrukcja pielęgnacji w Home Assistant.",
-    "when": "Kiedy"
+    "when": "Kiedy",
+    "open": "Otwórz jako stronę",
+    "docs": "Wszystkie instrukcje pielęgnacji na GitHubie"
   },
   "clean_filter": {
     "title": "Wyczyść filtr",

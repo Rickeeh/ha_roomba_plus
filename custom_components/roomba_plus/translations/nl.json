@@ -319,15 +319,25 @@
         }
       },
       "demand_cleaning": {
-        "title": "Demand cleaning",
+        "title": "Reinigen op aanvraag",
         "description": "Start automatisch een schoonmaakbeurt wanneer de vloer duidelijk viezer is dan normaal.",
         "data": {
-          "demand_cleaning_enabled": "Enable demand cleaning",
+          "demand_cleaning_enabled": "Reinigen op aanvraag inschakelen",
           "demand_clean_multiplier": "Drempelfactor (bijv. 1,5 = 50% boven gemiddeld)"
         },
         "data_description": {
           "demand_cleaning_enabled": "Start automatisch een reiniging als de vloer duidelijk viezer is dan normaal.",
           "demand_clean_multiplier": "Hoeveel boven het normale vuilniveau een reiniging start: 1,5 betekent 50% boven het gemiddelde."
+        }
+      },
+      "demand_cleaning_prime": {
+        "title": "Reinigen op aanvraag",
+        "description": "Je robot beoordeelt zelf hoe vuil elke ruimte is en geeft aan vanaf welke waarde een ruimte gereinigd moet worden. Met reinigen op aanvraag vraagt Roomba+ dat na elke afgeronde missie op en start de vuilste ruimte boven die waarde: één ruimte tegelijk, hoogstens elke 6 uur, alleen met de robot in het basisstation en alleen als aanwezigheidsplanning en blokkeersensoren een start toestaan.",
+        "data": {
+          "demand_cleaning_enabled": "Reinigen op aanvraag inschakelen"
+        },
+        "data_description": {
+          "demand_cleaning_enabled": "Start na het einde van een missie de vuilste ruimte die de robot als te reinigen meldt."
         }
       },
       "test_cloud_connection": {
@@ -424,7 +434,7 @@
       },
       "maintenance_guide_show": {
         "title": "{title}",
-        "description": "{guide}\n\n[Openen als pagina]({link}) – de link is 30 dagen geldig.",
+        "description": "{guide}\n\n{page_link} – de link is 30 dagen geldig.{irobot}",
         "data": {
           "done": "Nu als gedaan melden"
         },
@@ -612,7 +622,11 @@
           "sealing_problem": "Afdichtingsprobleem",
           "bag_full": "Zak vol",
           "ir_comms_problem": "IR-communicatieprobleem",
-          "bin_full_sensors_not_cleared": "Stofbak vol — sensoren niet vrijgemaakt"
+          "bin_full_sensors_not_cleared": "Stofbak vol — sensoren niet vrijgemaakt",
+          "stopping": "Wordt gestopt",
+          "motor_problem": "Motorprobleem",
+          "bag_almost_full": "Zak bijna vol",
+          "hardware_issue": "Hardwareprobleem"
         }
       },
       "dock_tank_level": {
@@ -2648,7 +2662,11 @@
         "source_profile": "volgens het serieprofiel",
         "source_irobot_budget": "waarde van iRobot",
         "source_calendar": "volgens de onderhoudskalender",
-        "last_done": "Laatst op {date}"
+        "last_done": "Laatst op {date}",
+        "overview_item": "Onderdeel of taak",
+        "overview_level": "Status",
+        "overview_left": "Nog",
+        "overview_source": "Interval"
       }
     },
     "maintenance_soon_at": {

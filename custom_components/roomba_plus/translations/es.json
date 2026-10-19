@@ -319,15 +319,25 @@
         }
       },
       "demand_cleaning": {
-        "title": "Demand cleaning",
+        "title": "Limpieza por demanda",
         "description": "Inicia una limpieza automáticamente cuando el suelo está bastante más sucio de lo habitual.",
         "data": {
-          "demand_cleaning_enabled": "Enable demand cleaning",
+          "demand_cleaning_enabled": "Activar la limpieza por demanda",
           "demand_clean_multiplier": "Multiplicador de activación (p. ej. 1,5 = 50 % por encima de la media)"
         },
         "data_description": {
           "demand_cleaning_enabled": "Inicia una limpieza automáticamente cuando el suelo está bastante más sucio de lo habitual.",
           "demand_clean_multiplier": "Cuánto por encima del nivel habitual de suciedad se inicia una limpieza: 1,5 significa un 50 % por encima de la media."
+        }
+      },
+      "demand_cleaning_prime": {
+        "title": "Limpieza por demanda",
+        "description": "El robot valora por sí mismo lo sucia que está cada habitación e indica a partir de qué valor hay que limpiarla. Con la limpieza por demanda, Roomba+ lo consulta tras cada misión terminada e inicia la habitación más sucia por encima de ese valor: una habitación cada vez, como mucho cada 6 horas, solo con el robot en su base y solo si la programación por presencia y los sensores de bloqueo permiten iniciar.",
+        "data": {
+          "demand_cleaning_enabled": "Activar la limpieza por demanda"
+        },
+        "data_description": {
+          "demand_cleaning_enabled": "Tras terminar una misión, inicia la habitación más sucia que el robot indica que necesita limpieza."
         }
       },
       "test_cloud_connection": {
@@ -424,7 +434,7 @@
       },
       "maintenance_guide_show": {
         "title": "{title}",
-        "description": "{guide}\n\n[Abrir como página]({link}) – el enlace es válido 30 días.",
+        "description": "{guide}\n\n{page_link} – el enlace es válido 30 días.{irobot}",
         "data": {
           "done": "Marcar como hecho ahora"
         },
@@ -612,7 +622,11 @@
           "sealing_problem": "Problema de sellado",
           "bag_full": "Bolsa llena",
           "ir_comms_problem": "Problema de comunicación IR",
-          "bin_full_sensors_not_cleared": "Depósito lleno — sensores sin limpiar"
+          "bin_full_sensors_not_cleared": "Depósito lleno — sensores sin limpiar",
+          "stopping": "Deteniéndose",
+          "motor_problem": "Problema del motor",
+          "bag_almost_full": "Bolsa casi llena",
+          "hardware_issue": "Problema de hardware"
         }
       },
       "dock_tank_level": {
@@ -2648,7 +2662,11 @@
         "source_profile": "según el perfil de la serie",
         "source_irobot_budget": "valor de iRobot",
         "source_calendar": "según el calendario de cuidado",
-        "last_done": "Última vez el {date}"
+        "last_done": "Última vez el {date}",
+        "overview_item": "Pieza o tarea",
+        "overview_level": "Estado",
+        "overview_left": "Queda",
+        "overview_source": "Intervalo"
       }
     },
     "maintenance_soon_at": {

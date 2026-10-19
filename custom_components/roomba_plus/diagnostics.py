@@ -23,6 +23,7 @@ from .live_position import LivePositionStream
 from .position_room import PositionRoomTracker
 from .structural_failures import diagnostic_info
 from .prime_parts import prime_part_role
+from .prime_favorites import _raw_favorite_is_for
 from .const import (
     CONF_DOOR_WIDTH_CM,
     CONF_LIVE_PATH_TURN,
@@ -39,7 +40,7 @@ from .withheld_features import withheld_features
 from .const import (
     DIAG_REDACT_KEYS,
     DOMAIN,
-    ERROR_CODE_LABELS,
+    error_label,
     ROOM_EVENT_DONE_STATUSES,
     fin_events_in_order,
     room_event_was_cleaned,
@@ -404,6 +405,12 @@ _MAC_PATTERN = re.compile(r"\b[0-9A-Fa-f]{2}([:-])(?:[0-9A-Fa-f]{2}\1){4}[0-9A-F
 _SECRET_SUBSTRINGS: Final[tuple[str, ...]] = (
     "password", "passwd", "secret", "token", "apikey", "privatekey",
     "credential", "passphrase",
+    # THE CLOUD LOGIN'S OTHER HALF (4.5.0). A Prime login returns AWS
+    # credentials: `SecretKey` and `SessionToken` were caught above,
+    # `AccessKeyId`, the Cognito identity and the IoT endpoint were not.
+    # The diagnostics do not include the login today; this is for the
+    # day something does.
+    "accesskeyid", "cognitoid", "identityid", "endpoint",
 )
 
 
@@ -417,7 +424,9 @@ def _is_secret_key(key: str) -> bool:
     `hash` is NOT in the substring list on its own -- it would catch
     `hashedMapId` and similar. `passwordHash` is covered by "password".
     """
-    lowered = key.lower()
+    # Without separators: `access_key_id`, `cognito-id` and `CognitoId`
+    # are one name.
+    lowered = key.lower().replace("_", "").replace("-", "")
     return any(marker in lowered for marker in _SECRET_SUBSTRINGS)
 
 
@@ -568,8 +577,7 @@ async def _favourites_diagnostics(data: Any, config_entry: Any) -> dict[str, Any
     # this entry only builds buttons for its own blid. Reporting the
     # account total alone made a three-robot account look wrong.
     try:
-        from .button_prime import _raw_favorite_is_for  # noqa: PLC0415
-
+        
         blid = getattr(data, "blid", None) or ""
         matched = [f for f in favourites if _raw_favorite_is_for(f, blid)]
         result["count"] = len(matched)
@@ -678,7 +686,7 @@ async def _prime_schedule_summary(data: Any) -> Any:
     }
 
 
-def _decoded_error(code: Any) -> dict[str, Any]:
+def _decoded_error(code: Any, *, prime: bool) -> dict[str, Any]:
     """An error code with its label, or a plain zero.
 
     The local dump decodes this from the MQTT client. Cloud-only had the
@@ -690,7 +698,7 @@ def _decoded_error(code: Any) -> dict[str, Any]:
         return {"error_code": 0, "error_message": None}
     return {
         "error_code": code,
-        "error_message": ERROR_CODE_LABELS.get(code, "unknown error code"),
+        "error_message": error_label(code, prime=prime) or "unknown error code",
     }
 
 
@@ -1975,11 +1983,12 @@ async def _build_diagnostics(
             },
             "lifetime_stats": _shadow_state.get("bbmssn") or {},
             # THE DECODED ERROR. The local section reads it off the MQTT
-            # client; the same number is in `cleanMissionStatus.error`,
-            # and the label table is shared. A raw code is a lookup the
-            # reporter should not have to do.
+            # client; the same number is in `cleanMissionStatus.error`.
+            # The label is the robot's own app's (4.5.0). A raw code is a
+            # lookup the reporter should not have to do.
             "error": _decoded_error(
-                (_shadow_state.get("cleanMissionStatus") or {}).get("error")
+                (_shadow_state.get("cleanMissionStatus") or {}).get("error"),
+                prime=getattr(data, "prime_robot", None) is not None,
             ),
             "bin": _shadow_state.get("bin") or {},
             "dock": _shadow_state.get("dock") or {},
@@ -2470,9 +2479,9 @@ async def _build_diagnostics(
         "error": {
             "error_code": roomba.error_code,
             "error_message": (
-                ERROR_CODE_LABELS[roomba.error_code]
-                if roomba.error_code and roomba.error_code in ERROR_CODE_LABELS
-                else roomba.error_message
+                (error_label(roomba.error_code, prime=False, sku=state.get("sku"))
+                 if roomba.error_code else None)
+                or roomba.error_message
             ),
         },
 

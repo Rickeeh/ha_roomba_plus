@@ -430,7 +430,9 @@ class RoombaDeviceTracker(IRobotEntity, TrackerEntity):
             self, "_seen_region_ids", set()
         )
         if not self._prime_rooms or _unseen:
-            self.hass.async_create_task(self._async_refresh_prime_rooms())
+            self._config_entry.async_create_task(
+                self.hass, self._async_refresh_prime_rooms()
+            )
 
     async def _async_refresh_prime_rooms(self) -> None:
         """Refills the room-name cache.

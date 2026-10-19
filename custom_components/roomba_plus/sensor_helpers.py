@@ -23,7 +23,6 @@ from .const import (
     CARPET_BOOST_LABELS,
     CLEAN_MODE_LABELS,
     DOMAIN,
-    ERROR_CODE_LABELS,
     INTEGRATION_HEALTH_ARC1_STALE_HOURS,
     INTEGRATION_HEALTH_GOOD_THRESHOLD,
     INTEGRATION_HEALTH_LOW_THRESHOLD,
@@ -33,6 +32,8 @@ from .const import (
     SQFT_TO_M2,
     active_charge_cycles,
     decode_not_ready,
+    error_label,
+    has_clean_base,
 )
 from .entity import IRobotEntity, mission_in_progress
 
@@ -167,7 +168,16 @@ def _error_value(entity: "IRobotEntity") -> str | None:
     if cycle == "none" and phase in ("charge", "stop", "idle", ""):
         return None
 
-    label = ERROR_CODE_LABELS.get(error, entity.vacuum.error_message or None)
+    # THE CLASSIC APP'S WORDS (4.5.0), in English: a state must not change
+    # with the UI language. Ours only for 101-121 (const.py).
+    state = getattr(entity, "vacuum_state", None) or {}
+    label = error_label(
+        error,
+        prime=False,
+        sku=state.get("sku"),
+        clean_base=has_clean_base(state),
+        robot_name=getattr(getattr(entity, "_config_entry", None), "title", None),
+    ) or (entity.vacuum.error_message or None)
     return label if label and label != "None" else None
 
 
@@ -212,6 +222,13 @@ def _phase_value(entity: "IRobotEntity") -> str:
     phase = status.get("phase", "")
     cycle = status.get("cycle", "")
     battery = entity.vacuum_state.get("batPct")
+    # A BIN EMPTY SENT TO A DOCKED ROBOT (4.5.0): `cycle` stays `evac`
+    # while `phase` alternates `charge` and `run` (@AlakazipLabs, an i3,
+    # see callbacks._NON_CLEANING_CYCLES). Read as `run` it said
+    # "Running" and fired the *Cleaning started* device trigger for a
+    # robot that never left its dock.
+    if cycle == "evac":
+        return PHASE_LABELS["evac"]
     if phase == "charge" and battery == 100:
         return "idle"
     if cycle == "none" and phase == "stop":
@@ -1182,7 +1199,8 @@ def _battery_capacity_retention(entity: "IRobotEntity") -> StateType:
     battery_pct = entity.vacuum_state.get("batPct")
     charged = isinstance(battery_pct, (int, float)) and battery_pct >= BASELINE_MIN_BATTERY_PCT
     if charged and store.record_estcap_if_needed(capacity_mah):
-        entity.hass.async_create_task(
+        entity._config_entry.async_create_task(
+            entity.hass,
             store.async_save(entity.hass, entity._config_entry.entry_id),
             name="roomba_plus_estcap_baseline_save",
         )
@@ -1300,7 +1318,8 @@ def _total_energy_consumed_kwh(entity: "IRobotEntity") -> StateType:
     rps.update_energy_high_water(raw_kwh)
     hass = getattr(entity, "hass", None)
     if hass is not None:
-        hass.async_create_task(
+        entity._config_entry.async_create_task(
+            hass,
             rps.async_save(hass, entity._config_entry.entry_id),
             name="roomba_plus_energy_high_water_save",
         )

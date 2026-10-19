@@ -569,15 +569,29 @@ async def _async_sync_locked(
         #
         # Safe to repeat: async_add_external_statistics is idempotent, so
         # re-injecting the same points overwrites rather than duplicates.
+        #
+        # BOUND TO THE ENTRY (4.5.0): an unload waits for it instead of
+        # leaving it running against an entry that is gone. Nor can an
+        # interrupted run damage the store: it only READS the mission
+        # store and hands complete per-series batches to the recorder.
+        # A series not yet handed over is written by the next run, setup
+        # or sync, in full, and an idempotent re-import overwrites.
+        backfill = None
         try:
             hass = _hass_of(config_entry)
-            hass.async_create_task(
-                store.async_backfill_statistics(
-                    hass, config_entry.entry_id, config_entry.title or "Roomba"
-                ),
+            backfill = store.async_backfill_statistics(
+                hass, config_entry.entry_id, config_entry.title or "Roomba"
+            )
+            config_entry.async_create_task(
+                hass,
+                backfill,
                 name="roomba_plus_prime_statistics_backfill_after_sync",
             )
         except Exception:  # noqa: BLE001
+            # A coroutine that never became a task is closed, so it does
+            # not end as "coroutine ... was never awaited".
+            if backfill is not None:
+                backfill.close()
             _LOGGER.debug(
                 "roomba_plus: statistics backfill after sync failed", exc_info=True
             )

@@ -158,8 +158,11 @@ from .care_guides import (
     async_wording,
     context_for,
     get_care_guides,
+    guide_entry,
     guide_id,
+    irobot_link,
     language_for,
+    page_anchor,
     when_text,
 )
 from .maintenance_model import LEVELS
@@ -167,6 +170,7 @@ from .models import ConnectionType, MapCapability, RoombaConfigEntry
 from .naming_map import naming_map_markdown
 from .room_cleaning import smart_rooms_to_name
 from .room_seg_store import RoomSegStore, area_number
+from .todo import MaintenanceWording
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -616,6 +620,23 @@ def _rest980_is_zone(
 
 
 # ── Config Flow ───────────────────────────────────────────────────────────────
+
+
+async def _maintenance_levels(hass: HomeAssistant) -> dict[str, str]:
+    """The maintenance levels (ok, soon, due, overdue) in Home Assistant's
+    language, as the status sensor shows them; empty when unreadable."""
+    from homeassistant.helpers.translation import async_get_translations  # noqa: PLC0415
+
+    try:
+        table = await async_get_translations(hass, hass.config.language, "entity", {DOMAIN})
+    except Exception:  # noqa: BLE001 -- the raw level then
+        return {}
+    prefix = f"component.{DOMAIN}.entity.sensor.maintenance_status.state."
+    return {
+        key[len(prefix):]: text for key, text in table.items()
+        if key.startswith(prefix) and isinstance(text, str)
+    }
+
 
 class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Roomba+.
@@ -1775,17 +1796,21 @@ class RoombaPlusOptionsFlow(OptionsFlow):
 
         # ── ⚙  Connection ──────────────────────────────────────────────────
         menu: list[str] = ["settings"]
-        # ── 🔧  Maintenance (4.5.0): every maintenance setting in one place
-        if getattr(data, "maintenance", None) is not None:
-            menu.append("maintenance")
         if data.map_capability in (MapCapability.EPHEMERAL, MapCapability.SMART):
             menu.append("cloud_credentials")
 
         # ── 🗓  Scheduling ─────────────────────────────────────────────────
         menu.append("blocking_sensors")
-        if "schedHold" in state:
+        # PRIME TOO (4.5.0). The menu asked for `schedHold` in the local
+        # state, which a Prime robot has none of, so presence scheduling
+        # could never be switched on there -- although the manager has been
+        # built and generation-aware on Prime since 4.0.0a31.
+        if "schedHold" in state or getattr(data, "prime_robot", None) is not None:
             menu.append("presence_scheduling")
-        if data.map_capability == MapCapability.SMART and data.has_cloud:
+        # Prime too (4.5.0): the robot rates its rooms itself.
+        if (data.map_capability == MapCapability.SMART and data.has_cloud) or (
+            getattr(data, "prime_robot", None) is not None
+        ):
             menu.append("demand_cleaning")
         # v3.3.0 ROOM-SCHED — per-room cleaning frequency (SMART + cloud:
         # named cloud regions are the only stable config keys)
@@ -1798,6 +1823,12 @@ class RoombaPlusOptionsFlow(OptionsFlow):
         # CF4: single "rooms" entry routes internally to zones/smart_zones
         if data.map_capability in (MapCapability.EPHEMERAL, MapCapability.SMART):
             menu.append("rooms")
+
+        # ── 🔧  Maintenance (4.5.0): every maintenance setting in one place.
+        # Last of the regular entries: it was second, right under the
+        # connection, only because its settings came out of Settings.
+        if getattr(data, "maintenance", None) is not None:
+            menu.append("maintenance")
 
         # REST980-MIGRATE (v2.9.0): only offered when there's something to
         # migrate — a roomba_rest980 installation actually present, and a
@@ -2163,13 +2194,33 @@ class RoombaPlusOptionsFlow(OptionsFlow):
         The overview is a table in the menu's description: each entry with
         its level, what is left and where the interval comes from."""
         tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
-        rows = ["| | | | |", "|---|---|---|---|"]
+        # IN HOME ASSISTANT'S LANGUAGE, as the list says it: the overview
+        # showed `replace.filter`, `ok`, `45 hours`, `profile`.
+        words = MaintenanceWording()
+        words.hass = self.hass
+        words._wording = await async_wording(self.hass)
+        levels = await _maintenance_levels(self.hass)
+
+        def _word(key: str, fallback: str) -> str:
+            return words._wording.get(key) or fallback
+
+        rows = [
+            "| {} | {} | {} | {} |".format(
+                _word("overview_item", "Part or task"), _word("overview_level", "Status"),
+                _word("overview_left", "Left"), _word("overview_source", "Interval"),
+            ),
+            "|---|---|---|---|",
+        ]
         for item in tracker.items if tracker is not None else []:
             left = (
-                f"{item.remaining:g} {item.unit}"
+                f"{item.remaining:g} {_word(f'unit_{item.unit}', item.unit)}"
                 if item.remaining is not None and item.unit else "–"
             )
-            rows.append(f"| `{item.id}` | {item.level} | {left} | {item.interval_source or '–'} |")
+            source = item.interval_source
+            rows.append(
+                f"| {words._summary(item)} | {levels.get(item.level, item.level)} | {left} "
+                f"| {_word(f'source_{source}', source) if source else '–'} |"
+            )
         menu = ["maintenance_settings", "maintenance_report"]
         if get_care_guides(self.hass) is not None:
             menu.append("maintenance_guide")
@@ -2361,9 +2412,7 @@ class RoombaPlusOptionsFlow(OptionsFlow):
             return self.async_abort(reason="care_guides_unavailable")
         tracker = getattr(self.config_entry.runtime_data, "maintenance", None)
         items = tracker.items if tracker is not None else []
-        entry = next(
-            (i for i in items if i.guide_id == guide and i.action != "replace"), None,
-        ) or next((i for i in items if i.guide_id == guide), None)
+        entry = guide_entry(items, guide)
         errors: dict[str, str] = {}
         placeholders: dict[str, str] = {"error": ""}
         if user_input is not None:
@@ -2379,12 +2428,23 @@ class RoombaPlusOptionsFlow(OptionsFlow):
         entry_id = self.config_entry.entry_id
         ctx = context_for(self.config_entry.runtime_data)
         when = when_text(entry, await async_wording(self.hass))
+        page_words = guides.text(lang).get("_page") or {}
+        path = guides.page_path(entry_id, guide, lang) or ""
+        # HTML with a target: a Markdown link to Home Assistant's own host
+        # is taken over by the frontend's router and lands on the overview
+        # (care_guides.page_anchor). In a placeholder, not in the string:
+        # the frontend's message format rejects tags in a translation.
+        irobot = irobot_link(items, guide)
         placeholders.update({
             "title": guides.title(guide, lang, ctx),
             "guide": guides.markdown(
                 guide, lang, guides.pictures_markdown(entry_id, guide, ctx, lang), ctx, when,
             ),
-            "link": guides.page_path(entry_id, guide, lang) or "",
+            "page_link": page_anchor(path, str(page_words.get("open") or "Open as a page")),
+            # iRobot's own guide for the model, as on the page.
+            "irobot": (
+                f"\n\n[{page_words.get('irobot') or 'iRobot'}]({irobot})" if irobot else ""
+            ),
         })
         schema: dict[Any, Any] = {}
         if entry is not None:
@@ -2800,7 +2860,8 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                     name = edit.get("display_name", "").strip()
                     if name:
                         data.room_seg_store.rename_room(room_id, name)
-            self.hass.async_create_task(
+            self.config_entry.async_create_task(
+                self.hass,
                 data.room_seg_store.async_save(self.hass, self.config_entry.entry_id),
                 name="roomba_plus_room_seg_store_save",
             )
@@ -2866,8 +2927,9 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                 if name:
                     room_seg_store.rename_room(room.id, name)
             # Persist
-            self.hass.async_create_task(
-                room_seg_store.async_save(self.hass, self.config_entry.entry_id)
+            self.config_entry.async_create_task(
+                self.hass,
+                room_seg_store.async_save(self.hass, self.config_entry.entry_id),
             )
             return self.async_create_entry(title="", data=self.config_entry.options)
 
@@ -3280,6 +3342,8 @@ class RoombaPlusOptionsFlow(OptionsFlow):
         Options stored: demand_cleaning_enabled (bool), demand_clean_multiplier (float).
         """
         data = self.config_entry.runtime_data
+        if getattr(data, "prime_robot", None) is not None:
+            return await self.async_step_demand_cleaning_prime(user_input)
         if (
             not hasattr(data, "map_capability")
             or data.map_capability.value != "smart"
@@ -3316,6 +3380,37 @@ class RoombaPlusOptionsFlow(OptionsFlow):
                     ),
                 }
             ),
+        )
+
+    async def async_step_demand_cleaning_prime(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Demand cleaning on a Prime robot (4.5.0).
+
+        Only the switch: the robot sends its own threshold with the
+        per-room scores, so the Classic multiplier has nothing to scale.
+        The step aborted on every Prime robot, and the Prime branch of
+        the manager behind it was never built.
+
+        A changed switch reloads the entry (`_RELOAD_TRIGGER_KEYS`), which
+        builds or drops the manager.
+        """
+        if user_input is not None:
+            updated = dict(self.config_entry.options)
+            updated[CONF_DEMAND_CLEANING_ENABLED] = bool(
+                user_input.get(CONF_DEMAND_CLEANING_ENABLED, False)
+            )
+            return self.async_create_entry(title="", data=updated)
+        return self.async_show_form(
+            step_id="demand_cleaning_prime",
+            data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_DEMAND_CLEANING_ENABLED,
+                    default=bool(self.config_entry.options.get(
+                        CONF_DEMAND_CLEANING_ENABLED, False
+                    )),
+                ): bool,
+            }),
         )
 
 

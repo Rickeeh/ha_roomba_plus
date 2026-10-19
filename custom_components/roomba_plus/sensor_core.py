@@ -34,7 +34,7 @@ import datetime as dt_stdlib
 
 from homeassistant.util import dt as dt_util
 
-from .parts_catalog import guide_url_for
+from .parts_catalog import guide_url_for, help_url_for
 from .maintenance_model import MaintenanceItem
 from .const import (
     MAINTENANCE_DIAGNOSTIC_KEYS,
@@ -43,7 +43,6 @@ from .const import (
     DEFAULT_PETS,
     replacement_guidance_months,
     BBRUN_SQFT_SCALE,
-    ERROR_CATALOGUE,
     CARPET_BOOST_SLUGS,
     CLEAN_BASE_STATUS_SLUGS,
     CLEAN_MODE_SLUGS,
@@ -57,6 +56,7 @@ from .const import (
     MOP_BEHAVIOR_SLUGS,
     MOP_PAD_SLUGS,
     SQFT_TO_M2,
+    error_label,
     get_localized_error_entry,
     has_carpet_boost,
     has_clean_base,
@@ -294,9 +294,13 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
             {
                 "recent_pause_reasons": _pauses,
                 "most_frequent_pause_reason": (
-                    ERROR_CATALOGUE.get(
-                        max(set(_pauses), key=_pauses.count), {}
-                    ).get("label")
+                    error_label(
+                        max(set(_pauses), key=_pauses.count),
+                        prime=False,
+                        sku=(e.vacuum_state or {}).get("sku"),
+                        clean_base=has_clean_base(e.vacuum_state or {}),
+                        robot_name=getattr(e._config_entry, "title", None),
+                    )
                     or max(set(_pauses), key=_pauses.count)
                 ),
             }
@@ -1744,8 +1748,9 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
 
     # DOCK-HEALTH (v2.8.0) — dock contact health counters from bbchg.
     # Field confirmed present on i/s-series (lewis/soho firmware) and
-    # some 9-series firmware variants.  Thresholds are conservative heuristics
-    # pending community field data calibration (see COMM-A roadmap).
+    # some 9-series firmware variants. The repair thresholds are
+    # conservative heuristics, with no calibration planned (the COMM-A
+    # community benchmark was dropped); a field report moves them.
     RoombaSensorDescription(
         key="dock_contact_chatters",
         translation_key="dock_contact_chatters",
@@ -2095,7 +2100,8 @@ class RoombaSensor(IRobotEntity, SensorEntity):
         elif key == "battery":
             if hasattr(self.hass, "is_running") and self.hass.is_running:
                 from .repairs import async_check_battery_contact_issue
-                self.hass.async_create_task(
+                self._config_entry.async_create_task(
+                    self.hass,
                     async_check_battery_contact_issue(self.hass, self._config_entry),
                     name="roomba_plus_f6f_battery_contact_check",
                 )
@@ -2155,13 +2161,26 @@ class RoombaSensor(IRobotEntity, SensorEntity):
         if key == "last_error_code":
             code = self.native_value
             if code is not None:
+                state = getattr(self, "vacuum_state", None) or {}
                 catalogue = get_localized_error_entry(
                     int(code), self.hass.config.language,  # type: ignore[arg-type]
+                    prime=False,
+                    sku=state.get("sku"),
+                    clean_base=has_clean_base(state),
+                    robot_name=self._config_entry.title,
                 )
-                return {
+                attrs_error: dict[str, Any] = {
                     "description": catalogue.get("description", ""),
                     "action": catalogue.get("action", ""),
                 }
+                if catalogue.get("source"):
+                    attrs_error["text_source"] = catalogue["source"]
+                help_url = help_url_for(
+                    self._config_entry.runtime_data, int(code), prime=False,  # type: ignore[arg-type]
+                )
+                if help_url:
+                    attrs_error["help_url"] = help_url
+                return attrs_error
         # v1.9.1: status hints for numeric sensors that show Unknown
         # native_value must stay None (HA requirement for MEASUREMENT sensors)
         # but extra attributes give the user context about why.

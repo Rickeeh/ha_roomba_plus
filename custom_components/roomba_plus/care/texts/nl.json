@@ -8,7 +8,9 @@
     "expired_text": "Links naar verzorgingshandleidingen zijn 30 dagen geldig. Een nieuwe vind je in Home Assistant onder Instellingen → Apparaten en diensten → Roomba+ → Configureren → Onderhoud → Verzorgingshandleiding.",
     "unknown_title": "Hier is geen handleiding",
     "unknown_text": "Deze handleiding bestaat niet. Open Configureren → Onderhoud → Verzorgingshandleiding in Home Assistant.",
-    "when": "Wanneer"
+    "when": "Wanneer",
+    "open": "Openen als pagina",
+    "docs": "Alle verzorgingshandleidingen op GitHub"
   },
   "clean_filter": {
     "title": "Filter reinigen",

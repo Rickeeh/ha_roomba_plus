@@ -217,13 +217,17 @@ def _raw_cloud_last_error_time(records: list[dict[str, Any]]) -> datetime.dateti
 
 
 def _raw_cloud_last_error_attrs(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return ERROR_CATALOGUE label + action for the most recent cloud error."""
-    from .const import ERROR_CATALOGUE
+    """Label, description and action for the most recent cloud error.
+
+    The Classic cloud's mission history, so the Classic chain
+    (const.get_localized_error_entry), in English like the rest of
+    this sensor's attributes."""
+    from .const import get_localized_error_entry
     r = _cloud_last_error_record(records)
     if r is None:
         return {}
     pause_id = int(r.get("pauseId", 0) or 0)
-    catalogue = ERROR_CATALOGUE.get(pause_id, {})
+    catalogue = get_localized_error_entry(pause_id, "en", prime=False) if pause_id else {}
     return {
         "error_code": pause_id or None,
         "label": catalogue.get("label", ""),

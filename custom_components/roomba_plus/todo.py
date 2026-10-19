@@ -58,6 +58,7 @@ from .care_guides import (
     context_for,
     guide_link,
     guide_why,
+    page_anchor,
 )
 from .const import DOMAIN
 from .entity import IRobotEntity
@@ -146,6 +147,9 @@ class MaintenanceWording:
 
     hass: Any
     _wording: dict[str, str]
+    #: Our guide link as HTML (the to-do list renders Markdown) or as
+    #: Markdown (the calendar).
+    _LINKS_AS_HTML: bool = False
 
     async def _async_load_wording(self) -> None:
         """The item texts in Home Assistant's language, once."""
@@ -208,7 +212,12 @@ class MaintenanceWording:
             )
         ours = guide_link(self.hass, entry_id, item.guide_id)
         links = [
-            f"[{self._text(key)}]({url})"
+            # Our page as HTML with a target, so the frontend's router
+            # does not take the click over (care_guides.page_anchor). Not
+            # in the calendar, which shows the description as plain text.
+            page_anchor(url, self._text(key))
+            if key == "link_care_guide" and self._LINKS_AS_HTML
+            else f"[{self._text(key)}]({url})"
             for key, url in (
                 ("link_care_guide", ours),
                 ("link_guide", item.guide_url),
@@ -228,6 +237,7 @@ class RoombaMaintenanceTodo(MaintenanceWording, IRobotEntity, TodoListEntity):
     _attr_translation_key = "maintenance"
     _attr_supported_features = TodoListEntityFeature.UPDATE_TODO_ITEM
     _shows_maintenance = True
+    _LINKS_AS_HTML = True
 
     def __init__(self, roomba: Any, blid: str, config_entry: RoombaConfigEntry) -> None:
         super().__init__(roomba, blid, config_entry)

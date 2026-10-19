@@ -21,12 +21,13 @@ import logging
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.util import dt as dt_util
 
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
@@ -36,6 +37,8 @@ from homeassistant.helpers.storage import Store
 from .robot_profile_store import RobotProfileStore
 from .command_record import record_command
 from .service_guard import register as register_guarded
+from .dirt_threshold_manager import async_read_prime_clean_scores, qualified_room_id
+from .prime_dirt import dirty_rooms
 from .const import (
     lifetime_hours,
     CONF_SMART_ZONE_ALIASES,
@@ -1271,6 +1274,28 @@ async def async_handle_auto_clean_dirty_rooms(call: ServiceCall) -> None:
                 translation_domain=DOMAIN,
                 translation_key="not_smart_map",
             )
+        # PRIME: THE ROBOT'S OWN SCORES (4.5.0). The dirt index below is
+        # Classic's, built from pass counts per square metre; on Prime it
+        # never qualified a room, so every call cleaned the whole house.
+        # A Prime robot rates its rooms itself and sends the threshold
+        # with them -- the rooms past it, dirtiest first.
+        if data.prime_robot is not None:
+            backend = async_get_room_cleaning_backend(config_entry, hass)
+            scores = await async_read_prime_clean_scores(hass, config_entry, backend)
+            # Qualified with the map the scores came from (4.5.0).
+            room_ids = [
+                qualified_room_id(data, rid) for rid, _score in dirty_rooms(scores)
+            ]
+            if max_rooms:
+                room_ids = room_ids[: int(max_rooms)]
+            if room_ids and backend is not None:
+                _LOGGER.info(
+                    "auto_clean_dirty_rooms: starting rooms %s for %s "
+                    "(the robot's own scores)", room_ids, eid,
+                )
+                await backend.clean_rooms(room_ids)
+                continue
+
         ms = data.mission_store
         rps = getattr(data, "robot_profile_store", None)
 
@@ -1644,6 +1669,26 @@ _CLEAN_SEQUENCE_SCHEMA = vol.Schema({
 })
 
 
+#: Running clean sequences per config entry, ended when it unloads (4.5.0).
+#: One unload callback per entry and setup, rather than one per call: each
+#: call used to add its own, kept until the next reload (review, 4.5.0).
+_SEQUENCE_ENDS: dict[str, set[Callable[[], None]]] = {}
+
+
+def _sequence_ends(entry: Any) -> set[Callable[[], None]]:
+    ends = _SEQUENCE_ENDS.get(entry.entry_id)
+    if ends is None:
+        ends = _SEQUENCE_ENDS[entry.entry_id] = set()
+
+        @callback
+        def _on_unload() -> None:
+            for end in list(_SEQUENCE_ENDS.pop(entry.entry_id, set())):
+                end()
+
+        entry.async_on_unload(_on_unload)
+    return ends
+
+
 async def async_handle_clean_sequence(
     call: ServiceCall
 ) -> None:
@@ -1674,7 +1719,6 @@ async def async_handle_clean_sequence(
     # directly with both arguments and never go through the registry
     # that would have failed.
     hass = call.hass
-    from homeassistant.core import callback
     from homeassistant.helpers import entity_registry as er
 
     trigger_entity = call.data["entity_id"]
@@ -1698,6 +1742,59 @@ async def async_handle_clean_sequence(
     )
 
     unsub_ref: list[Any] = []
+    pending: list[Any] = []
+
+    # BOUND TO BOTH ROBOTS' ENTRIES (4.5.0). The listener and a waiting
+    # delayed start outlived an unload or reload: robot B could still be
+    # started minutes later by an integration that was gone. Either
+    # entry unloading now ends the sequence; the delayed start is a
+    # background task of robot A's entry, cancelled with it.
+    entries = [
+        e for e in (
+            hass.config_entries.async_get_entry(
+                getattr(reg.async_get(eid), "config_entry_id", None) or ""
+            )
+            for eid in (trigger_entity, target_entity)
+        )
+        if e is not None
+    ]
+
+    unique_entries = list({id(e): e for e in entries}.values())
+
+    @callback
+    def _end_sequence() -> None:
+        while unsub_ref:
+            unsub_ref.pop()()
+        for task in pending:
+            if not task.done():
+                task.cancel()
+        pending.clear()
+        _forget()
+
+    @callback
+    def _forget() -> None:
+        for _entry in unique_entries:
+            _SEQUENCE_ENDS.get(_entry.entry_id, set()).discard(_end_sequence)
+
+    for _entry in unique_entries:
+        _sequence_ends(_entry).add(_end_sequence)
+
+    async def _then_forget(coro: Any) -> None:
+        # Done is done (review, 4.5.0): a finished or cancelled start
+        # takes the sequence out of the entries' unload sets instead of
+        # leaving it there until the next reload.
+        try:
+            await coro
+        finally:
+            _forget()
+
+    def _start_task(coro: Any, name: str) -> None:
+        if entries:
+            pending.append(
+                entries[0].async_create_background_task(hass, _then_forget(coro), name)
+            )
+        else:
+            hass.async_create_task(coro, name=name)
 
     @callback
     def _on_trigger_state_change(event: Any) -> None:
@@ -1710,20 +1807,20 @@ async def async_handle_clean_sequence(
             or (state_str in ("idle", "error") and not require_completed)
         )
         if should_fire:
+            while unsub_ref:
+                unsub_ref.pop()()
             if delay_minutes > 0:
-                hass.async_create_task(
+                _start_task(
                     _delayed_start(delay_minutes),
-                    name=f"roomba_plus_clean_sequence_{target_entity}",
+                    f"roomba_plus_clean_sequence_{target_entity}",
                 )
             else:
-                hass.async_create_task(
+                _start_task(
                     hass.services.async_call(
                         "vacuum", "start", {"entity_id": target_entity}
                     ),
-                    name=f"roomba_plus_clean_sequence_imm_{target_entity}",
+                    f"roomba_plus_clean_sequence_imm_{target_entity}",
                 )
-            if unsub_ref:
-                unsub_ref[0]()
 
     async def _delayed_start(delay_min: int) -> None:
         import asyncio as _asyncio

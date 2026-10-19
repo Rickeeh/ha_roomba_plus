@@ -50,7 +50,6 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -691,6 +690,17 @@ def _interpolate_and_correct_segment(
     return out
 
 
+#: Map attributes kept out of the recorder (4.5.0). Room outlines,
+#: calibration points, zones, doors and furniture are rewritten with every
+#: image update, which is every state write of an image entity; the
+#: recorder stored them each time. Cards read the current state, not the
+#: history. Small flags (`alignment_pending`, `position_source`) stay.
+MAP_ATTRIBUTES_NOT_RECORDED: frozenset[str] = frozenset({
+    "calibration_points", "rooms", "zones", "door_markers",
+    "furniture_candidates", "room_preferences",
+})
+
+
 class PrimeMapImage(IRobotEntity, ImageEntity):
     """Live cleaning map for V4/Prime (CLOUD_ONLY) robots.
 
@@ -1004,13 +1014,13 @@ class PrimeMapImage(IRobotEntity, ImageEntity):
         generator simply ending on its own (also anomalous -- see the
         other two fixes' own docstrings for why that case needs the
         same backoff, not an immediate, undelayed re-call)."""
+        from roombapy_prime import RestError, RestHTTPError
         from roombapy_prime.models.livemap import (
             MapUpdateMessage,
             PositionUpdateMessage,
             decode_rawmap_to_png,
         )
 
-        session = async_get_clientsession(self.hass)
         backoff = 5.0
         while True:
             # HELD AND CLOSED EXPLICITLY, not consumed inline.
@@ -1060,20 +1070,24 @@ class PrimeMapImage(IRobotEntity, ImageEntity):
                                 parse_map_bundle,
                             )
 
-                            async with session.get(message.livemap_url) as resp:
-                                if resp.status == 200:
-                                    raw = await resp.read()
-                                    record_success("live bundle fetch")
-                                    bundle = await self.hass.async_add_executor_job(
-                                        parse_map_bundle, raw
-                                    )
-                                    async_dispatcher_send(
-                                        self.hass,
-                                        _SIGNAL_PRIME_LIVE_BUNDLE.format(
-                                            self._config_entry.entry_id
-                                        ),
-                                        bundle,
-                                    )
+                            # Through the library (4.5.0): an unsigned
+                            # GET of the presigned URL, with its timeout
+                            # and its error types. Our own GET had no
+                            # timeout.
+                            raw = await self._prime_robot.download_map_bundle(
+                                message.livemap_url
+                            )
+                            record_success("live bundle fetch")
+                            bundle = await self.hass.async_add_executor_job(
+                                parse_map_bundle, raw
+                            )
+                            async_dispatcher_send(
+                                self.hass,
+                                _SIGNAL_PRIME_LIVE_BUNDLE.format(
+                                    self._config_entry.entry_id
+                                ),
+                                bundle,
+                            )
                         except Exception:  # noqa: BLE001
                             record_failure("live bundle fetch", "downloading the live map")
                             _LOGGER.debug(
@@ -1099,11 +1113,37 @@ class PrimeMapImage(IRobotEntity, ImageEntity):
 
                     if not isinstance(message, MapUpdateMessage) or not message.livemap_url_raw:
                         continue
+                    # Fresh for every frame (review, 4.5.0): the decode
+                    # handler below reports these, and a failed download
+                    # left the previous frame's values in them.
+                    raw_bytes: bytes = b""
+                    http_status: int | str = "?"
+                    content_type = "?"
                     try:
-                        async with session.get(message.livemap_url_raw) as resp:
-                            raw_bytes = await resp.read()
-                            http_status = resp.status
-                            content_type = resp.headers.get("Content-Type", "?")
+                        # Through the library (4.5.0), as the bundle above;
+                        # an HTTP error arrives as RestHTTPError with its
+                        # status and body.
+                        try:
+                            raw_bytes = await self._prime_robot.download_map_bundle(
+                                message.livemap_url_raw
+                            )
+                            http_status, content_type = 200, "-"
+                        except RestHTTPError as http_err:
+                            raw_bytes = (http_err.raw_response or "").encode()
+                            http_status, content_type = http_err.status, "error body"
+                        except RestError as transport_err:
+                            # A timeout or a dropped connection is a
+                            # download that failed, not a payload that did
+                            # not decode.
+                            stats = self._live_map_stats()
+                            stats["updates_received"] += 1
+                            stats["download_failed"] = stats.get("download_failed", 0) + 1
+                            _LOGGER.warning(
+                                "roomba_plus: live map download for %s failed (%s) "
+                                "-- skipping this frame",
+                                self._blid, type(transport_err).__name__,
+                            )
+                            continue
                         # NEW (this session, prompted by a real field report:
                         # 106 consecutive decode failures, chairstacker): the
                         # HTTP status was never checked at all -- an expired
@@ -1363,6 +1403,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
     Map state (pose points, stuck markers, heading) is persisted to
     hass.storage after each mission end and restored after HA restarts.
     """
+
+    _unrecorded_attributes = MAP_ATTRIBUTES_NOT_RECORDED
 
     _attr_translation_key = "map"
     _attr_entity_category = None
@@ -3280,8 +3322,8 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
                 # mission (the freeze-snapshot block below, inside the
                 # room-seg branch) needs the fresh value available
                 # immediately, not after an async_recompute() coroutine
-                # merely gets SCHEDULED via run_coroutine_threadsafe — a
-                # scheduled coroutine is not a completed one. Field-
+                # merely gets SCHEDULED as a task -- a scheduled coroutine
+                # is not a completed one. Field-
                 # confirmed gap: the very first FreezeSnapshotStore
                 # snapshot captured outline_points=0 for exactly this
                 # reason. Persistence (async_save) still happens further
@@ -3295,114 +3337,52 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
 
                 # ROOM-SEG — recompute room/door segmentation from the
                 # just-updated GridStore. EPHEMERAL only (SMART robots get
-                # authoritative room data from the cloud already). Runs
-                # synchronously on THIS thread, not the event loop — this
-                # whole method is already off-loop (see the
-                # asyncio.run_coroutine_threadsafe calls throughout), so
-                # the CPU-bound segmentation work here doesn't block HA.
+                # authoritative room data from the cloud already).
+                #
+                # OFF THE EVENT LOOP (4.5.0). The watershed pipeline took
+                # about 0.1 s on a real 980 grid (2,000 cells) and about
+                # 1.5 s on a simulated 270 m² home, all of it on the loop:
+                # the method was written when it ran on roombapy's MQTT
+                # thread, and since roombapy 2.x it does not. What it needs
+                # from this mission is read here, synchronously, before
+                # the trajectory store records the mission below; the
+                # segmentation itself runs in the executor, and the
+                # follow-ups (save, naming repair, doors, freeze snapshot)
+                # run once it is back.
                 if (
                     self._map_capability == MapCapability.EPHEMERAL
                     and _gdata.room_seg_store is not None
                 ):
-                    _unconfirmed_before = len(_gdata.room_seg_store.unconfirmed_rooms)
-                    _driven_before = _driven_door_ids(_gdata.room_seg_store)
                     _recent_paths = (
                         _gdata.trajectory_store.learned_paths()
                         if _gdata.trajectory_store is not None
                         and hasattr(_gdata.trajectory_store, "learned_paths")
                         else []
                     )
-                    _recomputed = _gdata.room_seg_store.maybe_recompute(
-                        _gdata.grid_store.cells,
-                        # Rooms derived after a single mission come from
-                        # the sparsest map the robot will ever produce,
-                        # and this algorithm family splits rooms at
-                        # unvisited thresholds. On this robot's own
-                        # archives: 7 rooms after one mission, 6 after
-                        # four, 5 once coverage settled.
-                        #
-                        # The missions THIS GRID learned from (4.5.0),
-                        # not the robot's lifetime count: after the grid
-                        # was emptied, that count let the first mission
-                        # cut the areas.
-                        missions_seen=_missions_learned(_gdata.grid_store),
-                        # Which doors a path went through (4.5.0).
-                        paths=[*_recent_paths, *_learned_paths],
+                    self._config_entry.async_create_task(
+                        self.hass,
+                        self._async_segment_rooms_after_mission(
+                            _gdata,
+                            unconfirmed_before=len(_gdata.room_seg_store.unconfirmed_rooms),
+                            driven_before=_driven_door_ids(_gdata.room_seg_store),
+                            # Rooms derived after a single mission come from
+                            # the sparsest map the robot will ever produce,
+                            # and this algorithm family splits rooms at
+                            # unvisited thresholds. On this robot's own
+                            # archives: 7 rooms after one mission, 6 after
+                            # four, 5 once coverage settled.
+                            #
+                            # The missions THIS GRID learned from (4.5.0),
+                            # not the robot's lifetime count: after the grid
+                            # was emptied, that count let the first mission
+                            # cut the areas.
+                            missions_seen=_missions_learned(_gdata.grid_store),
+                            # Which doors a path went through (4.5.0).
+                            paths=[*_recent_paths, *_learned_paths],
+                            learned_paths=list(_learned_paths),
+                        ),
+                        name="roomba_plus_room_segmentation",
                     )
-                    if not _recomputed and _learned_paths:
-                        _gdata.room_seg_store.note_paths(_learned_paths)
-                    if (
-                        not _recomputed
-                        and _driven_door_ids(_gdata.room_seg_store) != _driven_before
-                    ):
-                        # A door driven for the first time: the areas
-                        # are unchanged, the doors shown are not.
-                        self._config_entry.async_create_task(
-                            self.hass, _gdata.room_seg_store.async_save(self.hass, self._config_entry.entry_id)
-                        )
-                        if _gdata.geometry_store is not None:
-                            _gdata.geometry_store.update_from_room_seg_store(
-                                _gdata.room_seg_store
-                            )
-                            self._config_entry.async_create_task(
-                                self.hass, _gdata.geometry_store.async_save(self.hass, self._config_entry.entry_id)
-                            )
-                    if _recomputed:
-                        # ROOM-SEG — fire the same naming-wizard Repair Issue
-                        # ZoneStore used to trigger, only when the count of
-                        # unconfirmed rooms actually grew (mirrors `if
-                        # new_zones:` above — a fresh genuinely-new room was
-                        # found, not just an existing unconfirmed one
-                        # persisting across this recompute).
-                        if len(_gdata.room_seg_store.unconfirmed_rooms) > _unconfirmed_before:
-                            self._config_entry.async_create_task(
-                                self.hass, self._trigger_zone_issue()
-                            )
-                        self._config_entry.async_create_task(
-                            self.hass, _gdata.room_seg_store.async_save(self.hass, self._config_entry.entry_id)
-                        )
-                        # ROOM-SEG — sync GeometryStore's door_markers from
-                        # the just-recomputed RoomSegStore.doors, replacing
-                        # the old zone_store-fed update_from_mission() path
-                        # (gap heuristic, unreliable — see
-                        # ROOM_SEGMENTATION_NOTES.md). Only when rooms
-                        # actually changed this mission, same gating as the
-                        # recompute itself above.
-                        if _gdata.geometry_store is not None:
-                            _gdata.geometry_store.update_from_room_seg_store(
-                                _gdata.room_seg_store
-                            )
-                            self._config_entry.async_create_task(
-                                self.hass, _gdata.geometry_store.async_save(self.hass, self._config_entry.entry_id)
-                            )
-
-                        # v3.2.1 — FreezeSnapshotStore: count this
-                        # successful recompute, and if the interval is due,
-                        # capture the current RoomSeg + Outline state into
-                        # the immutable backup. Uses whatever
-                        # outline_store.contour_points currently holds —
-                        # doesn't need to be perfectly in sync with the
-                        # async outline recompute below, "good enough" is
-                        # the point of a periodic insurance snapshot, not
-                        # a live mirror. See freeze_snapshot_store.py
-                        # docstring for the firmware-cutoff rationale.
-                        if _gdata.freeze_snapshot_store is not None:
-                            _gdata.freeze_snapshot_store.note_recompute()
-                            if _gdata.freeze_snapshot_store.due():
-                                _outline_pts = (
-                                    _gdata.outline_store.contour_points
-                                    if _gdata.outline_store is not None
-                                    else []
-                                )
-                                _gdata.freeze_snapshot_store.snapshot(
-                                    [r.to_dict() for r in _gdata.room_seg_store.rooms.values()],
-                                    [d.to_dict() for d in _gdata.room_seg_store.doors],
-                                    _outline_pts,
-                                    dt_util.now().isoformat(),
-                                )
-                                self._config_entry.async_create_task(
-                                    self.hass, _gdata.freeze_snapshot_store.async_save(self.hass, self._config_entry.entry_id)
-                                )
 
                 # F-EPHEMERAL — Room outline (v3.2.1 redesign): recompute
                 # from the same just-updated GridStore.cells room-seg reads
@@ -3472,6 +3452,116 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         self._dock_contact_streak = 0
         self._dock_contact_first_ts = 0.0
         self._mission_start_ts = None
+
+    def _show_new_rooms(self) -> None:
+        """A new picture once the segmentation has come back (4.5.0).
+
+        The mission end already published one, in the same callback that
+        used to segment; now the segmentation finishes up to 1.5 s later,
+        and the frontend would keep the picture drawn from the old areas
+        until some later message (review, 4.5.0).
+        """
+        self._attr_image_last_updated = dt_util.now(datetime.timezone.utc)
+        self._cache = None
+        if self._config_entry is not None:
+            self._config_entry.async_create_task(
+                self.hass, _async_send_coverage_signal(self.hass, self._config_entry.entry_id)
+            )
+        if self.hass is not None and self.entity_id:
+            self.async_write_ha_state()
+
+    async def _async_segment_rooms_after_mission(
+        self,
+        gdata: Any,
+        *,
+        unconfirmed_before: int,
+        driven_before: set[str],
+        missions_seen: int | None,
+        paths: list[Any],
+        learned_paths: list[Any],
+    ) -> None:
+        """Segment rooms in the executor, then do the follow-ups here.
+
+        See the ROOM-SEG note in _handle_mission_end. Nothing in here may
+        fail the mission end, which has already finished: a failed
+        segmentation leaves the rooms as they were, and the next mission
+        tries again.
+        """
+        store = gdata.room_seg_store
+        try:
+            recomputed = await store.async_maybe_recompute(
+                self.hass,
+                gdata.grid_store.cells,
+                missions_seen=missions_seen,
+                paths=paths,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "Roomba+ room segmentation after the mission failed; the "
+                "rooms stay as they were", exc_info=True,
+            )
+            return
+        entry_id = self._config_entry.entry_id
+        if not recomputed and learned_paths:
+            store.note_paths(learned_paths)
+        if not recomputed and _driven_door_ids(store) != driven_before:
+            # A door driven for the first time: the areas are unchanged,
+            # the doors shown are not.
+            self._config_entry.async_create_task(
+                self.hass, store.async_save(self.hass, entry_id)
+            )
+            if gdata.geometry_store is not None:
+                gdata.geometry_store.update_from_room_seg_store(store)
+                self._config_entry.async_create_task(
+                    self.hass, gdata.geometry_store.async_save(self.hass, entry_id)
+                )
+        if not recomputed:
+            if _driven_door_ids(store) != driven_before:
+                self._show_new_rooms()
+            return
+        self._show_new_rooms()
+        # ROOM-SEG — fire the same naming-wizard Repair Issue ZoneStore
+        # used to trigger, only when the count of unconfirmed rooms
+        # actually grew (a fresh genuinely-new room was found, not just an
+        # existing unconfirmed one persisting across this recompute).
+        if len(store.unconfirmed_rooms) > unconfirmed_before:
+            self._config_entry.async_create_task(
+                self.hass, self._trigger_zone_issue()
+            )
+        self._config_entry.async_create_task(
+            self.hass, store.async_save(self.hass, entry_id)
+        )
+        # ROOM-SEG — sync GeometryStore's door_markers from the
+        # just-recomputed RoomSegStore.doors (the old zone_store gap
+        # heuristic was unreliable -- see ROOM_SEGMENTATION_NOTES.md).
+        # Only when rooms actually changed.
+        if gdata.geometry_store is not None:
+            gdata.geometry_store.update_from_room_seg_store(store)
+            self._config_entry.async_create_task(
+                self.hass, gdata.geometry_store.async_save(self.hass, entry_id)
+            )
+        # v3.2.1 — FreezeSnapshotStore: count this successful recompute,
+        # and if the interval is due, capture the current RoomSeg +
+        # Outline state into the immutable backup. A periodic insurance
+        # snapshot, not a live mirror; see freeze_snapshot_store.py for
+        # the firmware-cutoff rationale.
+        if gdata.freeze_snapshot_store is not None:
+            gdata.freeze_snapshot_store.note_recompute()
+            if gdata.freeze_snapshot_store.due():
+                outline_pts = (
+                    gdata.outline_store.contour_points
+                    if gdata.outline_store is not None
+                    else []
+                )
+                gdata.freeze_snapshot_store.snapshot(
+                    [r.to_dict() for r in store.rooms.values()],
+                    [d.to_dict() for d in store.doors],
+                    outline_pts,
+                    dt_util.now().isoformat(),
+                )
+                self._config_entry.async_create_task(
+                    self.hass, gdata.freeze_snapshot_store.async_save(self.hass, entry_id)
+                )
 
     async def _async_save_map_state(self) -> None:
         """Write renderer state to hass.storage after mission end."""
@@ -4025,6 +4115,8 @@ class RoombaRoomsImage(IRobotEntity, ImageEntity):
     Distinct from RoombaMapImage (cleaning history + keepout overlay).
     Preferred source for xiaomi-vacuum-map-card configuration.
     """
+
+    _unrecorded_attributes = MAP_ATTRIBUTES_NOT_RECORDED
 
     _attr_content_type    = "image/png"
     _attr_translation_key = "rooms_map"
@@ -4619,6 +4711,8 @@ class PrimeRoomsImage(IRobotEntity, ImageEntity):
     no alignment gate -- which is also why this entity is available
     immediately rather than after the first mission.
     """
+
+    _unrecorded_attributes = MAP_ATTRIBUTES_NOT_RECORDED
 
     _attr_has_entity_name  = True
     _attr_content_type     = "image/png"

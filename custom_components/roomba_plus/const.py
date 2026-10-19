@@ -9,13 +9,17 @@ from typing import Any, Final
 from homeassistant.components.vacuum import VacuumActivity
 from homeassistant.const import Platform
 
-# iRobot's own error texts come from roombapy-prime since 4.3.4. This
-# integration carried a copy of the same table (app 3.0.0) beside the
-# library's, already a release behind it: the library had moved to app
-# 3.2.0's texts and corrected the ones 3.2.0 made worse. The library is
-# a hard requirement and imported at the top of __init__.py, so the copy
-# guarded against nothing and could only fall behind.
-from roombapy_prime.vendor_errors import vendor_error
+# iRobot's own error texts come from roombapy-prime since 4.3.4: the
+# Prime app's since 4.3.4, the Classic app's since 4.5.0 (roombapy-prime
+# 0.8.0). This integration once carried a copy of the Prime table beside
+# the library's, a release behind it; the copy guarded against nothing
+# and could only fall behind.
+from roombapy_prime.vendor_errors import prime_help_id, vendor_error
+from roombapy_prime.vendor_errors_classic import (
+    classic_dock_text,
+    classic_help_id,
+    classic_vendor_error,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -130,7 +134,6 @@ CLOUD_PLATFORMS: Final[list[Platform]] = [
 CONF_BLID: Final = "blid"
 CONF_CONTINUOUS: Final = "continuous"
 CONF_DELAY: Final = "delay"
-CONF_CERT: Final = "certificate"
 
 # NEW (V4/Prime): stores ConnectionType.value ("local_push"/"cloud_only") in
 # config_entry.data. Absent on every entry that predates this field --
@@ -297,7 +300,6 @@ CONF_SMART_ZONE_HIDDEN: Final = "smart_zone_hidden"     # list[str]: hidden regi
 # ── Defaults ──────────────────────────────────────────────────────────────────
 DEFAULT_CONTINUOUS: Final = True
 DEFAULT_DELAY: Final = 30
-DEFAULT_CERT: Final = "/etc/ssl/certs/ca-certificates.crt"
 
 DEFAULT_MAP_ENABLED: Final = True
 DEFAULT_LIVE_POSITION_REQUESTS: Final = True
@@ -1016,8 +1018,9 @@ BBRUN_SQFT_SCALE: Final = 100
 # and sensor.py for battery/maintenance computations.
 #
 # Data sources: iRobot support docs, FCC filings (battery mAh), NickWaterton
-# cross-reference (confirmed June 2026).  Hours marked TODO need per-model
-# iRobot support page verification.
+# cross-reference (confirmed June 2026). Where iRobot's cloud counters
+# exist (i and j series) they corrected the hours; the others are
+# researched values awaiting the same check from the field.
 #
 # 9-series (Roomba 980): OEM battery is Li-ion 14.4V, confirmed June 2026.
 # Aftermarket batteries exist as 14.4V NiMH or 14.8V Li-ion — aftermarket
@@ -2016,29 +2019,37 @@ READINESS_WIRE_TO_INDEX: Final[dict[int, int]] = {
     # Each family draws a subset of one shared value space. That is the
     # opposite of a divergence, and it is why the table travels.
     #
-    # 78 is mapped because ruby's name pins it to a known state. 40 is
-    # NOT: whether `HARDWARE_MISMATCH` is the same state as
-    # `CleaningHeadHwMismatch` was never established. A lewis robot
-    # reporting 40 shows `not_ready_40` until somebody confirms it.
+    # 78 is mapped because ruby's name pins it to a known state. 40 was
+    # not, until the Classic app's own refusal table settled it (below):
+    # it is NewCleaningHead, not CleaningHeadHwMismatch.
     78: 69,  # CSSC_HW_MISMATCH (ruby) -> Cleaning head hw mismatch
-    # FOUR FIRMWARE CONSTANTS, ONE STATE. The app has only
-    # `BatteryAuthError` for all of them, so three wire values collapse
-    # onto it: BATTERY_AUTH_FAILED, CHARGING_REPLACE_BATT /
-    # BATTERY_NOT_INITIALIZED, CHARGING_REMOVE_BATT. Distinguishing
-    # them would need labels this project does not have.
+    # THREE BATTERY CONSTANTS, THREE STATES (4.5.0). These three were
+    # collapsed onto `BatteryAuthError` because no closer state was known.
+    # The Classic app's own refusal table (`kCommonStartRefuseStates*`,
+    # libcore_jni.so of iRobot Home 7.18.0, keyed by the wire value) names
+    # them: 37 SMBusPermanentFailure, 38 ChargeTimeout -- which is what
+    # "replace the battery" and "remove the battery" were saying.
     23: 29,  # BATTERY_AUTH_FAILED    -> Battery auth error
-    37: 29,  # CHARGING_REPLACE_BATT / BATTERY_NOT_INITIALIZED
-    38: 29,  # CHARGING_REMOVE_BATT
-    # WIRE 27 IS DELIBERATELY ABSENT.
-    #
-    # The firmware calls it `PP_COMM` and the closest app state is
-    # `MobilityOffline`, but "Peripheral Processor comms" is not
-    # obviously mobility, and the person who extracted it said they
-    # would hesitate before adopting that bridge.
-    #
-    # A wrong label sends someone to the wrong hardware. Wire 27 shows
-    # as `not_ready_27` until somebody confirms what it means -- which
-    # is the whole reason unmapped values report their number.
+    37: 35,  # CHARGING_REPLACE_BATT  -> SM bus permanent failure (app)
+    38: 36,  # CHARGING_REMOVE_BATT   -> Charge timeout (app)
+    # FROM THE CLASSIC APP'S REFUSAL TABLE (4.5.0): wire values this table
+    # showed as a bare number, each with the state the app files it
+    # under. 27 is the `PP_COMM` the note below hesitated over: the app
+    # says MobilityOffline.
+    14: 11,  # -> Invalid command
+    17: 14,  # -> Nav comms down
+    19: 16,  # -> Charging sleep
+    27: 30,  # PP_COMM -> Mobility offline
+    40: 27,  # HARDWARE_MISMATCH (lewis) -> New cleaning head
+    65: 61,  # -> Fleet disabled
+    73: 67,  # -> Robot fluid level sensor broken
+    74: 68,  # -> Tank fluid level sensor broken
+    271: 70,  # -> Dead floor type sensor
+    # WIRE 27 WAS DELIBERATELY ABSENT until 4.5.0: the firmware calls it
+    # `PP_COMM`, and "Peripheral Processor comms" is not obviously
+    # mobility. The app's own table confirms the bridge (above). Unmapped
+    # values still report their number, for the same reason it waited: a
+    # wrong label sends someone to the wrong hardware.
     # Where the arithmetic breaks down entirely.
     33: 21,  # BUMPED             -> Bumped
     # `Saving map`, NOT the app's "Clean Map problem".
@@ -2087,283 +2098,204 @@ MAP_RETRAIN_STUCK_MINUTES: Final[int] = 45
 
 # Human-readable phase labels (from rest980 — extended)
 
-# ── v1.8.0 — Error catalogue with descriptions and suggested actions ──────────
-# Replaces the flat ERROR_CODE_LABELS dict. All existing sensor code that reads
-# ERROR_CODE_LABELS continues to work unchanged — it is now a derived view.
-# ── ARE THESE NUMBERS THE SAME ON EVERY ROBOT? ───────────────────────────────
+# ── Error texts: whose words, for which robot (4.5.0) ────────────────────────
 #
-# Raised, investigated, and NOT acted on. Recorded so the next person does
-# not spend the same evening on it.
+# THE ROBOT'S OWN APP SAYS WHAT HAPPENED. A Classic robot's code is looked
+# up in the Classic app's table (iRobot Home 7.18.0,
+# `roombapy_prime.vendor_errors_classic`), a Prime robot's in the Prime
+# app's (Roomba Home 3.2.0, `roombapy_prime.vendor_errors`).
 #
-# Firmware analysis of ruby-0.7.12 (j9) found that `CONSTANT_CLIFF` is absent
-# from its RECOVERABLE error literals, while lewis (i7/i8) has it. If those
-# literals are the enum, every RECOVERABLE index from 2 upward shifts between
-# the two platforms, and `error: 5` would mean different things on an i7 and a
-# j9 -- which would make this whole table lewis-only.
+# THIS ANSWERED EVERY ROBOT FROM THE PRIME TABLE UNTIL 4.5.0b2. The two apps
+# disagree on what some codes MEAN, not only on the words: 2 is "Main Brush
+# stuck" in Prime and the two rubber brushes in Classic (a j7 was told to
+# clean a part it does not have), 6 is "clean the cliff sensors" against
+# "stuck near a cliff", 47 and 228 an update against a reboot. Of the 71
+# codes both apps know, none has the same text in both, and of 16 codes in
+# both of iRobot's help catalogues all 16 point to different articles.
+# Prime is its own namespace (a20), and so is Classic.
 #
-# TWO THINGS ARGUE AGAINST ACTING ON IT.
+# OURS ONLY WHERE THE APP SAYS NOTHING SPECIFIC. Of 110 texts written here,
+# 59 labels were the Classic app's own and most of the rest were worse (21,
+# 36, 453 were wrong). What stays are the battery and charging errors
+# 101-121: the Classic app shows "Charging error", "@val has a battery
+# error." or "Follow our step-by-step guide", while iRobot's help page for
+# the code says what is wrong -- and these texts say it too. The page
+# behind each is in OWN_ERROR_SOURCES. A new entry needs the same two
+# things: an app that says nothing specific, and a source that does.
 #
-# The analysis says so itself: the lewis ordering was PROVEN from a `tbb` jump
-# table; for ruby (ARM, not Thumb) that proof is missing and only the file
-# order of literals was read. A missing literal does not prove a missing enum
-# slot -- absence where one looked is not absence.
+# WHAT IS TO BE DONE is not here at all: a care task's guide
+# (care_guides.py) and iRobot's help article for the code and the robot's
+# model (parts_catalog.py, `help_url`).
 #
-# And the field contradicts it. Two codes, two different firmware families,
-# both matching this table:
-#
-#     42  "Localisation problem"   @ScenicSystemsLLC's Braava jet m6 (san_marino)
-#     46  "Low battery"            @AlakazipLabs' i3 at 6% (daredevil)
-#
-# iRobot's own app also ships ONE code-to-text catalogue with no platform
-# dimension (see roombapy_prime.vendor_errors). If the wire code were the internal enum
-# index, the vendor's own client would be showing wrong text too.
-#
-# WHAT WOULD CHANGE THIS: a j-series robot reporting a code whose text here
-# does not match what the iRobot app shows for the same event. That is one
-# screenshot, and it would be worth more than any amount of further reading.
+# ARE THE NUMBERS THE SAME ON EVERY CLASSIC ROBOT? Firmware analysis of
+# ruby-0.7.12 (j9) found `CONSTANT_CLIFF` absent from its RECOVERABLE
+# literals while lewis (i7/i8) has it; if those literals were the enum,
+# `error: 5` would differ between an i7 and a j9. Not acted on: the field
+# matches across families (42 on a Braava jet m6, 46 on an i3), and the
+# Classic app ships ONE table for every Classic robot.
+
+#: OUR OWN TEXTS, English. Only where the robot's app says nothing specific
+#: and iRobot's help page for the code does (see the block above).
+#: Translations in error_translations.py.
 ERROR_CATALOGUE: Final[dict[int, dict[str, str]]] = {
-    0:   {"label": "None",                     "description": "No error.",                                                  "action": ""},
-    1:   {"label": "Left wheel off floor",      "description": "The left wheel has lifted off the floor.",                  "action": "Check for objects under the robot and place it on a flat surface."},
-    # CORRECTED to the DEFAULT variant. "Main brushes stuck" is real, but
-    # it is the SKU override the app applies only for the MARCONI prefix;
-    # the default text is "Debris extractors stuck". We were showing the
-    # special case to every robot.
-    #
-    # The per-SKU override is not implemented: it needs the robot's SKU
-    # at label time and affects six codes. Worth doing, not guessed at.
-    2:   {"label": "Debris extractors stuck",  "description": "The debris extractors are jammed.",                         "action": "Remove the extractors and clear hair or debris, then reinsert."},
-    3:   {"label": "Right wheel off floor",     "description": "The right wheel has lifted off the floor.",                 "action": "Check for objects under the robot and place it on a flat surface."},
-    4:   {"label": "Left wheel stuck",          "description": "The left wheel is stuck or jammed.",                        "action": "Remove any debris from around the left wheel and restart."},
-    5:   {"label": "Right wheel stuck",         "description": "The right wheel is stuck or jammed.",                       "action": "Remove any debris from around the right wheel and restart."},
-    6:   {"label": "Stuck near a cliff",        "description": "The robot is stuck near a drop-off or step.",               "action": "Move the robot to a flat surface away from stairs and restart."},
-    7:   {"label": "Left wheel error",          "description": "The left wheel is not responding correctly.",                "action": "Check the wheel for obstructions. Reboot the robot if the error persists."},
-    8:   {"label": "Bin error",                 "description": "The dust bin has an issue.",                                 "action": "Remove, empty, and reinsert the dust bin until it clicks."},
-    9:   {"label": "Bumper stuck",              "description": "The front bumper is jammed or stuck.",                      "action": "Tap the bumper to free it and clear any debris around it."},
-    10:  {"label": "Right wheel error",         "description": "The right wheel is not responding correctly.",               "action": "Check the wheel for obstructions. Reboot the robot if the error persists."},
-    11:  {"label": "Bin error",                 "description": "The dust bin has an issue.",                                 "action": "Remove, empty, and reinsert the dust bin until it clicks."},
-    12:  {"label": "Cliff sensor issue",        "description": "A cliff sensor is dirty or giving incorrect readings.",      "action": "Clean the cliff sensors on the underside with a dry cloth."},
-    13:  {"label": "Both wheels off floor",     "description": "Both wheels have lifted off the floor.",                    "action": "Place the robot on a flat, level surface."},
-    14:  {"label": "Bin missing",               "description": "The dust bin is not installed.",                            "action": "Insert the dust bin until it clicks into place."},
-    15:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    16:  {"label": "Bumped unexpectedly",       "description": "The robot detected an unexpected bump.",                    "action": "Check for unstable objects near the robot's path."},
-    17:  {"label": "Path blocked",              "description": "An obstacle is blocking the robot's path.",                 "action": "Clear the path and restart."},
-    18:  {"label": "Docking issue",             "description": "The robot cannot find or dock at its home base.",           "action": "Check that the home base is plugged in and the path is clear."},
-    19:  {"label": "Undocking issue",           "description": "The robot could not leave the home base.",                  "action": "Check that the home base area is clear and restart."},
-    20:  {"label": "Docking issue",             "description": "The robot encountered a problem docking.",                  "action": "Check the home base contacts and clear any obstacles nearby."},
-    21:  {"label": "Navigation problem",        "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    22:  {"label": "Navigation problem",        "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    23:  {"label": "Battery issue",             "description": "A battery problem has been detected.",                      "action": "Place the robot on its home base. Contact support if the issue persists."},
-    24:  {"label": "Navigation problem",        "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    25:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    26:  {"label": "Vacuum problem",            "description": "The vacuum suction system has a problem.",                  "action": "Check the filter and bin for blockages. Reboot the robot."},
-    27:  {"label": "Vacuum problem",            "description": "The vacuum suction system has a problem.",                  "action": "Check the filter and bin for blockages. Reboot the robot."},
-    29:  {"label": "Software update needed",    "description": "A software update is required.",                           "action": "Connect the robot to Wi-Fi and allow the update to complete."},
-    30:  {"label": "Vacuum problem",            "description": "The vacuum suction system has a problem.",                  "action": "Check the filter and bin for blockages. Reboot the robot."},
-    31:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    32:  {"label": "Smart map problem",         "description": "The robot encountered an error with its Smart Map.",        "action": "Retrain the Smart Map in the iRobot app."},
-    33:  {"label": "Path blocked",              "description": "An obstacle is blocking the robot's path.",                 "action": "Clear the path and restart."},
-    34:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    35:  {"label": "Unrecognised cleaning pad", "description": "The mop pad type could not be identified.",                "action": "Remove the pad, clean the pad tray contacts, and reattach."},
-    36:  {"label": "Bin full",                  "description": "The dust bin is full.",                                     "action": "Empty the bin and tap Clean to continue."},
-    37:  {"label": "Tank needs refilling",      "description": "The water tank is empty or low.",                          "action": "Fill the water tank and reinsert it."},
-    38:  {"label": "Vacuum problem",            "description": "The vacuum suction system has a problem.",                  "action": "Check the filter and bin for blockages. Reboot the robot."},
-    39:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    40:  {"label": "Navigation problem",        "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    41:  {"label": "Timed out",                 "description": "The robot timed out waiting for a condition.",              "action": "Restart the mission from the iRobot app."},
-    42:  {"label": "Localisation problem",      "description": "The robot cannot determine its position on the map.",       "action": "Place the robot in an open area and restart. Consider retraining the Smart Map."},
-    43:  {"label": "Navigation problem",        "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    44:  {"label": "Pump issue",                "description": "The mop pump is not responding.",                           "action": "Check the water tank and clean the pump inlet."},
-    45:  {"label": "Lid open",                  "description": "The robot lid is open.",                                   "action": "Close the lid securely before starting a mission."},
-    46:  {"label": "Low battery",               "description": "The battery is too low to start a clean.",                 "action": "Place the robot on the home base and wait for it to charge."},
-    47:  {"label": "Reboot required",           "description": "The robot requires a reboot to continue.",                  "action": "Press and hold the Clean button for 10 seconds to reboot."},
-    48:  {"label": "Path blocked",              "description": "A virtual wall or obstacle blocked the robot.",             "action": "Clear the path or move the virtual wall barrier."},
-    52:  {"label": "Pad requires attention",    "description": "The cleaning pad needs to be replaced or reattached.",     "action": "Replace the pad or check the pad tray for secure attachment."},
-    53:  {"label": "Software update required",  "description": "A critical software update is required.",                  "action": "Connect the robot to Wi-Fi and allow the update to complete."},
-    65:  {"label": "Hardware problem detected", "description": "A hardware component has reported a fault.",               "action": "Reboot the robot. Contact iRobot support if the error persists."},
-    66:  {"label": "Low memory",                "description": "The robot's software encountered a memory issue.",         "action": "Reboot the robot. Contact iRobot support if the error persists."},
-    # CORRECTED against the vendor table (iRobot Home 7.18.0). This read
-    # "Updating map" -- neither the enum name (CAMERA_HARDWARE_FAILURE)
-    # nor the app's own text ("Camera issue") supports that, and the two
-    # agree with each other. A user was told to wait while the robot
-    # reported a hardware fault it cannot recover from on its own.
-    68:  {"label": "Camera issue",              "description": "The robot reports a camera hardware failure.",             "action": "Wipe the camera lens. If it persists, the robot needs service — navigation depends on it."},
-    73:  {"label": "Pad type changed",          "description": "A different pad type has been detected.",                  "action": "Confirm the correct pad is attached in the iRobot app."},
-    74:  {"label": "Max area reached",          "description": "The robot has reached the maximum cleanable area.",        "action": "This is informational. Dock and recharge, then continue if needed."},
-    75:  {"label": "Navigation problem",        "description": "The robot could not complete navigation in time.",         "action": "Clear the area of obstacles and try again."},
-    76:  {"label": "Hardware problem detected", "description": "A hardware component has reported a fault.",               "action": "Reboot the robot. Contact iRobot support if the error persists."},
-    # v3.4.1 — codes 78/79/85/86/91-93/98/99 confirmed from direct iRobot Home
-    # app APK analysis (push_notification_error_*/history_error_* string
-    # resources, Klartext-verified). Codes 54-72/94-97 in the same numeric
-    # neighbourhood were checked and excluded — those belong to iRobot's Terra
-    # lawn-mower product line (shared app namespace), not vacuum/mop robots.
-    78:  {"label": "Left wheel error",           "description": "The left wheel is not responding correctly.",               "action": "Check the wheel for obstructions. Reboot the robot if the error persists."},
-    79:  {"label": "Right wheel error",          "description": "The right wheel is not responding correctly.",              "action": "Check the wheel for obstructions. Reboot the robot if the error persists."},
-    85:  {"label": "Path to charging station blocked", "description": "The robot could not reach the home base.",            "action": "Ensure the path to the home base is clear and unobstructed."},
-    86:  {"label": "Path to charging station blocked", "description": "The robot could not reach the home base.",            "action": "Ensure the path to the home base is clear and unobstructed."},
-    88:  {"label": "Back-up refused",           "description": "The robot could not back up as required.",                 "action": "Check for obstacles behind the robot and clear the area."},
-    89:  {"label": "Mission runtime too long",  "description": "The mission exceeded the maximum allowed runtime.",        "action": "The robot will dock and resume after charging."},
-    # v3.4.1 — see comment above codes 78/79/85/86 for source/exclusion notes.
-    91:  {"label": "Workspace path error",       "description": "The robot's understanding of the workspace no longer matches its surroundings.", "action": "Retrain the map for this space."},
-    92:  {"label": "Workspace path error",       "description": "The robot's understanding of the workspace no longer matches its surroundings.", "action": "Retrain the map for this space."},
-    93:  {"label": "Workspace path error",       "description": "The robot's understanding of the workspace no longer matches its surroundings.", "action": "Retrain the map for this space."},
-    98:  {"label": "Software error",             "description": "An internal software error occurred.",                     "action": "Reboot the robot. Contact iRobot support if the error persists."},
-    99:  {"label": "Navigation problem",         "description": "The robot is having trouble navigating.",                   "action": "Clear the area of obstacles and ensure good lighting."},
-    101: {"label": "Battery not connected",     "description": "The battery is not detected.",                            "action": "Check that the battery is firmly seated. Contact support if needed."},
-    102: {"label": "Charging error",            "description": "A charging error has occurred.",                          "action": "Check the home base contacts and the robot's charging port for debris."},
-    103: {"label": "Charging error",            "description": "A charging error has occurred.",                          "action": "Check the home base contacts and the robot's charging port for debris."},
+    101: {"label": "Battery not connected",     "description": "The battery is not detected.",                             "action": "Check that the battery is firmly seated. Contact support if needed."},
+    102: {"label": "Battery not charging",      "description": "A fault was detected and the battery is not charging.",    "action": "Take the battery out and put it back in. If the robot has been near liquid, check it for water damage. Contact iRobot support if the error persists."},
+    103: {"label": "Charging system fault",     "description": "The robot's charging system is not working correctly.",    "action": "Contact iRobot support."},
     104: {"label": "No charge current",         "description": "No charging current is being received.",                  "action": "Check the home base power cable and outlet. Clean the charging contacts."},
     105: {"label": "Charging current too low",  "description": "The charging current is below the expected level.",       "action": "Clean the charging contacts on the robot and home base."},
     106: {"label": "Battery too warm",          "description": "The battery temperature is too high to charge.",          "action": "Move the robot to a cooler location and wait before charging."},
-    107: {"label": "Battery temperature incorrect", "description": "The battery temperature reading is out of range.",    "action": "Let the robot cool down, then attempt charging again."},
-    108: {"label": "Battery communication failure", "description": "The robot cannot communicate with the battery.",      "action": "Reboot the robot. Contact support if the error persists."},
-    109: {"label": "Battery error",             "description": "A battery error has been detected.",                      "action": "Reboot the robot. Contact support if the error persists."},
-    110: {"label": "Battery cell imbalance",    "description": "Battery cells are out of balance.",                       "action": "Fully discharge and recharge the battery. Contact support if persistent."},
-    111: {"label": "Battery communication failure", "description": "The robot cannot communicate with the battery.",      "action": "Reboot the robot. Contact support if the error persists."},
-    112: {"label": "Invalid charging load",     "description": "The charging load is not as expected.",                   "action": "Check the home base and cable. Try a different outlet."},
+    107: {"label": "Battery too cold",          "description": "The battery is too cold to charge.",                       "action": "Move the robot and its base to a room at normal room temperature (about 15–23 °C) and let it charge there."},
+    108: {"label": "Battery not charging",      "description": "The battery does not charge, usually because of its temperature or because it is not an original iRobot battery.", "action": "Charge the robot at room temperature and use an original iRobot battery."},
+    109: {"label": "Permanent battery fault",   "description": "The battery reports a fault that does not clear by itself.", "action": "Take the battery out for at least 15 minutes and put it back in. If the error returns, replace the battery."},
+    110: {"label": "Battery cell imbalance",    "description": "Battery cells are out of balance.",                       "action": "The battery needs to be replaced. Contact iRobot support."},
+    111: {"label": "Battery hardware fault",    "description": "The battery has a hardware fault.",                       "action": "Take the battery out for 15 minutes and put it back in. If the error returns, contact iRobot support about replacing the battery."},
     114: {"label": "Internal battery failure",  "description": "An internal battery failure has been detected.",          "action": "Contact iRobot support for battery replacement."},
     115: {"label": "Cell failure during charging", "description": "A battery cell failed during a charging cycle.",       "action": "Contact iRobot support for battery replacement."},
-    116: {"label": "Charging error of home base", "description": "The home base has a charging error.",                   "action": "Unplug and replug the home base. Try a different outlet."},
-    118: {"label": "Battery communication failure", "description": "The robot cannot communicate with the battery.",      "action": "Reboot the robot. Contact support if the error persists."},
+    117: {"label": "Battery not recognised",    "description": "The robot does not recognise the battery as an original iRobot battery.", "action": "Use an original iRobot battery."},
     119: {"label": "Charging timeout",          "description": "The charging cycle timed out.",                           "action": "Check the home base contacts and try restarting the charging cycle."},
-    120: {"label": "Battery not initialised",   "description": "The battery has not been initialised.",                   "action": "Reboot the robot. Contact support if the error persists."},
-    122: {"label": "Charging system error",     "description": "The charging system has encountered an error.",           "action": "Check the home base and cable. Contact support if the error persists."},
-    123: {"label": "Battery not initialised",   "description": "The battery has not been initialised.",                   "action": "Reboot the robot. Contact support if the error persists."},
-    # CORRECTED: the wrong part. Enum STARTING_ERROR_BIN_FULL, app text
-    # "Bin full" -- the robot's own bin, not the Clean Base bag. Sending
-    # someone to replace a bag when the bin needs emptying.
-    216: {"label": "Bin full",                 "description": "The robot refused to start because its bin is full.",      "action": "Empty the robot's bin, then start the job again."},
-    224: {"label": "Smart Map localization failed", "description": "The robot could not localise on its Smart Map.",      "action": "Place the robot in an open area on the map and try again. Retrain the map if needed."},
-    # v3.4.1 — Combo wet-mopping tank/dock error category (450-463, 501-509),
-    # confirmed from direct iRobot Home app APK analysis (dock_history_error_*
-    # string resources, Klartext-verified). Consistent degradation pattern:
-    # the robot switches to vacuum-only rather than failing the mission outright.
-    450: {"label": "Tank missing",              "description": "The clean water tank is missing. Switched to vacuum only.", "action": "Insert the clean water tank."},
-    451: {"label": "Tank low",                  "description": "The clean water tank is low. Switched to vacuum only.",     "action": "Refill the clean water tank."},
-    452: {"label": "Tank hardware issue",       "description": "A tank hardware issue was detected. Switched to vacuum only.", "action": "Reseat the tank. Contact iRobot support if the error persists."},
-    453: {"label": "Port clog",                 "description": "A refill port is clogged. Switched to vacuum only.",      "action": "Clean the refill port on the dock and robot."},
-    454: {"label": "Nozzle clog",                "description": "A nozzle is clogged. Switched to vacuum only.",           "action": "Clean the mopping nozzle."},
-    455: {"label": "Clean Base pump issue",      "description": "The Clean Base pump has an issue.",                       "action": "Check the Clean Base for blockages. Contact support if the error persists."},
-    456: {"label": "Incorrect bin",              "description": "The wrong bin type is installed. Switched to vacuum only.", "action": "Install the correct bin for this robot."},
-    457: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    458: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    459: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    460: {"label": "Level sensor issue",         "description": "A tank level sensor issue was detected. Switched to vacuum only.", "action": "Clean the tank and level sensor. Contact support if the error persists."},
-    461: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    462: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    463: {"label": "Possible leak",              "description": "A possible leak was detected. Switched to vacuum only.",  "action": "Check the tank and connections for leaks. Contact support if the error persists."},
-    501: {"label": "Unable to refill",           "description": "The robot was unable to refill. Switched to vacuum only.", "action": "Check the Clean Base water supply and refill connections."},
-    502: {"label": "Charging contacts need cleaning", "description": "The charging contacts need cleaning.",               "action": "Clean the charging contacts on the robot and Clean Base."},
-    503: {"label": "Communication error",       "description": "A communication error occurred. Switched to vacuum only.", "action": "Reboot the robot. Contact support if the error persists."},
-    504: {"label": "Refill docking issue",       "description": "The robot had a refill docking issue. Switched to vacuum only.", "action": "Check that the robot is docking correctly at the Clean Base."},
-    505: {"label": "Communication error",       "description": "A communication error occurred. Reboot required.",         "action": "Reboot the robot."},
-    506: {"label": "Communication error",       "description": "A communication error occurred. Reboot required.",         "action": "Reboot the robot."},
-    507: {"label": "Communication error",       "description": "A communication error occurred. Reboot required.",         "action": "Reboot the robot."},
-    508: {"label": "Clean Base update failure",  "description": "The Clean Base software update failed.",                  "action": "Retry the update. Contact iRobot support if the error persists."},
-    509: {"label": "Clean Base update failure",  "description": "The Clean Base software update failed.",                  "action": "Retry the update. Contact iRobot support if the error persists."},
-    # FIELD-REPORTED, AND ITS MEANING HAS SINCE WIDENED (chairstacker,
-    # Combo 405 / V4 Prime).
-    #
-    # First seen in v4.0.0a6: a mission paused just after starting with
-    # the clean water tank EMPTY, and 671 was the code shown. The label
-    # here said "Clean water tank empty" on that basis.
-    #
-    # Second observation (a18, controlled): the tank was not empty but
-    # REMOVED, and 671 appeared again -- in dock.pwState, which read 601
-    # (PAD_WASH_OKAY) again the moment the tank went back in, with
-    # dock.state, dock.error and pdState unchanged throughout. So 671 is
-    # not "empty": it covers at least empty and missing, and reads as a
-    # general "pad wash preconditions not met".
-    #
-    # "Empty" was therefore actively misleading -- it sends someone to
-    # refill a tank that is not in the dock.
-    #
-    # NAMESPACE DOUBT, deliberately left in place. 671 is the only code
-    # in this table between 509 and 1010; the surrounding families are
-    # dense (450-463, 501-509). DockState's pad-wash family is dense
-    # right where 671 falls. It is likely this entry was filed here from
-    # an a6 observation whose FIELD was never recorded, and that 671 is
-    # only ever a dock code. Not removed, because if the a6 reading
-    # really was cleanMissionStatus.error then deleting it destroys a
-    # real observation. See DOCK_STATE_FIELD_CODES for the dock side.
-    671: {"label": "Pad wash not possible",      "description": "The dock cannot wash the pad. Seen with the clean water tank both empty and removed.", "action": "Check that both dock tanks are fitted and the clean water tank is filled."},
-    # CONFIRMED BY THE ROBOT ITSELF (@utkjmitch, Y351020). "Clear path"
-    # was an unconfirmed guess, and it is wrong: 1010 is a DOCKING
-    # failure. His robot finished a mission, drove home, aborted the
-    # final approach two inches short of a powered, working dock, and
-    # raised 1010 -- hand-placed on the same dock it charged at once.
-    #
-    # Same code appeared on 2026-08-17 when the dock was unpowered, and
-    # was read as an obstruction for ten days. It cost six hours of
-    # visible battery drain nobody acted on.
-    1010: {"label": "Couldn't dock",           "description": "The robot could not return to its dock.",                  "action": "Move the robot and place it on the dock by hand."},
+    120: {"label": "Battery not ready to charge", "description": "The battery reports a fault or is not ready to charge.", "action": "Take the battery out for 15 minutes, put it back and charge again."},
+    121: {"label": "Docked but not charging",   "description": "The robot is on its base but is not charging.",          "action": "Clean the charging contacts on the robot and on the base."},
 }
 
-# Backward-compatible derived view — all existing code that reads ERROR_CODE_LABELS
-# continues to work without any changes.
-ERROR_CODE_LABELS: Final[dict[int, str]] = {
-    k: v["label"] for k, v in ERROR_CATALOGUE.items()
+#: Where each of our texts comes from: iRobot's help pages on
+#: prod-help-content.care.irobotapi.com, read 10.10.2026
+#: (claude/IROBOT_PFLEGE_ONLINEINHALTE.md §6, §7). "C" = the Classic page
+#: for the 980 ("Charging Error N-100"), "P" = the Prime page. A test
+#: holds every entry of ERROR_CATALOGUE to one.
+OWN_ERROR_SOURCES: Final[dict[int, str]] = {
+    101: "C 8978, P 10601",
+    102: "C 2436, P 10602",
+    103: "C 8980, P 10603",
+    104: "C 19560, P 10604",
+    105: "C 8981, P 10605",
+    106: "C 9945, P 10606",
+    107: "C 8983, P 10607",
+    108: "C 10803",
+    109: "C 8985, P 10609",
+    110: "P 10610",
+    111: "P 10611",
+    114: "P 10614",
+    115: "P 10615",
+    117: "P 10617",
+    119: "C 19562, P 10619",
+    120: "P 10620",
+    121: "C 26166, P 10622",
 }
 
-# v3.4.1 — localised ERROR_CATALOGUE lookup. ERROR_CATALOGUE itself stays
-# English-only (used directly by any pre-existing caller that hasn't been
-# updated); this is the new, opt-in entry point for localised text.
-# Deliberately NOT a method on an entity/hass-bound class so it can be unit
-# tested without a running HA instance — callers pass the language string
-# they already have (typically hass.config.language).
-def get_localized_error_entry(code: int, language: str | None) -> dict[str, str]:
-    """Return the label/description/action for an error code, localised.
+#: Where a text came from, as `source` on every entry.
+SOURCE_CLASSIC_APP: Final = "classic_app"
+SOURCE_PRIME_APP: Final = "prime_app"
+SOURCE_ROOMBA_PLUS: Final = "roomba_plus"
 
-    Falls back field-by-field to English — a language with an incomplete
-    or missing translation for a given code never produces a blank string,
-    it silently reverts to the English catalogue entry for that field.
 
-    An error code not present in ERROR_CATALOGUE at all always returns an
-    empty dict, regardless of language — callers rely on dict.get(key,
-    fallback) patterns (e.g. repairs.py's `label = entry.get("label", f"Error
-    {code}")`), which only trigger the fallback when the *key* is absent,
-    not when its value is an empty string. Returning {"label": "", ...} for
-    an unknown code would silently defeat that fallback and show a blank
-    label instead — a v3.4.1 bug caught by test_const.py before release.
-    """
-    base = ERROR_CATALOGUE.get(code, {})
-    # THE VENDOR'S OWN TEXT WINS WHERE IT EXISTS.
-    #
-    # Of 126 labels written here, exactly two matched iRobot's. The rest
-    # were not merely worded differently: ours said "Charging error"
-    # where theirs says "Charging Issue: contacts need to be cleaned".
-    # The second tells somebody what to do; the first tells them
-    # something is wrong, which the stopped robot already said.
-    #
-    # From the Prime app's locale files (roombapy-prime 0.6.0: app 3.2.0,
-    # 112 codes, eight languages), with the library's own text where
-    # 3.2.0 made one worse.
-    #
-    # Ours still answers for the codes iRobot does not document --
-    # @connormxy's 236 is in neither, so a robot can report a code its
-    # own maker has no text for.
-    vendor = vendor_error(code, language or "en")
-    if vendor and vendor.get("title"):
-        merged = dict(base or {})
-        merged["label"] = vendor["title"]
-        if vendor.get("content"):
-            merged["description"] = vendor["content"]
-        return merged
+def _short_language(language: str | None) -> str:
+    return str(language or "en").replace("_", "-").split("-")[0].lower() or "en"
 
-    if not base:
+
+def _own_entry(code: int, language: str) -> dict[str, str]:
+    base = ERROR_CATALOGUE.get(code)
+    if base is None:
         return {}
-    if not language or language == "en":
-        return base
-    # Import here (not at module top) to avoid a hard dependency from
-    # const.py — a small, low-traffic module — on the much larger
-    # translation data file for every consumer of const.py, most of which
-    # never touch error codes at all.
     from .error_translations import ERROR_CATALOGUE_TRANSLATIONS
+
     localised = ERROR_CATALOGUE_TRANSLATIONS.get(language, {}).get(code, {})
-    return {
-        "label": localised.get("label", base.get("label", "")),
-        "description": localised.get("description", base.get("description", "")),
-        "action": localised.get("action", base.get("action", "")),
-    }
+    entry = {key: localised.get(key) or value for key, value in base.items()}
+    entry["source"] = SOURCE_ROOMBA_PLUS
+    return entry
+
+
+def _app_entry(found: Mapping[str, str] | None, source: str) -> dict[str, str]:
+    label = (found or {}).get("label") or (found or {}).get("title")
+    if not label:
+        return {}
+    entry = {"label": label, "source": source}
+    if (found or {}).get("content"):
+        entry["description"] = str((found or {})["content"])
+    return entry
+
+
+def get_localized_error_entry(
+    code: Any,
+    language: str | None,
+    *,
+    prime: bool,
+    sku: str | None = None,
+    clean_base: bool = False,
+    robot_name: str | None = None,
+) -> dict[str, str]:
+    """`label`, `description` (and `action` for our own) of an error code.
+
+    WHOSE TEXT, IN THIS ORDER:
+      Classic: ours (101-121) -> the Classic app's (`sku` picks the 69x and
+               Essential wordings, `clean_base` 36's) -> its dock text, for
+               a dock code in the error field (450-509, never observed) ->
+               the Prime app's.
+      Prime:   the Prime app's -> ours -> the Classic app's.
+    `source` says which. The other app answers only where the robot's own
+    has no entry: 110 codes on Prime (none of them 2, 6, 47, 106 or 228,
+    the numbers the two apps give different meanings, which Prime's own
+    app covers), 23 on Classic (Prime-only numbers: 283-290, 464,
+    670-672, 1025-1034, 3212, 3310, 4001-4004).
+
+    `@val` is the robot's name in iRobot's texts; `robot_name` is put in,
+    and without one "Roomba", the name the integration gives an unnamed
+    robot (diagnostics and the cloud's raw attributes have none).
+
+    A code nobody has a text for returns an empty dict, never a dict of
+    empty strings: callers fall back with `entry.get("label", f"Error
+    {code}")`, which only works when the key is absent.
+    """
+    try:
+        number = int(code)
+    except (TypeError, ValueError):
+        return {}
+    if number <= 0:
+        # 0 IS "NO ERROR". The Classic app has a text for it ("Error"), the
+        # status card's default line; shown as a label it would announce a
+        # fault on a robot that has none.
+        return {}
+    lang = _short_language(language)
+    if prime:
+        entry = (
+            _app_entry(vendor_error(number, lang), SOURCE_PRIME_APP)
+            or _own_entry(number, lang)
+            or _app_entry(classic_vendor_error(number, lang), SOURCE_CLASSIC_APP)
+        )
+    else:
+        entry = (
+            _own_entry(number, lang)
+            or _app_entry(
+                classic_vendor_error(number, lang, sku=sku, clean_base=clean_base),
+                SOURCE_CLASSIC_APP,
+            )
+            or _app_entry(classic_dock_text(number, lang), SOURCE_CLASSIC_APP)
+            or _app_entry(vendor_error(number, lang), SOURCE_PRIME_APP)
+        )
+    name = robot_name if isinstance(robot_name, str) and robot_name else "Roomba"
+    return {key: value.replace("@val", name) for key, value in entry.items()}
+
+
+def error_label(
+    code: Any,
+    *,
+    prime: bool,
+    sku: str | None = None,
+    clean_base: bool = False,
+    robot_name: str | None = None,
+) -> str | None:
+    """The English label of an error code, or None: for a sensor's state
+    and for diagnostics, where the text must not change with the UI
+    language."""
+    return get_localized_error_entry(
+        code, "en", prime=prime, sku=sku, clean_base=clean_base, robot_name=robot_name
+    ).get("label")
+
+
+def error_help_id(code: Any, *, prime: bool) -> str | None:
+    """The key iRobot's help catalogue files the error under: the Classic
+    and Prime catalogues number the charging errors differently."""
+    help_id = prime_help_id(code) if prime else classic_help_id(code)
+    return help_id if isinstance(help_id, str) else None
 
 
 #: Robot phase -> translation state key.
@@ -2696,6 +2628,12 @@ CLEAN_MODE_LABELS: Final[dict[str, str]] = {
     "n-a": "Not available",
 }
 
+#: `dock.state` of a Classic Clean Base. 304, 354, 355 and 365 added in
+#: 4.5.0 from the Classic app's dock states (`evac_dock_status_<N>`,
+#: iRobot Home 7.18.0): stopping, a problem with the base (its history
+#: says "Motor problem"), bag getting full, hardware issue. 364 is in no
+#: iRobot app and its source is not recorded; kept until shown wrong, as
+#: it harms nothing (decided 19.10.2026).
 CLEAN_BASE_STATUS_SLUGS: Final[dict[int, str]] = {
     -2: "not_available",
     -1: "unknown",
@@ -2703,12 +2641,16 @@ CLEAN_BASE_STATUS_SLUGS: Final[dict[int, str]] = {
     301: "ready",
     302: "empty",
     303: "empty",
+    304: "stopping",
     350: "bag_missing",
     351: "clogged",
     352: "sealing_problem",
     353: "bag_full",
+    354: "motor_problem",
+    355: "bag_almost_full",
     360: "ir_comms_problem",
     364: "bin_full_sensors_not_cleared",
+    365: "hardware_issue",
 }
 
 JOB_INITIATOR_SLUGS: Final[dict[str, str]] = {

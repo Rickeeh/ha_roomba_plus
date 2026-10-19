@@ -16,6 +16,22 @@ catalogue fills in over time: an id without a guide simply has no
 
 Read once per setup, in the background. A failed read costs the links
 and nothing else.
+
+THE HELP CATALOGUE, SAME HOST, SAME RULES (4.5.0). What iRobot's app
+opens when a robot reports an error: one article per error code, per
+robot model and language, again without a login:
+
+    GET https://content-prod.iot.irobotapi.com/v2/help/{lang}/{country}/{sku}
+    -> {"otherContent": [{"id": "Error 2", "content": <url>}, ...], ...}
+
+The ids are `Error <N>`, `Charging Error ...` and `Start-Refuse <n>`;
+Classic and Prime number the charging errors differently, which the
+library answers (`classic_help_id`, `prime_help_id`). Read on 19.10.2026
+for R980020 (100 entries) and G185020 (87). The Classic one carries
+`Charging error 21` and `Charging Error19` beside the regular spelling,
+so ids are compared without case and spaces. The article is the
+manufacturer's, for the robot's own model: a 69x and a j7 get their own
+page for error 2. Nothing of it is shown here, only linked.
 """
 from __future__ import annotations
 
@@ -26,12 +42,14 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.util import dt as dt_util
 
-from .const import maintenance_changed_signal
+from .const import error_help_id, maintenance_changed_signal
 
 _LOGGER = logging.getLogger(__name__)
 
 CATALOGUE_URL = "https://content-prod.iot.irobotapi.com/v2/{lang}/{country}/{sku}/parts"
+HELP_URL = "https://content-prod.iot.irobotapi.com/v2/help/{lang}/{country}/{sku}"
 _TIMEOUT_SECONDS = 15
 
 
@@ -110,11 +128,67 @@ async def async_fetch_catalogue(
         return {}
 
 
-async def async_load_into(hass: HomeAssistant, runtime_data: Any, sku: str | None) -> None:
-    """Fetch and keep the catalogue on the entry's runtime data.
+def help_key(help_id: Any) -> str:
+    """A help id as compared: no case, no spaces ("Charging Error19")."""
+    return "".join(str(help_id).split()).lower()
 
-    The maintenance entries carry its links (4.5.0) and are told when
-    it arrives, which is after they were first built."""
+
+def parse_help(payload: Any) -> dict[str, str]:
+    """`{help_key(id): url}` from the help catalogue's `otherContent`,
+    https links only."""
+    entries = payload.get("otherContent") if isinstance(payload, dict) else None
+    out: dict[str, str] = {}
+    for item in entries or []:
+        if not isinstance(item, dict):
+            continue
+        help_id, link = item.get("id"), item.get("content")
+        if isinstance(help_id, str) and isinstance(link, str) and link.startswith("https://"):
+            out.setdefault(help_key(help_id), link)
+    return out
+
+
+async def async_fetch_help(hass: HomeAssistant, sku: str | None) -> dict[str, str]:
+    """The help catalogue for one robot model, or `{}` on any failure.
+
+    The language is the bare code (`de`), as the app asks; `track` is
+    the month the app sends."""
+    if not sku:
+        return {}
+    lang, country = catalogue_locale(hass)
+    url = HELP_URL.format(lang=lang.split("-")[0], country=country, sku=sku)
+    try:
+        session = async_get_clientsession(hass)
+        async with session.get(
+            url,
+            params={"track": dt_util.now().strftime("%Y.%m")},
+            timeout=aiohttp.ClientTimeout(total=_TIMEOUT_SECONDS),
+        ) as resp:
+            if resp.status != 200:
+                _LOGGER.debug("help catalogue %s: HTTP %s", sku, resp.status)
+                return {}
+            return parse_help(await resp.json(content_type=None))
+    except Exception:  # noqa: BLE001 -- links are enrichment, never a failure
+        _LOGGER.debug("help catalogue %s: could not be read", sku, exc_info=True)
+        return {}
+
+
+def help_url_for(runtime_data: Any, code: Any, *, prime: bool) -> str | None:
+    """iRobot's article for an error code on this robot's model, if the
+    catalogue has one."""
+    help_id = error_help_id(code, prime=prime)
+    if help_id is None:
+        return None
+    catalogue = getattr(runtime_data, "help_catalogue", None) or {}
+    return catalogue.get(help_key(help_id)) if isinstance(catalogue, dict) else None
+
+
+async def async_load_into(hass: HomeAssistant, runtime_data: Any, sku: str | None) -> None:
+    """Fetch and keep both catalogues on the entry's runtime data.
+
+    The maintenance entries carry the parts links (4.5.0) and are told
+    when they arrive, which is after they were first built. The help
+    links are read when an error is shown."""
+    runtime_data.help_catalogue = await async_fetch_help(hass, sku)
     runtime_data.parts_catalogue = await async_fetch_catalogue(hass, sku)
     blid = getattr(runtime_data, "blid", None)
     if runtime_data.parts_catalogue and isinstance(blid, str):

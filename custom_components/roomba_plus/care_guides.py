@@ -70,6 +70,9 @@ LANGUAGES: tuple[str, ...] = ("en", "de", "fr", "es", "it", "nl", "pl", "pt")
 DEFAULT_LANGUAGE = "en"
 
 GUIDE_URL = "/api/roomba_plus/care/{entry_id}/{guide}"
+#: Every guide as a page on GitHub, made from these texts and drawings by
+#: scripts/build_care_docs.py: where an expired link sends the reader.
+CARE_DOCS_URL = "https://github.com/johnnyh1975/ha_roomba_plus/blob/main/docs/care/{lang}/README.md"
 SCHEMA_URL = "/api/roomba_plus/care/{entry_id}/{guide}/schema.svg"
 
 _DATA_KEY = f"{DOMAIN}_care_guides"
@@ -415,6 +418,7 @@ class CareGuides:
         lang: str,
         ctx: RobotContext = GENERIC,
         irobot_url: str | None = None,
+        when: str | None = None,
     ) -> str:
         page = self.text(lang).get("_page") or {}
         g = self.guide(guide, lang, ctx)
@@ -431,6 +435,9 @@ class CareGuides:
             f"<h1>{e(title)}</h1>"
             + pictures
             + f"<h2>{e(str(page.get('why', '')))}</h2><p>{e(str(g.get('why', '')))}</p>"
+            # "When", as the dialog has it (4.5.0b2): interval, what is
+            # left, the last time -- at the time the page is opened.
+            + (f"<h2>{e(str(page.get('when', '')))}</h2><p>{e(when)}</p>" if when else "")
             + f"<h2>{e(str(page.get('how', '')))}</h2><ol>{steps}</ol>"
             + f'<div class="note"><strong>{e(str(page.get("note", "")))}</strong> '
             + f"{e(str(g.get('caution', '')))}</div>"
@@ -444,7 +451,12 @@ class CareGuides:
         title = str(page.get(f"{kind}_title", ""))
         text = str(page.get(f"{kind}_text", ""))
         e = html.escape
-        return _document(lang, title, f"<h1>{e(title)}</h1><p>{e(text)}</p>")
+        docs = (
+            f'<p class="more"><a href="{e(CARE_DOCS_URL.format(lang=lang))}" '
+            f'rel="noreferrer noopener">{e(str(page["docs"]))}</a></p>'
+            if page.get("docs") else ""
+        )
+        return _document(lang, title, f"<h1>{e(title)}</h1><p>{e(text)}</p>{docs}")
 
 
 _CSS = (
@@ -524,6 +536,23 @@ def get_care_guides(hass: Any) -> CareGuides | None:
     return found if isinstance(found, CareGuides) else None
 
 
+def page_anchor(path: str, text: str) -> str:
+    """A link to a guide page for Home Assistant's Markdown -- as HTML,
+    with `target="_blank"`.
+
+    A Markdown link to a path on Home Assistant's own host is taken over
+    by the frontend's router: a click in a dialog, the to-do list or a
+    repair issue went to the overview instead of the page (seen 18.10.
+    in the options dialog). The frontend's handler for same-origin links
+    skips an anchor that has a target, and its Markdown sanitizer keeps
+    `target`, `href` and `title` on `a` (checked in the frontend build).
+    A link to another host gets its target from the frontend already."""
+    return (
+        f'<a href="{html.escape(path, quote=True)}" target="_blank">'
+        f"{html.escape(text, quote=False)}</a>"
+    )
+
+
 def guide_link(hass: Any, entry_id: str, guide: str | None) -> str | None:
     """The signed page path for a guide in Home Assistant's language,
     relative -- it opens in the browser and in the companion app alike,
@@ -580,6 +609,25 @@ def context_for(data: Any) -> RobotContext:
     else:
         dock = "home_base"
     return robot_context(sku, prime, dock)
+
+
+def guide_entry(items: Iterable[Any], guide: str) -> Any:
+    """The maintenance entry a guide belongs to: its care task before its
+    replacement, as the cleaning guide of a part is the task's."""
+    entries = [i for i in items if getattr(i, "guide_id", None) == guide]
+    return next(
+        (i for i in entries if getattr(i, "action", None) != "replace"),
+        entries[0] if entries else None,
+    )
+
+
+def _entry_item(hass: HomeAssistant, entry_id: str, guide: str) -> Any:
+    """The robot's maintenance entry for this guide, None for an entry
+    that is gone or a guide without one."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    data = getattr(entry, "runtime_data", None) if entry is not None and entry.domain == DOMAIN else None
+    tracker = getattr(data, "maintenance", None)
+    return guide_entry(tracker.items, guide) if tracker is not None else None
 
 
 def _entry_context(
@@ -674,14 +722,21 @@ ENGLISH_WORDING: dict[str, str] = {
         "shows the robot's map with their numbers, or says what is missing. "
         "This item clears itself once every room has a name."
     ),
+    "overview_item": "Part or task",
+    "overview_level": "Status",
+    "overview_left": "Left",
+    "overview_source": "Interval",
 }
 
 
-async def async_wording(hass: HomeAssistant) -> dict[str, str]:
+async def async_wording(hass: HomeAssistant, language: str | None = None) -> dict[str, str]:
     """The maintenance item wording (`selector.maintenance_item`) in Home
-    Assistant's language, Home Assistant filling gaps from English."""
+    Assistant's language -- or in `language`, a guide page's -- Home
+    Assistant filling gaps from English."""
     try:
-        table = await async_get_translations(hass, hass.config.language, "selector", {DOMAIN})
+        table = await async_get_translations(
+            hass, language or hass.config.language, "selector", {DOMAIN},
+        )
     except Exception:  # noqa: BLE001 -- English then
         table = {}
     prefix = f"component.{DOMAIN}.selector.maintenance_item.options."
@@ -783,7 +838,8 @@ class CareGuidePageView(HomeAssistantView):
             kind = "expired" if verdict == "expired" else "unknown"
             return _html(guides.notice(lang, kind), status)
         ctx, irobot = _entry_context(hass, entry_id, guide)
-        return _html(guides.page(guide, lang, ctx, irobot), 200)
+        when = when_text(_entry_item(hass, entry_id, guide), await async_wording(hass, lang))
+        return _html(guides.page(guide, lang, ctx, irobot, when), 200)
 
 
 class CareGuideSchemaView(HomeAssistantView):

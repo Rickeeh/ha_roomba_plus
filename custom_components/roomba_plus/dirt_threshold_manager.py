@@ -49,7 +49,7 @@ from .const import SQFT_TO_M2
 from .prime_dirt import dirty_rooms
 from .room_cleaning import async_get_room_cleaning_backend
 from .structural_failures import record_failure, record_success
-from .prime_coordinator import prime_mission_cycle
+from .prime_coordinator import prime_current_state, prime_mission_cycle
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -333,10 +333,18 @@ class DirtThresholdManager:
                 if not all_away:
                     return True, "not_all_away"
 
-        # Gate 3: BlockingManager — no active block queued
+        # Gate 3: BlockingManager — no sensor blocking, no start queued.
+        #
+        # AN ACTIVE SENSOR BLOCKS (4.5.0). Only a queued start did: with
+        # the behaviour "abort" nothing is ever queued, so a door sensor
+        # that was on let demand cleaning start the robot anyway -- the
+        # one start nobody asked for, past the sensor meant to stop it.
         bm = getattr(data, "blocking_manager", None)
-        if bm is not None and bm.is_queued:
-            return True, "blocking_sensor_queued"
+        if bm is not None:
+            if bm.blocking_entities:
+                return True, "blocking_sensor_active"
+            if bm.is_queued:
+                return True, "blocking_sensor_queued"
 
         # Gate 4: robot must be docked/idle
         #
@@ -374,54 +382,49 @@ class DirtThresholdManager:
             _LOGGER.debug("DirtThresholdManager (Prime): blocked — %s", reason)
             return
 
-        data = self._entry.runtime_data
-        robot = getattr(data, "prime_robot", None)
-        if robot is None:
+        # THE SAME GAP AS CLASSIC (4.5.0). This runs after every mission
+        # (4.5.0), and the mission it starts is one: without the gap the
+        # end of that room's clean found the next room past the line and
+        # started it, until none was -- a whole-house clean one room at
+        # a time, the thing "one room, the dirtiest" below exists to
+        # avoid.
+        if self._last_trigger_time is not None:
+            elapsed = datetime.now(UTC) - self._last_trigger_time
+            if elapsed < timedelta(hours=MIN_GAP_HOURS):
+                _LOGGER.debug(
+                    "DirtThresholdManager (Prime): last demand clean %.1f h ago "
+                    "(need %d h)", elapsed.total_seconds() / 3600, MIN_GAP_HOURS,
+                )
+                return
+
+        # ON THE DOCK (4.5.0). The busy gate passes any robot not in a
+        # mission -- also one standing stopped in a room. An unattended
+        # start belongs to a robot that is home.
+        if not prime_robot_docked(self._entry.runtime_data):
+            _LOGGER.debug("DirtThresholdManager (Prime): robot not on its dock")
             return
 
-        # THE MAP ID IS REQUIRED. `get_clean_score_raw` takes one, and
-        # scores are per map -- a household with two floors has two.
-        #
-        # Resolved the same way the room map resolves it: the user's
-        # selection when there is one, otherwise the robot's current
-        # map. A first attempt invented `prime_active_p2map_id`, which
-        # exists nowhere -- the second time today a guessed attribute
-        # name got as far as a passing test suite.
         backend = async_get_room_cleaning_backend(self._entry, self._hass)
-        if backend is None:
-            _LOGGER.debug("DirtThresholdManager (Prime): no room cleaning backend")
+        response = await async_read_prime_clean_scores(
+            self._hass, self._entry, backend, unattended=True
+        )
+        if response is None or backend is None:
             return
-        p2map_id = getattr(data, "prime_selected_map_id", None)
-        if not p2map_id:
-            try:
-                p2map_id = await backend._current_map_id()  # noqa: SLF001
-            except Exception:  # noqa: BLE001
-                p2map_id = None
-        if not p2map_id:
-            _LOGGER.debug("DirtThresholdManager (Prime): no active map yet")
-            return
-
-        try:
-            response = await robot.get_clean_score_raw(p2map_id)
-        except Exception:  # noqa: BLE001
-            record_failure("prime clean score", "reading per-room dirtiness")
-            _LOGGER.debug(
-                "DirtThresholdManager (Prime): could not read clean score",
-                exc_info=True,
-            )
-            return
-        record_success("prime clean score")
-        # KEPT FOR THE MISSION SENSOR, not only for the decision below.
-        #
-        # The same response says which rooms the last run left undone --
-        # @chairstacker's blocked-door mission that left no trace
-        # anywhere. Fetching it twice for two readers would double a
-        # cloud call to answer one question.
-        data.prime_clean_scores = response
 
         dirty = dirty_rooms(response)
         if not dirty:
             _LOGGER.debug("DirtThresholdManager (Prime): no room past threshold")
+            return
+
+        # ASKED AGAIN AFTER THE CLOUD CALLS. A schedule or a person may
+        # have started the robot while the scores were being read; a
+        # room command now would override that run.
+        blocked, reason = self.gate_blocked()
+        if blocked or not prime_robot_docked(self._entry.runtime_data):
+            _LOGGER.debug(
+                "DirtThresholdManager (Prime): no longer clear — %s",
+                reason or "robot left its dock",
+            )
             return
 
         # ONE ROOM, THE DIRTIEST. Sending the robot to everything above
@@ -433,9 +436,13 @@ class DirtThresholdManager:
             "DirtThresholdManager (Prime): starting room %s (score %.3f)",
             room_id, score,
         )
-        await backend.clean_rooms([room_id])
+        # The gap counts from the attempt, as on Classic: a start that
+        # raises is not retried at the next mission end either.
         self._last_trigger_time = dt_util.utcnow()
         await self.async_save(entry_id)
+        await backend.clean_rooms(
+            [qualified_room_id(self._entry.runtime_data, room_id)]
+        )
 
     async def async_evaluate(
         self,
@@ -515,3 +522,84 @@ class DirtThresholdManager:
         await roomba.send_command("start")
 
         _LOGGER.info("DirtThresholdManager: demand clean sent for %s", entry_id)
+
+
+def prime_robot_docked(data: Any) -> bool:
+    """Whether a Prime robot is on its dock and out of any mission.
+
+    `charge` with no live cycle: a mid-mission recharge also reads
+    `charge`, with its mission's cycle still set.
+    """
+    status = getattr(prime_current_state(data), "clean_mission_status", None)
+    phase = getattr(status, "phase", None)
+    cycle = getattr(status, "cycle", None)
+    return phase == "charge" and cycle in (None, "", "none")
+
+
+def qualified_room_id(data: Any, room_id: str) -> str:
+    """`<p2map_id>/<room_id>` for the map the scores were read for.
+
+    ROOM IDS ARE NUMBERED PER MAP (4.5.0). Sent bare, the room backend
+    works out the map from the robot, and on a two-floor account room 3
+    of the map the scores came from can be room 3 of the other floor.
+    """
+    p2map_id = getattr(data, "prime_clean_scores_map_id", None)
+    room_id = str(room_id)
+    if not p2map_id or "/" in room_id:
+        return room_id
+    return f"{p2map_id}/{room_id}"
+
+
+async def async_read_prime_clean_scores(
+    hass: HomeAssistant, entry: Any, backend: Any = None, *, unattended: bool = False
+) -> Any | None:
+    """The Prime robot's per-room scores for its map, or None.
+
+    Shared by the demand cleaning after a mission and by
+    `auto_clean_dirty_rooms` (4.5.0), which chose rooms from the Classic
+    dirt index and so never chose one on Prime.
+
+    THE MAP ID IS REQUIRED. `get_clean_score_raw` takes one, and scores
+    are per map -- a household with two floors has two.
+
+    THE FLOOR THE ROBOT IS ON, not the one the map select shows (4.5.0):
+    the select is what somebody last looked at. The robot's own report
+    comes first, then where it last worked. A person calling the service
+    may fall back to the selection; an unattended start does not, and
+    with no location it does nothing.
+
+    KEPT ON THE RUNTIME DATA for the mission sensor: the same response
+    says which rooms the last run left undone (@chairstacker's
+    blocked-door mission that left no trace anywhere). Fetching it twice
+    for two readers would double a cloud call to answer one question.
+    """
+    data = entry.runtime_data
+    robot = getattr(data, "prime_robot", None)
+    if robot is None:
+        return None
+    if backend is None:
+        _LOGGER.debug("DirtThresholdManager (Prime): no room cleaning backend")
+        return None
+    p2map_id = None
+    try:
+        p2map_id, _live = await backend.where_the_robot_is()
+    except Exception:  # noqa: BLE001
+        p2map_id = None
+    if not p2map_id and not unattended:
+        p2map_id = getattr(data, "prime_selected_map_id", None)
+    if not p2map_id:
+        _LOGGER.debug("DirtThresholdManager (Prime): no active map yet")
+        return None
+    try:
+        response = await robot.get_clean_score_raw(p2map_id)
+    except Exception:  # noqa: BLE001
+        record_failure("prime clean score", "reading per-room dirtiness")
+        _LOGGER.debug(
+            "DirtThresholdManager (Prime): could not read clean score",
+            exc_info=True,
+        )
+        return None
+    record_success("prime clean score")
+    data.prime_clean_scores = response
+    data.prime_clean_scores_map_id = str(p2map_id)
+    return response

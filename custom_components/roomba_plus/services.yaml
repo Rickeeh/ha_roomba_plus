@@ -254,7 +254,8 @@ auto_clean_dirty_rooms:
     selected rooms is travel-optimized starting from the dock. Rooms
     with fewer than 10 recorded cleanings are not trusted yet; when no room
     qualifies, a normal whole-house clean starts instead. Requires a Smart
-    Map robot.
+    Map robot. On a Prime robot, the rooms the robot itself rates past its
+    threshold, dirtiest first.
   fields:
     entity_id:
       name: Entity

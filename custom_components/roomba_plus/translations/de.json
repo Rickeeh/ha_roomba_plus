@@ -330,6 +330,16 @@
           "demand_clean_multiplier": "Ab wie viel über dem üblichen Schmutzniveau gereinigt wird: 1,5 bedeutet 50 % über dem Durchschnitt."
         }
       },
+      "demand_cleaning_prime": {
+        "title": "Bedarfsreinigung",
+        "description": "Ihr Roboter bewertet selbst, wie schmutzig jeder Raum ist, und sagt, ab welchem Wert ein Raum gereinigt werden sollte. Mit Bedarfsreinigung fragt Roomba+ nach jeder beendeten Mission nach und startet den schmutzigsten Raum über diesem Wert: einen Raum auf einmal, höchstens alle 6 Stunden, nur wenn der Roboter in der Basis steht und Anwesenheitsplanung und Sperrsensoren einen Start erlauben.",
+        "data": {
+          "demand_cleaning_enabled": "Bedarfsreinigung aktivieren"
+        },
+        "data_description": {
+          "demand_cleaning_enabled": "Startet nach dem Ende einer Mission den schmutzigsten Raum, den der Roboter als reinigungsbedürftig meldet."
+        }
+      },
       "test_cloud_connection": {
         "title": "Verbindung testen",
         "description": "Ihre iRobot-Cloud-Zugangsdaten werden überprüft…"
@@ -424,7 +434,7 @@
       },
       "maintenance_guide_show": {
         "title": "{title}",
-        "description": "{guide}\n\n[Als Seite öffnen]({link}) – der Link gilt 30 Tage.",
+        "description": "{guide}\n\n{page_link} – der Link gilt 30 Tage.{irobot}",
         "data": {
           "done": "Jetzt als erledigt melden"
         },
@@ -612,7 +622,11 @@
           "sealing_problem": "Dichtungsproblem",
           "bag_full": "Beutel voll",
           "ir_comms_problem": "IR-Kommunikationsproblem",
-          "bin_full_sensors_not_cleared": "Behälter voll — Sensoren nicht freigegeben"
+          "bin_full_sensors_not_cleared": "Behälter voll — Sensoren nicht freigegeben",
+          "stopping": "Wird gestoppt",
+          "motor_problem": "Motorproblem",
+          "bag_almost_full": "Beutel fast voll",
+          "hardware_issue": "Hardwareproblem"
         }
       },
       "dock_tank_level": {
@@ -2648,7 +2662,11 @@
         "source_profile": "laut Serienprofil",
         "source_irobot_budget": "iRobots Wert",
         "source_calendar": "laut Pflegekalender",
-        "last_done": "Zuletzt am {date}"
+        "last_done": "Zuletzt am {date}",
+        "overview_item": "Teil oder Aufgabe",
+        "overview_level": "Stand",
+        "overview_left": "Noch",
+        "overview_source": "Intervall"
       }
     },
     "maintenance_soon_at": {

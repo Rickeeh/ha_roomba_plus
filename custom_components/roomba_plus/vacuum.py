@@ -31,10 +31,13 @@ from homeassistant.util.unit_system import METRIC_SYSTEM
 
 from . import roomba_reported_state
 from .prime_commands import _send_confirmed
-from .button_prime import _raw_favorite_is_for
+from .prime_favorites import _raw_favorite_is_for
 from .care_guides import guide_id, guide_link
+from .parts_catalog import help_url_for
 from .const import (
     DOMAIN,
+    error_label,
+    has_clean_base,
     mission_command,
     mission_command_regions,
     mission_scope,
@@ -665,8 +668,21 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
 
         # Error info
         if self.vacuum is not None and self.vacuum.error_code:
-            attrs[ATTR_ERROR] = self.vacuum.error_message
+            # The Classic app's label (4.5.0), as on the error sensor;
+            # roombapy's own message only where no table has the code.
+            attrs[ATTR_ERROR] = error_label(
+                self.vacuum.error_code,
+                prime=False,
+                sku=state.get("sku"),
+                clean_base=has_clean_base(state),
+                robot_name=self._config_entry.title,
+            ) or self.vacuum.error_message
             attrs[ATTR_ERROR_CODE] = self.vacuum.error_code
+            help_url = help_url_for(
+                self._config_entry.runtime_data, self.vacuum.error_code, prime=False
+            )
+            if help_url:
+                attrs["help_url"] = help_url
 
         # THE CARE TASK AN ERROR POINTS TO (4.5.0, H), on both
         # generations: "filter" for a clogged filter, with the signed
@@ -1026,7 +1042,8 @@ class IRobotVacuum(IRobotEntity, StateVacuumEntity):
         if self._connection_type is ConnectionType.CLOUD_ONLY:
             mode = self._start_mode()
             raise_if_prime_start_blocked(
-                getattr(self._config_entry, "runtime_data", None), [mode]
+                getattr(self._config_entry, "runtime_data", None), [mode],
+                robot_name=getattr(self._config_entry, "title", None),
             )
             if mode is not None:
                 idle = self._prime_cycle_is_idle()

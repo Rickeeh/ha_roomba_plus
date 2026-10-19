@@ -8,7 +8,9 @@
     "expired_text": "Links auf Pflegeanleitungen gelten 30 Tage. Einen neuen bekommst du in Home Assistant unter Einstellungen → Geräte & Dienste → Roomba+ → Konfigurieren → Wartung → Pflegeanleitung.",
     "unknown_title": "Hier gibt es keine Anleitung",
     "unknown_text": "Diese Anleitung gibt es nicht. Öffne in Home Assistant Konfigurieren → Wartung → Pflegeanleitung.",
-    "when": "Wann"
+    "when": "Wann",
+    "open": "Als Seite öffnen",
+    "docs": "Alle Pflegeanleitungen auf GitHub"
   },
   "clean_filter": {
     "title": "Filter reinigen",

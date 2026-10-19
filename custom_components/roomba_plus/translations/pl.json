@@ -330,6 +330,16 @@
           "demand_clean_multiplier": "Jak bardzo powyżej zwykłego poziomu brudu uruchamia się sprzątanie: 1,5 oznacza 50% powyżej średniej."
         }
       },
+      "demand_cleaning_prime": {
+        "title": "Sprzątanie na żądanie",
+        "description": "Robot sam ocenia, jak brudne jest każde pomieszczenie, i podaje, od jakiej wartości pomieszczenie wymaga sprzątania. Przy włączonym sprzątaniu na żądanie Roomba+ sprawdza to po każdej zakończonej misji i uruchamia najbrudniejsze pomieszczenie powyżej tej wartości: jedno pomieszczenie naraz, najwyżej co 6 godzin, tylko gdy robot stoi w stacji i tylko gdy harmonogram obecności i czujniki blokujące pozwalają na start.",
+        "data": {
+          "demand_cleaning_enabled": "Włącz sprzątanie na żądanie"
+        },
+        "data_description": {
+          "demand_cleaning_enabled": "Po zakończeniu misji uruchamia najbrudniejsze pomieszczenie, które robot zgłasza do sprzątania."
+        }
+      },
       "test_cloud_connection": {
         "title": "Testowanie połączenia",
         "description": "Weryfikacja danych logowania do chmury iRobot…"
@@ -424,7 +434,7 @@
       },
       "maintenance_guide_show": {
         "title": "{title}",
-        "description": "{guide}\n\n[Otwórz jako stronę]({link}) – link jest ważny 30 dni.",
+        "description": "{guide}\n\n{page_link} – link jest ważny 30 dni.{irobot}",
         "data": {
           "done": "Zgłoś teraz jako zrobione"
         },
@@ -612,7 +622,11 @@
           "sealing_problem": "Problem z uszczelnieniem",
           "bag_full": "Worek pełny",
           "ir_comms_problem": "Problem z komunikacją IR",
-          "bin_full_sensors_not_cleared": "Pojemnik pełny — czujniki nieoczyszczone"
+          "bin_full_sensors_not_cleared": "Pojemnik pełny — czujniki nieoczyszczone",
+          "stopping": "Zatrzymywanie",
+          "motor_problem": "Problem z silnikiem",
+          "bag_almost_full": "Worek prawie pełny",
+          "hardware_issue": "Problem sprzętowy"
         }
       },
       "dock_tank_level": {
@@ -2648,7 +2662,11 @@
         "source_profile": "według profilu serii",
         "source_irobot_budget": "wartość iRobot",
         "source_calendar": "według kalendarza pielęgnacji",
-        "last_done": "Ostatnio {date}"
+        "last_done": "Ostatnio {date}",
+        "overview_item": "Część lub zadanie",
+        "overview_level": "Stan",
+        "overview_left": "Pozostało",
+        "overview_source": "Interwał"
       }
     },
     "maintenance_soon_at": {

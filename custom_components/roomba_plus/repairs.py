@@ -52,6 +52,7 @@ from .const import (
     MAP_RETRAIN_STUCK_MINUTES,
     MAP_RETRAIN_WARN_MINUTES,
     get_localized_error_entry,
+    has_clean_base,
 )
 from .care_guides import (
     async_wording,
@@ -60,9 +61,11 @@ from .care_guides import (
     guide_link,
     interval_text,
     language_for,
+    page_anchor,
 )
 from .care_guides import guide_id as care_guide_id
 from .geometry_utils import raw_pose_mm_to_map
+from .parts_catalog import help_url_for
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -827,7 +830,8 @@ async def async_check_error_recurrence(
     Repairs UI (many of the 125 catalogued codes have no single fix action).
     Event payload includes the error label, occurrence count, cleaning phase
     at the most recent occurrence, room name from UmfAligner (when
-    confidence ≥ 0.70), and the recommended action from ERROR_CATALOGUE.
+    confidence ≥ 0.70), the recommended action where the text is ours
+    (101-121) and iRobot's article for the model (`help_url`, 4.5.0).
 
     Fires once per sustained occurrence via _fire_once() — see its
     docstring; re-arms once the recurrence count drops below 3.
@@ -889,9 +893,21 @@ async def async_check_error_recurrence(
         _disarm(entry.entry_id, "error_recurrence")
         return
 
-    catalogue_entry = get_localized_error_entry(worst_code, hass.config.language)
+    # THE ROBOT'S OWN APP'S WORDS (4.5.0), and iRobot's article for its
+    # model. A Classic code only comes with our action for 101-121; for the
+    # rest the article says what to do.
+    prime = getattr(data, "prime_robot", None) is not None
+    state = {} if prime else (data.roomba_reported_state() or {})
+    catalogue_entry = get_localized_error_entry(
+        worst_code, hass.config.language,
+        prime=prime,
+        sku=state.get("sku"),
+        clean_base=has_clean_base(state),
+        robot_name=getattr(entry, "title", None),
+    )
     label  = catalogue_entry.get("label",  f"Error {worst_code}")
     action = catalogue_entry.get("action", "")
+    help_url = help_url_for(data, worst_code, prime=prime)
 
     # Most recent record with this error code. ARC1's recent_derived() is
     # newest-first already; MissionStore.query() is oldest-first, so it
@@ -930,6 +946,7 @@ async def async_check_error_recurrence(
             "phase": phase_at_error,
             "room": room_name,
             "action": action,
+            "help_url": help_url,
         },
     )
 
@@ -1257,7 +1274,9 @@ def _safe_int_repairs(val: Any, default: int = 0) -> int:
         return default
 
 
-# DOCK-HEALTH thresholds (v2.8.0) — conservative heuristics pending COMM-A calibration.
+# DOCK-HEALTH thresholds (v2.8.0) -- conservative heuristics. They stay
+# heuristics: the community calibration once planned for them (COMM-A)
+# was dropped on 19.10.2026, so a field report is what moves them.
 _DOCK_CHATTERS_THRESHOLD = 100   # contact bounce events
 _DOCK_KNOCKOFFS_THRESHOLD = 10   # unintended undocking events
 _DOCK_ABORTS_THRESHOLD = 20      # aborted charging sessions
@@ -1559,7 +1578,7 @@ def _guide_markdown(hass: HomeAssistant, entry_id: str, guide: str | None, fallb
         return fallback, fallback
     title = guides.title(guide, language_for(hass.config.language))
     link = guide_link(hass, entry_id, guide)
-    return title, (f"[{title}]({link})" if link else title)
+    return title, (page_anchor(link, title) if link else title)
 
 
 def async_sync_maintenance_issues(
@@ -1590,10 +1609,21 @@ def async_sync_maintenance_issues(
         issue_id = f"{ERROR_CARE_PREFIX}{entry_id}_{task}"
         wanted.add(issue_id)
         title, guide = _guide_markdown(hass, entry_id, care_guide_id("check", task), task)
+        # "LEARN MORE" IS iRobot's ARTICLE for the error on this model
+        # (4.5.0): our guide says how to clean the part, theirs what the
+        # error means. Only for a code; a refusal reason has none.
+        runtime = getattr(config_entry, "runtime_data", None)
+        learn_more = (
+            help_url_for(
+                runtime, cause, prime=getattr(runtime, "prime_robot", None) is not None
+            )
+            if isinstance(cause, int) else None
+        )
         ir.async_create_issue(
             hass, DOMAIN, issue_id,
             is_fixable=True,
             is_persistent=False,
+            learn_more_url=learn_more,
             severity=ir.IssueSeverity.WARNING,
             translation_key="maintenance_error_care",
             translation_placeholders={

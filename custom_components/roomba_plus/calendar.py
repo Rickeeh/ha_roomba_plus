@@ -769,7 +769,7 @@ class PrimeScheduleCalendar(IRobotEntity, CalendarEntity):
         synchronous, and the occurrence window has to be recomputed
         against the CURRENT time, not the time of the last refresh.
         """
-        self.hass.async_create_task(self._async_recompute())
+        self._config_entry.async_create_task(self.hass, self._async_recompute())
 
     async def _async_recompute(self) -> None:
         """Same reasoning as the first read: a refresh that raises must

@@ -402,7 +402,9 @@ class RoomCleaningBackend(ABC):
         """
 
 
-def raise_if_prime_start_blocked(data: Any, modes: list[int | None]) -> None:
+def raise_if_prime_start_blocked(
+    data: Any, modes: list[int | None], *, robot_name: str | None = None
+) -> None:
     """Refuse a Prime mission start the robot's own fault rules out (4.4.2).
 
     const.prime_start_refusal() decides; this reads the robot's current
@@ -427,7 +429,7 @@ def raise_if_prime_start_blocked(data: Any, modes: list[int | None]) -> None:
     hass = getattr(data, "hass_ref", None)
     language = getattr(getattr(hass, "config", None), "language", None) or "en"
     reason = " · ".join(
-        f"{get_localized_error_entry(code, language).get('label') or 'Error'} ({code})"
+        f"{get_localized_error_entry(code, language, prime=True, robot_name=robot_name).get('label') or 'Error'} ({code})"
         for code in codes
     )
     raise ServiceValidationError(
@@ -630,8 +632,9 @@ class PrimeRoomCleaning(RoomCleaningBackend):
     def _raise_if_map_updating(self) -> None:
         """Refuses while the robot is rebuilding its map.
 
-        Bit 64 of notReady, the same value and meaning Classic uses --
-        confirmed present in Prime's own cleanMissionStatus.
+        notReady equal to 67 (MAP_UPDATING_NOT_READY), the same value
+        and meaning Classic uses -- confirmed present in Prime's own
+        cleanMissionStatus. A value, not a bit: see const.py.
         """
         from homeassistant.exceptions import ServiceValidationError  # noqa: PLC0415
 
@@ -1590,7 +1593,10 @@ class PrimeRoomCleaning(RoomCleaningBackend):
         # NOT INTO A FAULT THAT RULES THE MODE OUT (4.4.2): mopping with
         # the pad plate missing, vacuuming with it fitted, anything with
         # the robot off the floor. Here, so every region start has it.
-        raise_if_prime_start_blocked(self._data, list(operating_mode or []))
+        raise_if_prime_start_blocked(
+            self._data, list(operating_mode or []),
+            robot_name=getattr(self._config_entry, "title", None),
+        )
         from roombapy_prime.models.mission_control import (  # noqa: PLC0415
             CommandParams,
             MissionCommandType,

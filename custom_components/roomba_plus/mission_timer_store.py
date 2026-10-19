@@ -400,9 +400,9 @@ class MissionTimerStore:
         message. Ignores inter-message gaps > 120 s (e.g. recharges, pauses,
         HA restarts) to avoid double-counting non-cleaning time.
 
-        Saves asynchronously via asyncio.run_coroutine_threadsafe (thread-safe;
-        called from paho-MQTT thread via callbacks.py) to avoid blocking
-        the MQTT callback loop.
+        Saves through `schedule_save` (Store.async_delay_save, 15 s), on
+        the event loop like every roombapy 2.x callback, so the write
+        never blocks the message handling.
 
         v2.9.0 — added debug logging to both branches. Reported by Thonno
         (i7+, lewis 22.52.10): progress/elapsed-time resets to 0 during a

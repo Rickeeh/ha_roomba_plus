@@ -345,6 +345,8 @@ class RoomSegStore:
     ) -> None:
         self._min_distance_cells = min_distance_cells
         self._merge_ratio = merge_ratio
+        #: A segmentation is running in the executor (4.5.0).
+        self._segmenting = False
         self._reset()
 
     def _reset(self) -> None:
@@ -425,6 +427,52 @@ class RoomSegStore:
         points), checked for door passages against the new areas -- see
         note_paths().
         """
+        if not self._should_recompute(cells, missions_seen):
+            return False
+        self._recompute(cells)
+        self.last_cell_count = len(cells)
+        if paths:
+            self.note_paths(paths)
+        return True
+
+    async def async_maybe_recompute(
+        self,
+        hass: HomeAssistant,
+        cells: dict[tuple[int, int], float],
+        missions_seen: int | None = None,
+        paths: list[tuple[str, list[list[tuple[float, float]]]]] | None = None,
+    ) -> bool:
+        """maybe_recompute() with the segmentation in the executor (4.5.0).
+
+        The watershed pipeline is pure and CPU-bound -- about 0.1 s on a
+        real 980 grid, about 1.5 s on a large home -- and ran on the
+        event loop. Everything that touches this store stays on the
+        loop: the gates, matching the new areas to the known rooms, the
+        doors and the path evidence. The executor gets a copy of the
+        cells, so the grid can change meanwhile without the segmentation
+        reading a dict being written.
+
+        One at a time: a second call while one runs returns False, and
+        the next mission end tries again.
+        """
+        if self._segmenting or not self._should_recompute(cells, missions_seen):
+            return False
+        snapshot = dict(cells)
+        self._segmenting = True
+        try:
+            result = await hass.async_add_executor_job(self._segment, snapshot)
+        finally:
+            self._segmenting = False
+        self._apply_segmentation(result)
+        self.last_cell_count = len(snapshot)
+        if paths:
+            self.note_paths(paths)
+        return True
+
+    def _should_recompute(
+        self, cells: dict[tuple[int, int], float], missions_seen: int | None
+    ) -> bool:
+        """The two gates described in maybe_recompute()."""
         if (
             not self.rooms
             and missions_seen is not None
@@ -433,13 +481,7 @@ class RoomSegStore:
             return False
         if self.rooms and not self._grid_changed(cells):
             return False
-        if not cells:
-            return False
-        self._recompute(cells)
-        self.last_cell_count = len(cells)
-        if paths:
-            self.note_paths(paths)
-        return True
+        return bool(cells)
 
     def _grid_changed(self, cells: dict[tuple[int, int], float]) -> bool:
         """Whether the grid moved far enough from the areas to recompute.
@@ -464,13 +506,21 @@ class RoomSegStore:
         return len(cells.keys() - held) >= MIN_NEW_CELLS_TO_RECOMPUTE
 
     def _recompute(self, cells: dict[tuple[int, int], float]) -> None:
-        self.revision += 1
-        result = segment_rooms(
+        self._apply_segmentation(self._segment(cells))
+
+    def _segment(self, cells: dict[tuple[int, int], float]) -> RoomSegmentationResult:
+        """The pure, CPU-bound part; safe in the executor. Reads only the
+        two tuning values, which nothing changes after construction."""
+        return segment_rooms(
             cells,
             cell_mm=CELL_MM,
             min_distance_cells=self._min_distance_cells,
             merge_ratio=self._merge_ratio,
         )
+
+    def _apply_segmentation(self, result: RoomSegmentationResult) -> None:
+        """Take a segmentation into the store. On the event loop."""
+        self.revision += 1
         result = self._keep_named_apart(result)
         label_to_id = self._match_rooms(result)
         self._match_doors(result, label_to_id)

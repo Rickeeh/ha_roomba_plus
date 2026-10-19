@@ -41,7 +41,7 @@ The library writes nothing. Roomba+ does, and this is the list:
 | Store | What is in it |
 |---|---|
 | `roomba_plus_missions` | mission history: times, durations, area, rooms cleaned |
-| `roomba_plus_mission_archive` | older missions, rolled off the store above |
+| `roomba_plus_mission_archive` | the robot's mission history as iRobot's cloud keeps it (Classic with your iRobot login), read from `/missionhistory` |
 | `roomba_plus_mission_timer` | the running mission's elapsed time |
 | `roomba_plus_maintenance` | when each part was last reset |
 | `roomba_plus_robot_profile` | model, battery type, capacity |
@@ -68,8 +68,8 @@ The library polls nothing on its own. Roomba+ decides, and the intervals are:
 
 - **Live state** — pushed by the robot, not polled. No interval
 - **Named shadows (Prime)** — every 2 minutes
-- **Cloud enrichment (Classic)** — every 15 minutes, and only if you entered
-  credentials
+- **Cloud enrichment (Classic)** — once a day, and once after each mission;
+  only if you entered credentials
 - **Schedules** — every 6 hours
 - **Mission history** — every 24 hours
 

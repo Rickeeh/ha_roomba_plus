@@ -638,7 +638,8 @@ test would lie. The freeze rises for hours, so the delay costs nothing; without 
 watching for `stale` would be woken by a healthy robot finishing a recharge.
 
 **The error text is on the error sensor.** `error_title` and `error_description` carry iRobot's own
-wording as attributes, so an automation can say what went wrong rather than quoting a number. Error
+wording as attributes, so an automation can say what went wrong rather than quoting a number;
+`help_url` links iRobot's article for the error. Error
 48 reads "An obstacle blocked the entrance to a room" — on one tester's robot that single code
 accounted for 93 of 111 timeline errors and every incomplete mission in the archive.
 

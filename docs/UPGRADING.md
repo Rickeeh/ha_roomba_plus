@@ -37,6 +37,35 @@ an existing installation:
 - **The Prime to-do list can be ticked off** -- the reset goes to iRobot.
 - The to-do item ids are unchanged. The descriptions link our care
   guide first; the link to iRobot's guide reads "iRobot's guide".
+- **900-series (Roomba 980 and others without Smart Map): rooms learned
+  again, only if yours look wrong.** 4.5.0 keeps a robot that was carried
+  back to its dock out of the rooms, splits two named rooms that merged,
+  and draws a door only where the robot actually drove through. What the
+  room detection learned before stays, though: a smeared map or a door
+  in a wall does not go away by itself. If your rooms look wrong, start
+  them afresh:
+  1. Stop Home Assistant (a running one writes the files back).
+  2. In `/config/.storage/`, delete `roomba_plus_grid_<entry id>` and
+     `roomba_plus_roomseg_<entry id>`, and `roomba_plus_zones_<entry id>`
+     if there is one. The entry id is in the address of the device's
+     integration entry; keep a copy if you want to go back.
+  3. Start Home Assistant. Rooms appear after three runs that start at
+     the dock (a run ending in an error counts). Name them again under
+     Configure → Rooms & zones; the old names are gone with the files.
+
+  Doors show up once the robot has driven through them. Your missions,
+  statistics and maintenance are not affected. If your rooms look right,
+  leave the files alone.
+- **A Classic robot's error text is the Classic app's** (roombapy-prime
+  0.8.0, installed with this version). The error sensor's state changes
+  for 44 codes -- "Debris extractors stuck" reads "Brushes need
+  cleaning", "Charging error" for 102 "Battery not charging". An
+  automation that compares the text: compare the code instead
+  (`error_code` on the vacuum, or *Error – Last code*). On a Prime robot
+  twelve codes change, and the Clean Base codes 450-509 no longer have a
+  text there. `classic_label_unconfirmed` on the Prime error sensor is
+  gone. The list is in the
+  [4.5.0 notes](../release-notes/v4.5.0.md#error-texts-from-the-robots-own-app).
 - **Blueprints:** *Notifications*, *Vacuum then mop*, *Smart start on
   away* and *Demand clean alert* made automations Home Assistant refused
   to load. Re-import them (Blueprints → ⋮ → *Re-import blueprint*);

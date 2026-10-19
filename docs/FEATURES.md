@@ -49,7 +49,7 @@ marked in their own headings.
 | Sensor / Entity | Notes |
 |---|---|
 | Phase | Idle / Stopped detection beyond the standard HA states |
-| Error code | 80+ error codes with `description` and `action` attributes |
+| Error code | The robot's own app's text: the Classic app's on a Classic robot, the Prime app's on a Prime robot, ours only for the battery and charging errors (101-121). `help_url` links iRobot's article for the error where its help catalogue has one |
 | Readiness | Whether the robot is ready to start, and why not. **The state is a key, not the displayed text** — `ready`, `off_dock`, `bin_full` — so an automation compares against those, never against the translated label. A value this integration cannot name yet reads as `not_ready_<number>` rather than a guess |
 | Job initiator | Who triggered the current mission (`schedule`, `manual`, `demand`) |
 | Next scheduled clean | From `cleanSchedule2` or legacy `cleanSchedule` |
@@ -109,7 +109,7 @@ marked in their own headings.
 | `roomba_plus.clean_sequence` | All | Start robot B when robot A finishes |
 | `roomba_plus.advance_room` | SMART + cloud | Manually advance mission progress to the next room when it gets stuck on a completed one (v2.8.0) |
 | `roomba_plus.clean_overdue_rooms` | SMART + cloud | Clean every room currently overdue (configured or learned rhythm), travel-optimized route from the dock (v3.3.0) |
-| `roomba_plus.auto_clean_dirty_rooms` | SMART + cloud | Clean the rooms that are dirtier than your household average, travel-optimized (v3.3.0) |
+| `roomba_plus.auto_clean_dirty_rooms` | SMART + cloud, Prime | Clean the rooms that are dirtier than your household average, travel-optimized (v3.3.0); on Prime the rooms the robot rates dirty (4.5.0) |
 | `roomba_plus.explain_mission` | All | Plain-language reason for a flagged mission anomaly (v3.2.0) |
 
 **Device triggers** for automations:
@@ -725,9 +725,10 @@ data:
 ```
 
 - Configure → Maintenance → *Care guides*, with *When*: the interval and where it comes from, what is left and when it was last done;
-- the repair issues below, with the whole guide and its drawings.
+- the repair issues below, with the whole guide and its drawings;
+- **on GitHub, without Home Assistant:** [docs/care](care/README.md), every guide in every language, a section for each group of robots it differs for. Made from the same texts and drawings by `scripts/build_care_docs.py`; corrections go into `custom_components/roomba_plus/care/`, not into these pages.
 
-**The link opens without signing in**, in the browser and in the companion app: it is a path signed with this installation's own secret, valid for 31 to 37 days, and the page holds nothing private. An expired link says where to get a new one. The link is relative (`/api/roomba_plus/care/...`); outside Home Assistant's own apps put your Home Assistant address in front.
+**The link opens without signing in**, in the browser and in the companion app: it is a path signed with this installation's own secret, valid for 31 to 37 days, and the page holds nothing private. An expired link says where to get a new one, and links to the guides on GitHub. The link is relative (`/api/roomba_plus/care/...`); outside Home Assistant's own apps put your Home Assistant address in front.
 
 #### Maintenance repair issues *(4.5.0, opt-in)*
 
@@ -845,7 +846,7 @@ Two states are worth knowing about:
 
 #### Clean Base / dock status
 
-`sensor.{name}_clean_base_status` — the dock's own health, not the robot's onboard bin: tank/bag missing, low, clogged, a sealing problem, a full bag, an IR communication issue, or ready/empty. This is the entity that corresponds to what the official app calls the "docking station bag" indicator — distinct from `binary_sensor.{name}_bin_full`, which reflects the robot's own onboard dust bin (rarely full on a Clean-Base-equipped setup, since the robot empties into the dock automatically after each mission). Requires a Clean Base — absent otherwise.
+`sensor.{name}_clean_base_status` — the dock's own health, not the robot's onboard bin: tank/bag missing, low, clogged, a sealing problem, a full bag, an IR communication issue, a motor or hardware problem, a bag almost full, stopping, or ready/empty. This is the entity that corresponds to what the official app calls the "docking station bag" indicator — distinct from `binary_sensor.{name}_bin_full`, which reflects the robot's own onboard dust bin (rarely full on a Clean-Base-equipped setup, since the robot empties into the dock automatically after each mission). Requires a Clean Base — absent otherwise.
 
 #### Navigation health (v3.1.0, SMART-tier)
 
@@ -895,7 +896,7 @@ Every reset above (button or service) writes a searchable Logbook entry and fire
 - **Open from "due"**, not from "soon": while nothing is due the list has nothing open. An item not due is listed as done, with its due date; a snoozed one stays done until its snooze ends.
 - **The description** says what is left (or how often a care task comes round), the error that brought the item, and links: our care guide, and iRobot's guide and the part where the parts catalogue has them. The list shows it as formatted text with clickable links, in the browser and the companion app.
 - **Ticking an item off** is `roomba_plus.maintenance_done`: counter, Logbook entry, `roomba_plus_maintenance_reset`, iRobot's counter where the account has one. **On Prime the reset goes to iRobot** (until 4.5.0 the Prime list was read-only); if iRobot applies it to no part, the list shows the error.
-- **A robot error that points to a care task** brings a "check" item while the robot reports it — "Check the main brushes" for a brush error, "Check the bin" for a bin error — and it goes when the error does. Where the task has an item of its own, that item carries the error instead: never two items for one task. With care reminders on, a dirt error (filter, main brushes, side brush, cliff sensors) makes the cleaning due until it is ticked off; a wheel or contact error only points to the task. Prime: errors 2, 6, 201, 1000 and 1001, the ones the app's error pictures tie to a part.
+- **A robot error that points to a care task** brings a "check" item while the robot reports it — "Check the main brushes" for a brush error, "Check the bin" for a bin error — and it goes when the error does. Where the task has an item of its own, that item carries the error instead: never two items for one task. With care reminders on, a dirt error (filter, main brushes, side brush, cliff sensors) makes the cleaning due until it is ticked off; a wheel or contact error only points to the task, and so do a Classic robot's 6 and 25 ("stuck near a cliff", usually a real edge). Which error points to which task follows iRobot's help page for the code; on Prime errors 2, 4, 5, 6, 14, 26, 104, 105, 119, 121, 201, 517, 1000 and 1001.
 - Item ids are the ones the list used before (`filter_maintenance`, `care_wheel`, `part_147`, …); new kinds use the entry id (`check.bin`).
 
 Before 4.3.2 the brush item read "Clean brush roll" but reset the main-brush replacement counter.
@@ -1071,7 +1072,7 @@ source; one that is happy with an estimate carries on unchanged.
 
 | Sensor | Notes |
 |---|---|
-| `last_error_code` | From live MQTT or persisted MissionStore value; `description` + `action` attributes |
+| `last_error_code` | From live MQTT or persisted MissionStore value; `description`, `action` (our battery texts), `text_source` (`classic_app` / `prime_app` / `roomba_plus`) and `help_url` attributes |
 | `last_error_at` | Timestamp of the last error or stuck event |
 | `last_error_zone` | Zone where the error occurred |
 | `stuck_count_30d` | Stuck events in the last 30 days |
@@ -1183,7 +1184,7 @@ the user touched, so a time change arrives with no recurrence information at all
 the frequency and the day list are preserved rather than rebuilt from the occurrence that was
 clicked.
 
-#### Presence-aware scheduling — i/s/j/Braava
+#### Presence-aware scheduling — i/s/j/Braava and Prime
 
 Automatically unfreeze the cleaning schedule when everyone leaves home.
 
@@ -1218,6 +1219,12 @@ Configure: Settings → Configure → **Demand cleaning**
 After each mission, dirt density is compared against the weekday-aware baseline (v2.5+) or 30-day flat median. All gates must pass before a trigger fires: robot idle, no blocking sensor active, all tracked persons away (if presence mode is `away_only`), minimum 6 h since last demand trigger.
 
 `binary_sensor.{name}_demand_clean_blocked` — ON when any gate is active. The `blocking_reason` attribute (v2.6) names the specific gate.
+
+**Prime robots (4.5.0).** A Prime robot rates each room itself and sends the threshold with the scores, so the step has the switch alone. After each finished mission that Home Assistant watched run, Roomba+ asks the robot and starts the dirtiest room past the threshold — one room, with the same gates and the same 6 h gap, only with the robot on its dock, on the floor the robot is on. The gates are asked again right before the command. The mission sensor's `unfinished_rooms` attribute fills whenever the scores are read, and `auto_clean_dirty_rooms` cleans the rooms the robot rates dirty. There is no `demand_clean_blocked` sensor on Prime yet.
+
+**Blocking sensors (4.5.0):** a sensor that is on blocks demand cleaning on both generations; before, only a start already queued did.
+
+Switching demand cleaning (or presence scheduling) on or off reloads the entry, so it takes effect at once.
 
 #### Presence analytics
 
@@ -1505,9 +1512,19 @@ found that **two of 126 matched** — and the differences were not stylistic:
 The second column tells somebody what to do. The first tells them something is wrong, which they
 already knew from the robot stopping.
 
-**112 codes now carry iRobot's own title and explanation**, in all eight supported languages, with
-our own catalogue answering for the 75 codes iRobot does not document. A code in neither — error
-236 has turned up on a real robot — shows as its number rather than an invented name.
+**Each robot reads its own app** (4.5.0): a Classic robot the Classic app's texts, from iRobot Home
+7.18 — with the wording the app uses for a Roomba 69x, an Essential or a robot on a Clean Base — and
+a Prime robot the Prime app's, both in all eight supported languages, through roombapy-prime. The two
+apps give some numbers different meanings, so one table for both could not be right. The other app's
+text answers only where the robot's own has none.
+
+**Our own texts remain where they say more than the app**: the battery and charging errors
+(101–121), where the Classic app shows one line for all of them. Each is checked against iRobot's
+help article for the code. A code no source has a text for — error 236 has turned up on a real
+robot — shows as its number rather than an invented name.
+
+**iRobot's article for the error** is one tap away: `help_url`, from iRobot's help catalogue for the
+model, on the error sensors and the vacuum and as *Learn more* on a repair issue an error brings.
 
 Part names follow the same rule: **"Maintenance – High-Efficiency Filter"** keeps this integration's
 grouping and takes iRobot's word for the part. So do the maintenance units — `evacs` reads "Dust
@@ -1570,8 +1587,10 @@ integration's — that is why the list has to be asked for.
 | Delay before second robot start | Waits after the away delay before actually cleaning |
 | Enable demand cleaning | Starts a clean when the robot reports unusual dirt |
 
-**Both work on Prime robots as of v4.0.0a31.** They were offered and stored but read by nothing
-before that — configured fully, doing nothing, with no error to say so.
+**Both work on Prime robots as of 4.5.0.** Presence scheduling has been read on Prime since
+v4.0.0a31, but Configure offered its step only to robots reporting the Classic `schedHold`, so it
+could not be switched on there; demand cleaning aborted on Prime. (This page said both worked from
+a31.)
 
 ### Blocking sensors
 

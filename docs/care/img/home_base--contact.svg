@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img"><title>Home Base</title><style>
+.body{fill:#EEF1F4;stroke:#3D4752;stroke-width:3}
+.ln{fill:none;stroke:#3D4752;stroke-linecap:round;stroke-linejoin:round}
+.pt{fill:#AEB7C2;stroke:#3D4752;stroke-width:2}
+.lt{fill:#DDE3E9;stroke:#3D4752;stroke-width:2}
+.dt{fill:none;stroke:#3D4752;stroke-width:2;stroke-dasharray:6 4}
+.fine{fill:none;stroke:#3D4752;stroke-width:1.4;stroke-linecap:round}
+.hal{display:none;fill:none;stroke:#FFB000;stroke-opacity:.45;stroke-width:14;stroke-linejoin:round}
+.mk{display:none}
+.mk line{stroke:#B37A00;stroke-width:2.5}
+.mk circle{fill:#B37A00}
+.mk text{fill:#FFFFFF;font:700 16px sans-serif;text-anchor:middle}
+@media (prefers-color-scheme:dark){
+.body{fill:#2A333D;stroke:#C9D1DA}.ln,.fine,.dt{stroke:#C9D1DA}
+.pt{fill:#56626E;stroke:#C9D1DA}.lt{fill:#3A4550;stroke:#C9D1DA}
+.mk circle{fill:#FFB000}.mk line{stroke:#FFB000}.mk text{fill:#1A1A1A}}
+</style><rect class="lt" x="60" y="280" width="280" height="70" rx="16"/><rect class="body" x="110" y="90" width="180" height="200" rx="20"/><rect class="pt" x="170" y="130" width="60" height="24" rx="8"/><g id="part-contact"><g class="hal"><rect x="135" y="295" width="40" height="24" rx="9"/><rect x="225" y="295" width="40" height="24" rx="9"/></g><rect class="lt" x="140" y="300" width="30" height="14" rx="4"/><rect class="lt" x="230" y="300" width="30" height="14" rx="4"/></g><g id="m-contact" class="mk"><line x1="34" y1="366" x2="150" y2="314"/><circle cx="150" cy="314" r="4"/><circle cx="34" cy="366" r="15"/><text x="34" y="371.5">1</text></g><style>#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#7A4E00;stroke-width:3}#part-contact .fine,#part-contact .ln{stroke:#7A4E00}#part-contact .hal{display:inline}#m-contact{display:inline}@media (prefers-color-scheme:dark){#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#FFE7A8}#part-contact .fine{stroke:#5A3A00}#part-contact .ln,#part-contact .brs{stroke:#FFE7A8}}</style></svg>

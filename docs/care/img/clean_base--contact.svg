@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img"><title>Clean Base</title><style>
+.body{fill:#EEF1F4;stroke:#3D4752;stroke-width:3}
+.ln{fill:none;stroke:#3D4752;stroke-linecap:round;stroke-linejoin:round}
+.pt{fill:#AEB7C2;stroke:#3D4752;stroke-width:2}
+.lt{fill:#DDE3E9;stroke:#3D4752;stroke-width:2}
+.dt{fill:none;stroke:#3D4752;stroke-width:2;stroke-dasharray:6 4}
+.fine{fill:none;stroke:#3D4752;stroke-width:1.4;stroke-linecap:round}
+.hal{display:none;fill:none;stroke:#FFB000;stroke-opacity:.45;stroke-width:14;stroke-linejoin:round}
+.mk{display:none}
+.mk line{stroke:#B37A00;stroke-width:2.5}
+.mk circle{fill:#B37A00}
+.mk text{fill:#FFFFFF;font:700 16px sans-serif;text-anchor:middle}
+@media (prefers-color-scheme:dark){
+.body{fill:#2A333D;stroke:#C9D1DA}.ln,.fine,.dt{stroke:#C9D1DA}
+.pt{fill:#56626E;stroke:#C9D1DA}.lt{fill:#3A4550;stroke:#C9D1DA}
+.mk circle{fill:#FFB000}.mk line{stroke:#FFB000}.mk text{fill:#1A1A1A}}
+</style><rect class="lt" x="30" y="300" width="340" height="60" rx="14"/><rect class="body" x="210" y="60" width="150" height="250" rx="18"/><line class="ln" style="stroke-width:3" x1="214" y1="96" x2="356" y2="96"/><g id="part-bag"><g class="hal"><rect x="231" y="111" width="108" height="174" rx="19"/></g><rect class="pt" x="236" y="116" width="98" height="164" rx="14"/><rect class="lt" x="260" y="128" width="50" height="10" rx="4"/></g><g id="part-evacuation_port"><g class="hal"><rect x="135" y="307" width="56" height="28" rx="11"/></g><rect class="pt" x="140" y="312" width="46" height="18" rx="6"/></g><g id="part-contact"><g class="hal"><rect x="59" y="311" width="62" height="22" rx="8"/></g><rect class="lt" x="64" y="316" width="18" height="12" rx="3"/><rect class="lt" x="98" y="316" width="18" height="12" rx="3"/></g><g id="m-bag" class="mk"><line x1="366" y1="34" x2="334" y2="140"/><circle cx="334" cy="140" r="4"/><circle cx="366" cy="34" r="15"/><text x="366" y="39.5">1</text></g><g id="m-evacuation_port" class="mk"><line x1="34" y1="366" x2="150" y2="330"/><circle cx="150" cy="330" r="4"/><circle cx="34" cy="366" r="15"/><text x="34" y="371.5">1</text></g><g id="m-contact" class="mk"><line x1="34" y1="366" x2="72" y2="328"/><circle cx="72" cy="328" r="4"/><circle cx="34" cy="366" r="15"/><text x="34" y="371.5">1</text></g><style>#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#7A4E00;stroke-width:3}#part-contact .fine,#part-contact .ln{stroke:#7A4E00}#part-contact .hal{display:inline}#m-contact{display:inline}@media (prefers-color-scheme:dark){#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#FFE7A8}#part-contact .fine{stroke:#5A3A00}#part-contact .ln,#part-contact .brs{stroke:#FFE7A8}}</style></svg>

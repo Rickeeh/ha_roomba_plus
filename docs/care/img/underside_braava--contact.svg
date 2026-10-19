@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img"><title>Underside, Braava</title><style>
+.body{fill:#EEF1F4;stroke:#3D4752;stroke-width:3}
+.ln{fill:none;stroke:#3D4752;stroke-linecap:round;stroke-linejoin:round}
+.pt{fill:#AEB7C2;stroke:#3D4752;stroke-width:2}
+.lt{fill:#DDE3E9;stroke:#3D4752;stroke-width:2}
+.dt{fill:none;stroke:#3D4752;stroke-width:2;stroke-dasharray:6 4}
+.fine{fill:none;stroke:#3D4752;stroke-width:1.4;stroke-linecap:round}
+.hal{display:none;fill:none;stroke:#FFB000;stroke-opacity:.45;stroke-width:14;stroke-linejoin:round}
+.mk{display:none}
+.mk line{stroke:#B37A00;stroke-width:2.5}
+.mk circle{fill:#B37A00}
+.mk text{fill:#FFFFFF;font:700 16px sans-serif;text-anchor:middle}
+@media (prefers-color-scheme:dark){
+.body{fill:#2A333D;stroke:#C9D1DA}.ln,.fine,.dt{stroke:#C9D1DA}
+.pt{fill:#56626E;stroke:#C9D1DA}.lt{fill:#3A4550;stroke:#C9D1DA}
+.mk circle{fill:#FFB000}.mk line{stroke:#FFB000}.mk text{fill:#1A1A1A}}
+</style><rect class="body" x="60" y="30" width="280" height="340" rx="46"/><g id="part-pad"><g class="hal"><rect x="79" y="91" width="242" height="228" rx="23"/></g><rect class="pt" x="84" y="96" width="232" height="218" rx="18"/><line class="fine" x1="112" y1="104" x2="112" y2="306"/><line class="fine" x1="136" y1="104" x2="136" y2="306"/><line class="fine" x1="160" y1="104" x2="160" y2="306"/><line class="fine" x1="184" y1="104" x2="184" y2="306"/><line class="fine" x1="208" y1="104" x2="208" y2="306"/><line class="fine" x1="232" y1="104" x2="232" y2="306"/><line class="fine" x1="256" y1="104" x2="256" y2="306"/><line class="fine" x1="280" y1="104" x2="280" y2="306"/></g><g id="part-cliff_sensors"><g class="hal"><rect x="79" y="47" width="24" height="18" rx="6"/><rect x="297" y="47" width="24" height="18" rx="6"/><rect x="79" y="329" width="24" height="18" rx="6"/><rect x="297" y="329" width="24" height="18" rx="6"/></g><rect class="pt" x="84" y="52" width="14" height="8" rx="2"/><rect class="pt" x="302" y="52" width="14" height="8" rx="2"/><rect class="pt" x="84" y="334" width="14" height="8" rx="2"/><rect class="pt" x="302" y="334" width="14" height="8" rx="2"/></g><g id="part-contact"><g class="hal"><rect x="165" y="325" width="32" height="24" rx="8"/><rect x="203" y="325" width="32" height="24" rx="8"/></g><rect class="lt" x="170" y="330" width="22" height="14" rx="3"/><rect class="lt" x="208" y="330" width="22" height="14" rx="3"/></g><g id="m-pad" class="mk"><line x1="366" y1="34" x2="316" y2="120"/><circle cx="316" cy="120" r="4"/><circle cx="366" cy="34" r="15"/><text x="366" y="39.5">1</text></g><g id="m-cliff_sensors" class="mk"><line x1="34" y1="34" x2="90" y2="52"/><circle cx="90" cy="52" r="4"/><circle cx="34" cy="34" r="15"/><text x="34" y="39.5">1</text></g><g id="m-contact" class="mk"><line x1="366" y1="366" x2="230" y2="337"/><circle cx="230" cy="337" r="4"/><circle cx="366" cy="366" r="15"/><text x="366" y="371.5">1</text></g><style>#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#7A4E00;stroke-width:3}#part-contact .fine,#part-contact .ln{stroke:#7A4E00}#part-contact .hal{display:inline}#m-contact{display:inline}@media (prefers-color-scheme:dark){#part-contact .pt,#part-contact .lt,#part-contact .body{fill:#FFB000;stroke:#FFE7A8}#part-contact .fine{stroke:#5A3A00}#part-contact .ln,#part-contact .brs{stroke:#FFE7A8}}</style></svg>

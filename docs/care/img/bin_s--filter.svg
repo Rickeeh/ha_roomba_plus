@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img"><title>Bin and filter, s series</title><style>
+.body{fill:#EEF1F4;stroke:#3D4752;stroke-width:3}
+.ln{fill:none;stroke:#3D4752;stroke-linecap:round;stroke-linejoin:round}
+.pt{fill:#AEB7C2;stroke:#3D4752;stroke-width:2}
+.lt{fill:#DDE3E9;stroke:#3D4752;stroke-width:2}
+.dt{fill:none;stroke:#3D4752;stroke-width:2;stroke-dasharray:6 4}
+.fine{fill:none;stroke:#3D4752;stroke-width:1.4;stroke-linecap:round}
+.hal{display:none;fill:none;stroke:#FFB000;stroke-opacity:.45;stroke-width:14;stroke-linejoin:round}
+.mk{display:none}
+.mk line{stroke:#B37A00;stroke-width:2.5}
+.mk circle{fill:#B37A00}
+.mk text{fill:#FFFFFF;font:700 16px sans-serif;text-anchor:middle}
+@media (prefers-color-scheme:dark){
+.body{fill:#2A333D;stroke:#C9D1DA}.ln,.fine,.dt{stroke:#C9D1DA}
+.pt{fill:#56626E;stroke:#C9D1DA}.lt{fill:#3A4550;stroke:#C9D1DA}
+.mk circle{fill:#FFB000}.mk line{stroke:#FFB000}.mk text{fill:#1A1A1A}}
+</style><path class="dt" d="M 60 340 L 340 340"/><g id="part-bin"><g class="hal"><rect x="85" y="99" width="230" height="236" rx="29"/></g><rect class="body" x="90" y="150" width="220" height="180" rx="24"/><path class="ln" style="stroke-width:6" d="M 160 150 Q 200 104 240 150"/></g><g id="part-filter"><g class="hal"><rect x="121" y="191" width="158" height="124" rx="13"/></g><rect class="pt" x="126" y="212" width="148" height="98" rx="8"/><line class="fine" x1="140" y1="222" x2="140" y2="300"/><line class="fine" x1="152" y1="222" x2="152" y2="300"/><line class="fine" x1="164" y1="222" x2="164" y2="300"/><line class="fine" x1="176" y1="222" x2="176" y2="300"/><line class="fine" x1="188" y1="222" x2="188" y2="300"/><line class="fine" x1="200" y1="222" x2="200" y2="300"/><line class="fine" x1="212" y1="222" x2="212" y2="300"/><line class="fine" x1="224" y1="222" x2="224" y2="300"/><line class="fine" x1="236" y1="222" x2="236" y2="300"/><line class="fine" x1="248" y1="222" x2="248" y2="300"/><line class="fine" x1="260" y1="222" x2="260" y2="300"/><path class="ln" style="stroke-width:4" d="M 186 212 Q 200 190 214 212"/></g><line class="dt" x1="118" y1="204" x2="282" y2="204"/><g id="m-filter" class="mk"><line x1="366" y1="34" x2="274" y2="230"/><circle cx="274" cy="230" r="4"/><circle cx="366" cy="34" r="15"/><text x="366" y="39.5">1</text></g><g id="m-bin" class="mk"><line x1="34" y1="34" x2="120" y2="150"/><circle cx="120" cy="150" r="4"/><circle cx="34" cy="34" r="15"/><text x="34" y="39.5">1</text></g><style>#part-filter .pt,#part-filter .lt,#part-filter .body{fill:#FFB000;stroke:#7A4E00;stroke-width:3}#part-filter .fine,#part-filter .ln{stroke:#7A4E00}#part-filter .hal{display:inline}#m-filter{display:inline}@media (prefers-color-scheme:dark){#part-filter .pt,#part-filter .lt,#part-filter .body{fill:#FFB000;stroke:#FFE7A8}#part-filter .fine{stroke:#5A3A00}#part-filter .ln,#part-filter .brs{stroke:#FFE7A8}}</style></svg>

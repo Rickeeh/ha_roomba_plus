@@ -65,6 +65,7 @@ from .room_cleaning import region_names_across_maps
 from .prime_room_map import async_restore_prime_room_names
 from .room_times import learn_via, robot_default_mode
 from .const import (
+    warm_error_tables,
     CARE_ENTITY_KEYS,
     CONF_CARE_REMINDERS,
     DEFAULT_CARE_REMINDERS,
@@ -1504,8 +1505,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     one could not be validated while the integration was down. A call for
     a robot whose entry is not loaded is refused in service_guard.py,
     with a translated message, before any handler runs.
+
+    The Classic error table is read here, in the executor, before any
+    entry sets up: its first lookup would otherwise read 500 KB in the
+    event loop (`const.warm_error_tables`).
     """
     async_register_services(hass)
+    await hass.async_add_executor_job(warm_error_tables)
     return True
 
 

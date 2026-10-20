@@ -207,6 +207,69 @@ class TestTheTlsContextIsBuiltOffTheLoop:
         assert "raise" not in source
 
 
+class TestTheClassicErrorTableIsReadOffTheLoop:
+    """4.5.0b2 on a live install, at the first entity state write:
+
+        Detected blocking call to read_text ... inside the event loop
+        by custom integration 'roomba_plus' at const.py, line 2268:
+        classic_vendor_error(number, lang, sku=sku, clean_base=clean_base)
+
+    roombapy-prime 0.8.0 reads its Classic table (500 KB of JSON) at the
+    first lookup and caches it. The suite never saw it: HA's loop guard
+    does not report in tests, and whichever test looked an error up
+    first had filled the cache for every later one. So this test watches
+    the read itself."""
+
+    @staticmethod
+    def _watch_reads(monkeypatch) -> list[str]:
+        import asyncio
+
+        from roombapy_prime import vendor_errors_classic as table
+
+        table._table.cache_clear()
+        reads: list[str] = []
+        real = type(table._TABLE).read_text
+
+        def read_text(self, *args, **kwargs):
+            if self == table._TABLE:
+                try:
+                    asyncio.get_running_loop()
+                    reads.append("event loop")
+                except RuntimeError:
+                    reads.append("executor")
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(type(table._TABLE), "read_text", read_text)
+        return reads
+
+    async def test_setup_reads_it_in_the_executor_once(self, hass, monkeypatch) -> None:
+        from custom_components.roomba_plus import async_setup
+        from custom_components.roomba_plus.const import error_label
+
+        reads = self._watch_reads(monkeypatch)
+        await async_setup(hass, {})
+        # What the sensors do when they are added, in the event loop:
+        assert error_label(2, prime=False) == "Brushes need cleaning"
+        assert error_label(3, prime=True)  # Prime falls back to it
+        assert reads == ["executor"]
+
+    def test_a_failure_to_read_it_is_not_fatal(self, monkeypatch, caplog) -> None:
+        from roombapy_prime import vendor_errors_classic as table
+
+        from custom_components.roomba_plus.const import warm_error_tables
+
+        table._table.cache_clear()
+
+        def broken(*_a, **_kw):
+            raise OSError("gone")
+
+        monkeypatch.setattr(type(table._TABLE), "read_text", broken)
+        warm_error_tables()  # must not raise
+        assert "could not be read" in caplog.text
+        monkeypatch.undo()
+        table._table.cache_clear()
+
+
 class TestSavingAnEntityOptionTakesEffect:
     """Options that decide whether an entity EXISTS are read once, when
     the platform sets up. Changing one and saving therefore does nothing

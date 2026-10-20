@@ -2298,6 +2298,32 @@ def error_help_id(code: Any, *, prime: bool) -> str | None:
     return help_id if isinstance(help_id, str) else None
 
 
+def warm_error_tables() -> None:
+    """Read the Classic app's error table, off the event loop.
+
+    roombapy-prime 0.8.0 reads `vendor_errors_classic.json` (500 KB) at
+    the first lookup and caches it for the process. That first lookup
+    was an entity's first state write, in the loop, and Home Assistant
+    said so on the first install of 4.5.0b2:
+
+        Detected blocking call to read_text ... inside the event loop
+        by custom integration 'roomba_plus' at const.py ...
+        classic_vendor_error(number, lang, sku=sku, clean_base=clean_base)
+
+    Both generations read it (Prime falls back to it), so `async_setup`
+    calls this once per start, in the executor. A failure is not fatal:
+    the first lookup then reads the file itself, and HA warns again.
+
+    0.8.1 reads the table at import, so with it this is one dictionary
+    lookup. It stays: it keeps the promise "no file in the loop" ours,
+    whatever a later library version does about loading.
+    """
+    try:
+        classic_vendor_error(1)
+    except Exception:  # noqa: BLE001 -- texts are optional, setup is not
+        _LOGGER.warning("Roomba+: the Classic error texts could not be read", exc_info=True)
+
+
 #: Robot phase -> translation state key.
 #:
 #: LOWERCASE KEYS, because Home Assistant only accepts those under a

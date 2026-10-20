@@ -57,6 +57,10 @@ class TestServicesRegistration:
         class _FakeHass:
             services = _Services()
 
+            async def async_add_executor_job(self, target, *args):
+                # async_setup reads the Classic error table here (4.5.0b2).
+                return target(*args)
+
         return _FakeHass(), registered
 
     def test_registers_all_expected_services(self):

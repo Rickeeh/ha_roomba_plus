@@ -2844,3 +2844,152 @@ class TestThePrimeRoomsMapMarksDoors:
         entity, image = self._image(floor_plan=[[(-500.0, 3500.0), (6500.0, 3500.0)]])
         assert image.getpixel(self._at(entity, 1500, 0)) == ROOMS_MAP_DOOR
         assert image.getpixel(self._at(entity, 2500, -75)) != ROOMS_MAP_WALL
+
+
+class TestPrimeSourceTopology:
+    """Synthetic source geometry is retained independently of legacy outlines."""
+
+    @staticmethod
+    def _ring(x=0, y=0, size=4):
+        return [[x, y], [x + size, y], [x + size, y + size],
+                [x, y + size], [x, y]]
+
+    @classmethod
+    def _layer(cls, kind="Polygon", *, bare=False):
+        exterior, interior = cls._ring(), cls._ring(1, 1, 1)
+        polygons = [[exterior, interior], [cls._ring(6, 0), cls._ring(7, 1, 1)]]
+        geometry = {"type": kind, "coordinates": (
+            polygons if kind == "MultiPolygon" else polygons[0]
+        )}
+        feature = {
+            "type": "Feature", "id": "synthetic-room", "geometry": geometry,
+            "properties": {
+                "name": "Synthetic room",
+                "simplifiedGeometry": {"type": "Polygon", "coordinates": [exterior]},
+                "synthetic_extension": {"values": [None, "retained", 7]},
+            },
+        }
+        return feature if bare else {"type": "FeatureCollection", "features": [feature]}
+
+    @staticmethod
+    async def _build(parsed, *, share_parser_result=False):
+        import io
+        import json
+        import tarfile
+        from unittest.mock import patch
+        from custom_components.roomba_plus.prime_room_map import async_build_prime_floor_plan
+
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w:gz") as tar:
+            for name, value in parsed.items():
+                payload = json.dumps(value).encode()
+                member = tarfile.TarInfo(name + ".geojson")
+                member.size = len(payload)
+                tar.addfile(member, io.BytesIO(payload))
+        robot = SimpleNamespace(
+            get_map_geojson_link=AsyncMock(return_value={"map_url": "https://example.invalid/map"}),
+            download_map_bundle=AsyncMock(return_value=archive.getvalue()),
+        )
+        entry = SimpleNamespace(runtime_data=SimpleNamespace(prime_robot=robot))
+        if share_parser_result:
+            with patch("roombapy_prime.models.map_bundle.parse_map_bundle", return_value=parsed):
+                plan = await async_build_prime_floor_plan(entry, "synthetic-map", "v1")
+        else:
+            plan = await async_build_prime_floor_plan(entry, "synthetic-map", "v1")
+        robot.get_map_geojson_link.assert_awaited_once_with("synthetic-map", "v1")
+        robot.download_map_bundle.assert_awaited_once_with("https://example.invalid/map")
+        return plan
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("kind", ["Polygon", "MultiPolygon"])
+    @pytest.mark.parametrize("bare", [False, True])
+    async def test_preserves_complete_layers_from_real_bundle_parser(self, kind, bare):
+        parsed = {"rooms": self._layer(kind, bare=bare), "borders": self._layer("MultiPolygon")}
+        plan = await self._build(parsed)
+        assert plan.source_layers == parsed
+        assert not plan.floor_plan  # Exclusions do not become structural lines.
+
+    @pytest.mark.asyncio
+    async def test_primary_and_simplified_variants_remain_distinct(self):
+        layer = self._layer()
+        plan = await self._build({"rooms": layer})
+        feature = plan.source_layers["rooms"]["features"][0]
+        assert len(feature["geometry"]["coordinates"]) == 2
+        assert len(feature["properties"]["simplifiedGeometry"]["coordinates"]) == 1
+        assert feature == layer["features"][0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("geometry", [None, {"type": "Polygon", "coordinates": []},
+        {"type": "Polygon", "coordinates": [[[0, 0], [4, 0], [4, 4]]]},
+        {"type": "GeometryCollection", "geometries": []},
+        {"type": "Polygon", "coordinates": [[[0, 0, 1], [4, 0, 2], [4, 4, 3], [0, 0, 1]]]}])
+    async def test_incomplete_and_unsupported_geometry_is_not_repaired(self, geometry):
+        layer = self._layer(bare=True)
+        layer["geometry"] = geometry
+        plan = await self._build({"rooms": layer})
+        assert plan.source_layers["rooms"] == layer
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("parsed", [{}, {"rooms": None}, {"borders": None},
+        {"rooms": {"features": []}, "borders": {"features": []}}])
+    async def test_absent_null_and_empty_are_distinct(self, parsed):
+        plan = await self._build(parsed)
+        assert plan.source_layers == parsed
+
+    @pytest.mark.asyncio
+    async def test_snapshot_does_not_alias_the_parser_or_legacy_projection(self):
+        import copy
+        parsed = {"rooms": self._layer(), "borders": self._layer("MultiPolygon")}
+        expected = copy.deepcopy(parsed)
+        plan = await self._build(parsed, share_parser_result=True)
+        parsed["rooms"]["features"][0]["geometry"]["coordinates"][0][0][0] = 99
+        parsed["borders"]["features"].clear()
+        plan.room_polygons["synthetic-room"][0] = (99, 99)
+        assert plan.source_layers == expected
+        plan.source_layers["rooms"]["features"][0]["properties"]["synthetic_extension"]["values"].append("local")
+        assert parsed["rooms"]["features"][0]["properties"]["synthetic_extension"]["values"] == [None, "retained", 7]
+
+    @pytest.mark.asyncio
+    async def test_legacy_projections_and_explicit_open_floorplan_are_unchanged(self):
+        from custom_components.roomba_plus.prime_room_map import (
+            _room_polygons_from_bundle, rings_mm, lines_mm,
+        )
+        parsed = {"rooms": self._layer("MultiPolygon"), "borders": self._layer("MultiPolygon"),
+            "floorPlan": {"features": [{"geometry": {"type": "LineString", "coordinates": [[0, 0], [2, 0]]}}]},
+            "metadata": {"synthetic_marker": "not-copied"}}
+        plan = await self._build(parsed)
+        assert set(plan.source_layers) == {"rooms", "borders"}
+        assert plan.room_polygons == _room_polygons_from_bundle(parsed["rooms"])
+        assert plan.borders == rings_mm(parsed["borders"])
+        assert plan.floor_plan == lines_mm(parsed["floorPlan"]) == [[(0, 0), (2000, 0)]]
+        assert len(plan.room_polygons["synthetic-room"]) == 5
+        assert len(plan.borders) == 2
+        assert plan.source_layers["rooms"]["features"][0]["geometry"]["coordinates"][0][0][1] == [4, 0]
+
+    def test_existing_constructors_have_independent_defaults(self):
+        from custom_components.roomba_plus.prime_room_map import PrimeFloorPlan
+        kwargs = dict(room_names={}, room_polygons={}, floor_plan=[], borders=[], carpet=[], furniture=[], dock=None)
+        a, b = PrimeFloorPlan(**kwargs), PrimeFloorPlan(**kwargs)
+        assert a.source_layers == b.source_layers == {}
+        a.source_layers["rooms"] = None
+        assert b.source_layers == {}
+
+    @pytest.mark.asyncio
+    async def test_snapshot_is_excluded_from_repr_and_legacy_equality(self, caplog):
+        import dataclasses
+        import logging
+        caplog.set_level(logging.DEBUG, logger="custom_components.roomba_plus.prime_room_map")
+        layer = self._layer()
+        layer["features"][0]["properties"]["synthetic_marker"] = "SYNTHETIC_SOURCE_ONLY"
+        plan = await self._build({"rooms": layer})
+        projected = dataclasses.replace(plan, source_layers={})
+        assert plan == projected
+        assert repr(plan) == repr(projected)
+        assert "SYNTHETIC_SOURCE_ONLY" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_unavailable_bundle_keeps_empty_snapshot(self):
+        from custom_components.roomba_plus.prime_room_map import async_build_prime_floor_plan
+        entry = SimpleNamespace(runtime_data=SimpleNamespace(prime_robot=None))
+        plan = await async_build_prime_floor_plan(entry, "synthetic-map", "v1")
+        assert plan.source_layers == {}

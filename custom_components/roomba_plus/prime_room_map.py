@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+from copy import deepcopy
 
 import logging
 from .prime_coordinator import prime_region_names_from_command
@@ -288,7 +289,9 @@ class PrimeFloorPlan:
     2026 -- the same position `set_virtual_wall` was in while it looked
     complete and failed for months.
 
-    Everything is millimetres by the time it lands here.
+    Projected coordinates are millimetres. ``source_layers`` keeps the
+    original parsed GeoJSON in its source units, without classifying
+    interior rings as walls.
     """
 
     #: Wall and boundary areas. MultiPolygon on the wire, so these are
@@ -345,6 +348,14 @@ class PrimeFloorPlan:
     #: Without an id on both sides there is nothing to compare, so the
     #: renderer had no way to notice.
     p2map_id: str | None = None
+
+    #: Owned source snapshots, before the lossy single-outline projections.
+    #: Keep geometry/simplifiedGeometry, component grouping and properties
+    #: together. Internal only: do not expose in HA attributes/diagnostics
+    #: or persist. Frozen plans do not make nested JSON immutable.
+    source_layers: dict[str, Any] = dataclasses.field(
+        default_factory=dict, repr=False, compare=False
+    )
 
 
 def _room_names_from_bundle(features: Any) -> dict[str, str]:
@@ -711,6 +722,9 @@ async def async_build_prime_floor_plan(
 
     plan = PrimeFloorPlan(
         p2map_id=p2map_id,
+        source_layers=deepcopy({
+            name: parsed[name] for name in ("rooms", "borders") if name in parsed
+        }),
         # THE ZONE LAYERS, KEPT RATHER THAN DROPPED.
         #
         # The renderer read them from the LIVE bundle, which arrives on

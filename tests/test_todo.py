@@ -181,6 +181,17 @@ class TestUidsAndWording:
         assert items["care_filter"].description == "Every 3.5 days, as iRobot recommends."
         assert items["replace.part_1"].description is None
 
+    def test_irobots_article_for_the_error_is_linked(self):
+        """4.5.0b4: beside iRobot's guide for the part, its article for
+        the error that brought the entry."""
+        items = _items(_make_todo([
+            _item("check.bin", "check", "bin", level="due", error=14,
+                  help_url="https://example.com/error-14"),
+        ]))
+        assert items["check.bin"].description.endswith(
+            "[iRobot's article on the error](https://example.com/error-14)"
+        )
+
     def test_the_part_says_what_it_does_and_why_the_robot_stopped(self):
         """Concept B: one sentence of what the part does, from the guide
         in the robot's variant; a reason that is not an error says so."""

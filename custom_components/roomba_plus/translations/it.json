@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Le programmazioni per stanza richiedono un robot che riporti i dati delle stanze.",
       "no_rooms_to_name": "Nessuna stanza da nominare. Le stanze di questo robot compaiono dopo che ha pulito stanze specifiche almeno una volta, o quando la sua mappa è disponibile dal tuo account iRobot.",
       "all_rooms_named": "Ogni stanza ha già un nome. Rinominane una dal selettore di zone nella pagina del dispositivo.",
-      "wrong_roombapy": "Roomba+ richiede `roombapy` 2.x (asincrono); la copia installata da Home Assistant è più vecchia:\n\n`{error}`\n\n**Riavvia prima Home Assistant**: così installa la versione richiesta da Roomba+.\n\nSe l'errore ritorna dopo il riavvio, l'**integrazione Roomba integrata** di Home Assistant sta reinstallando la libreria vecchia. Non possono coesistere: rimuovi quella integrata (Impostazioni → Dispositivi e servizi → Roomba → elimina) e riavvia. Roomba+ copre tutto ciò che fa.\n\nLa versione di Roomba+ non c'entra: tutte le 4.2.x richiedono la stessa libreria.",
+      "wrong_roombapy": "Roomba+ richiede `roombapy` 2.x (asincrono); la copia caricata da Home Assistant è più vecchia:\n\n`{error}`\n\n**Riavvia prima Home Assistant**: così installa la versione richiesta da Roomba+.\n\nSe l'errore ritorna dopo il riavvio, l'**integrazione Roomba integrata** di Home Assistant ha caricato per prima la sua libreria vecchia. Python tiene una sola copia di una libreria alla volta, quindi Roomba+ non può usare la propria. Eliminare la voce dell'integrazione integrata non sempre basta: quando Home Assistant trova il robot in rete, a ogni riavvio prepara la finestra di configurazione integrata, e questa ricarica la libreria vecchia. La guida alla risoluzione dei problemi spiega come evitarlo, in «A workaround, if you do not use the built-in integration»: [{troubleshooting_url}]({troubleshooting_url})\n\nLa versione di Roomba+ non c'entra: tutte le versioni dalla 4.2.0 richiedono la stessa libreria.",
       "robot_not_on_account": "Questo robot non è più nell'account iRobot. Se è stato spostato in un altro account, configuralo con quello."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "Abilita la mappa di pulizia in tempo reale per i robot con rilevamento della posizione (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Offerto solo per i robot che non comunicano da soli la propria posizione. Interroga il robot circa una volta al secondo durante la pulizia per disegnare il percorso in tempo reale. Disattivato: la mappa mostra invece l'ultima missione completata dal cloud iRobot, se l'accesso al cloud è configurato.",
-          "live_path_turn": "Solo con l’opzione qui sopra. Ruota il percorso di pulizia rispetto alla planimetria finché non si sovrappone alle sue stanze. Il rilevamento della stanza usa le stesse posizioni ruotate, quindi un angolo sbagliato indica anche la stanza sbagliata. Non è come «Ruota l’immagine della mappa», che ruota l’intera immagine e non sposta mai il percorso rispetto alle stanze. Automatico ricava la rotazione dalla mappa salvata dal robot, compresa una rotazione impostata nell’app iRobot. Se il percorso attraversa i muri o resta accanto alle sue stanze, prova gli angoli: il percorso già disegnato ruota non appena salvi. Poi allega la diagnostica a una segnalazione, così che l’impostazione automatica possa essere corretta per il tuo robot.",
+          "live_path_turn": "Solo con l’opzione qui sopra. Ruota il percorso di pulizia rispetto alla planimetria finché non si sovrappone alle sue stanze. Il rilevamento della stanza usa le stesse posizioni ruotate, quindi un angolo sbagliato indica anche la stanza sbagliata. Non è come «Ruota l’immagine della mappa», che ruota l’intera immagine e non sposta mai il percorso rispetto alle stanze. Automatico parte dalla rotazione della mappa salvata dal robot, compresa una rotazione impostata nell’app iRobot, e passa all’angolo che porta il percorso del robot dentro le stanze non appena una pulizia lo ha mostrato chiaramente; il percorso già disegnato ruota con esso. Se il percorso attraversa ancora i muri o resta accanto alle sue stanze, scegli un angolo: il percorso già disegnato ruota non appena salvi.",
           "map_size_px": "Dimensione del canvas della mappa in pixel (400–1200). Predefinito: 600.",
           "map_scale_mm_per_px": "Millimetri per pixel (5–30). Predefinito 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Testo libero, ad esempio Piano terra. Raggruppa i robot nella vista flotta.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "Il robot segnala l'errore {code}.",
         "link_guide": "Guida di iRobot",
+        "link_help": "Articolo di iRobot sull'errore",
         "link_buy": "Acquista il ricambio",
         "part_main_brush": "spazzole principali",
         "part_side_brush": "spazzola laterale",

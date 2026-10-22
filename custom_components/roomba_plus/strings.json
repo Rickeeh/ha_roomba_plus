@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Room schedules need a robot that reports room data.",
       "no_rooms_to_name": "No rooms were found to name. This robot's rooms appear once it has cleaned specific rooms at least once, or once its map is available from your iRobot account.",
       "all_rooms_named": "Every room already has a name. Rename one from the zone selector on the device page.",
-      "wrong_roombapy": "Roomba+ needs the asynchronous `roombapy` 2.x, and the copy Home Assistant has installed is an older one:\n\n`{error}`\n\n**Restart Home Assistant first** — that makes it install the version Roomba+ asks for.\n\nIf it comes back after a restart, Home Assistant's **built-in Roomba integration** is installing the older library over it. Both cannot be present: remove the built-in one (Settings → Devices & Services → Roomba → delete) and restart again. Roomba+ covers everything it does.\n\nThe Roomba+ version makes no difference here — every 4.2.x release needs the same library.",
+      "wrong_roombapy": "Roomba+ needs the asynchronous `roombapy` 2.x, and the copy Home Assistant has loaded is an older one:\n\n`{error}`\n\n**Restart Home Assistant first** — that makes it install the version Roomba+ asks for.\n\nIf it comes back after a restart, Home Assistant's **built-in Roomba integration** loaded its older library first. Python holds one copy of a library at a time, so Roomba+ cannot use its own. Deleting the built-in integration's entry is not always enough: when Home Assistant finds your robot on the network, it prepares the built-in setup dialog after every restart, and that loads the older library again. The troubleshooting guide shows how to stop that, under \"A workaround, if you do not use the built-in integration\": [{troubleshooting_url}]({troubleshooting_url})\n\nThe Roomba+ version makes no difference here — every release since 4.2.0 needs the same library.",
       "robot_not_on_account": "This robot is no longer on the iRobot account. If it was moved to another account, set it up with that one."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "Enable the live cleaning map for robots with position sensing (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Only offered for robots that do not report their position on their own. Asks the robot about once a second while it cleans, to draw the cleaning path live. Off: the map shows the last finished mission from the iRobot cloud instead, if cloud access is set up.",
-          "live_path_turn": "Only with the option above. Turns the cleaning path against the floor plan until it lies on its rooms. Room tracking uses the same turned positions, so a wrong angle also names the wrong room. Not the same as “Rotate the map picture”, which turns the whole picture and never moves the path against the rooms. Automatic takes the turn from the map the robot saved, including one set in the iRobot app. If the path runs through walls or beside its rooms, try the angles: the path already drawn turns as soon as you save. Then please attach the diagnostics to an issue so that Automatic can be fixed for your robot.",
+          "live_path_turn": "Only with the option above. Turns the cleaning path against the floor plan until it lies on its rooms. Room tracking uses the same turned positions, so a wrong angle also names the wrong room. Not the same as “Rotate the map picture”, which turns the whole picture and never moves the path against the rooms. Automatic starts from the turn of the map the robot saved, including one set in the iRobot app, and changes to the angle that puts the robot’s path in the rooms once a run has shown it clearly; the path already drawn turns with it. If the path still runs through walls or beside its rooms, set an angle: the path already drawn turns as soon as you save.",
           "map_size_px": "Map canvas size in pixels (400–1200). Default: 600.",
           "map_scale_mm_per_px": "Millimetres per pixel (5–30). Default 10 = 6 m × 6 m at 600 px.",
           "floor_label": "Free text, for example Ground Floor. Groups robots in the fleet view.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "The robot reports error {code}.",
         "link_guide": "iRobot's guide",
+        "link_help": "iRobot's article on the error",
         "link_buy": "Buy the part",
         "part_main_brush": "main brushes",
         "part_side_brush": "side brush",

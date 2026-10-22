@@ -418,6 +418,23 @@ class TestPrimeConnectionDiagnostics:
         assert result["known"] is False
         assert "cannot be scheduled" in result["note"]
 
+    def test_the_reconnects_are_there_and_carry_no_topic(self):
+        """roombapy-prime 0.8.2 (@glowpartyy): where each resume after a
+        drop spent its time, from the library's own log. Copies, and
+        nothing but its entries."""
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.diagnostics import _prime_reconnect_log
+
+        entry = {"at": "2026-10-21T04:00:00+00:00", "reason": "[code:128] Unspecified error",
+                 "rebuilt_by": "this_watcher", "total_s": 40.6, "waiting_s": 31.2,
+                 "login_s": 0.0, "connecting_s": 8.1, "failed_attempts": 0,
+                 "backoff_s": 0.0, "subscriptions_s": 1.3}
+        data = SimpleNamespace(prime_robot=SimpleNamespace(reconnect_log=(entry, "odd")))
+        assert _prime_reconnect_log(data) == [entry]
+        assert _prime_reconnect_log(SimpleNamespace(prime_robot=None)) == []
+        assert _prime_reconnect_log(SimpleNamespace(prime_robot=SimpleNamespace())) == []
+
     def test_no_robot_at_all_does_not_raise(self):
         """Classic entries, and Prime entries where setup failed part
         way. A diagnostics download must not itself fail."""
@@ -2252,6 +2269,37 @@ class TestTheDiagnosticsSayHowFarTheAppTurnedTheMap:
         assert set_["requested_path_turn_in_picture_deg"] is None
         data.renderer = SimpleNamespace(point_count=3, requested_turn_rad=-1.5708)
         assert _position_chain(data, {})["requested_path_turn_in_picture_deg"] == -90.0
+
+    def test_what_the_path_showed_and_what_automatic_follows(self) -> None:
+        """4.5.0b3, @nareso: the header says 180, his path says 0. The
+        counts behind Automatic are there, without the map's id."""
+        import math
+        from types import SimpleNamespace
+
+        from custom_components.roomba_plus.diagnostics import _position_chain
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        umf = {"pmap_id": "p1", "poses": {"orientation_rad": {
+            "user_orientation_rad": math.pi, "robot_orientation_rad": 0.0,
+        }}}
+        learner = PathTurnLearner()
+        for _ in range(300):
+            learner.add("p1|180", {"0": True, "90": False, "180": False, "270": False}, "180")
+        data = SimpleNamespace(
+            umf_aligner=None,
+            renderer=SimpleNamespace(point_count=0),
+            cloud_coordinator=SimpleNamespace(umf_data=umf),
+            path_turn=learner,
+        )
+        out = _position_chain(data, {})
+        assert out["requested_path_turn_deg"] == 180.0  # what the header says
+        assert out["requested_path_turn_source"] == "learned"
+        assert out["requested_path_turn_drawn_deg"] == 0.0
+        assert out["path_turn_learning"] == {
+            "positions": 300, "0": 300, "90": 0, "180": 0, "270": 0, "learned": "0",
+        }
+        assert "p1" not in str(out["path_turn_learning"])
+        assert _position_chain(data, {"live_path_turn": "90"})["requested_path_turn_drawn_deg"] == 90.0
 
 
 class TestTheRobotsAddressStaysOut:

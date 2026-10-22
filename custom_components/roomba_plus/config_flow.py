@@ -69,6 +69,7 @@ from .entity_cleanup import (
 )
 from .const import (
     CARE_GUIDE_ON_ERROR_CHOICES,
+    TROUBLESHOOTING_URL,
     CONF_BRUSH_HOURS,
     CONF_CARE_GUIDE_ON_ERROR,
     CONF_CLEAN_BASE_BAG_HOURS,
@@ -806,7 +807,10 @@ class RoombaPlusConfigFlow(ConfigFlow, domain=DOMAIN):
         if ROOMBAPY_IMPORT_ERROR is not None:
             return self.async_abort(
                 reason="wrong_roombapy",
-                description_placeholders={"error": ROOMBAPY_IMPORT_ERROR},
+                description_placeholders={
+                    "error": ROOMBAPY_IMPORT_ERROR,
+                    "troubleshooting_url": TROUBLESHOOTING_URL,
+                },
             )
 
         if user_input is not None:

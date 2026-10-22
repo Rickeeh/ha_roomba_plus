@@ -53,6 +53,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dis
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
+from .parts_catalog import help_url_for
 from .const import (
     CARE_TASKS,
     CONF_CARE_GUIDE_ON_ERROR,
@@ -133,6 +134,13 @@ ACTION_CHECK = "check"
 #:           page; the app says "needs maintenance" or "Robot error"),
 #:           68 (the app says hold CLEAN 10 s -- a reboot, not a clean),
 #:           78, 79 (Terra mower codes), 102, 103 (no contact step)
+#:   not added 17 (4.5.0b4): "Path blocked". The app says clear obstacles
+#:           and check the lighting; page 8969 (980) lists ten steps, eight
+#:           about the room (doors, carpet, light, clutter) and two about
+#:           parts (camera window, floor sensor). A "check the camera"
+#:           entry would be wrong most of the time, and on a robot with no
+#:           camera always; there is no camera check per model. iRobot's
+#:           article for the model is linked from the error (help_url).
 #:
 #: PRIME WAITED FOR A TESTER'S ERROR (L10) beyond 2, 6, 201, 1000, 1001.
 #: Decided 19.10.2026 (D3): iRobot's own Prime help pages are the
@@ -278,6 +286,9 @@ class MaintenanceItem:
     reason: str | None = None
     #: Our care guide for this entry (care_guides.py), if there is one.
     guide_id: str | None = None
+    #: iRobot's article for `error` on this model (4.5.0b4): the list's
+    #: link beside ours, and in the event for a notification.
+    help_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -790,7 +801,15 @@ class MaintenanceTracker:
         """The entries from the robot's current data, without side
         effects, each with its care guide."""
         return [
-            replace(item, guide_id=guide_id(item.action, item.part))
+            replace(
+                item,
+                guide_id=guide_id(item.action, item.part),
+                help_url=(
+                    help_url_for(self._data, item.error, prime=self._prime)
+                    if item.error is not None
+                    else None
+                ),
+            )
             for item in self._compute(now)
         ]
 

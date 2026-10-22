@@ -52,6 +52,8 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfTime
+from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 
 from roombapy_prime.models.mission_history import FaultScene
 
@@ -60,6 +62,8 @@ from .prime_parts import part_count_in_display_unit
 from .maintenance_model import MaintenanceItem
 from .prime_dirt import unfinished_missions
 from .const import (
+    DOMAIN,
+    prime_runtime_hours,
     PHASE_LABELS,
     CLEANING_PHASES,
     DOCK_TASK_PHASES,
@@ -867,6 +871,12 @@ class PrimeSuctionLevelSensor(_PrimeCurrentStateSensorBase):
             return None
 
 
+#: Entity-registry option (under DOMAIN) on the runtime sensor: set while
+#: the sensor itself has hidden the entity because the runtime cannot be
+#: true. See PrimeRuntimeHoursSensor._sync_hidden.
+RUNTIME_HIDDEN_OPTION: Final = "hidden_impossible_runtime"
+
+
 class PrimeRuntimeHoursSensor(_PrimeCurrentStateSensorBase):
     """V4/Prime lifetime runtime hours. Reads
     CurrentStateShadow.runtime_stats.hours (confirmed live,
@@ -889,17 +899,69 @@ class PrimeRuntimeHoursSensor(_PrimeCurrentStateSensorBase):
 
     @property
     def native_value(self) -> int | None:
-        state = self._current_state
-        if state is None or state.runtime_stats is None:
-            return None
-        return int(state.runtime_stats.hours)
+        hours, why = prime_runtime_hours(self._shadows())
+        return hours if why is None else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         state = self._current_state
         if state is None or state.runtime_stats is None:
             return {}
-        return {"minutes": state.runtime_stats.minutes}
+        attrs: dict[str, Any] = {"minutes": state.runtime_stats.minutes}
+        hours, why = prime_runtime_hours(self._shadows())
+        if why is not None:
+            # What the robot said, for the diagnostics and an issue.
+            attrs["reported_hours"] = hours
+            attrs["rejected"] = why
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        coordinator = self._config_entry.runtime_data.prime_status_coordinator
+        if coordinator is not None:
+            self.async_on_remove(coordinator.async_add_listener(self._sync_hidden))
+        self._sync_hidden()
+
+    @callback
+    def _sync_hidden(self) -> None:
+        """HIDDEN WHILE THE ROBOT'S RUNTIME CANNOT BE TRUE.
+
+        @jdmasuta's Plus 410 Combo counts correctly from a start ~497,000
+        hours too high (69 min counted across a 105-min run, 874:56 ->
+        876:05), so it never becomes believable and the sensor would
+        stand at unknown for good. A sensor that can only ever say
+        unknown has no place on a dashboard; hidden, it keeps its
+        attributes for diagnostics and an issue.
+
+        Only what this sensor hid itself is shown again, and only once:
+        the registry option marks it. A user who hid it keeps it hidden;
+        a user who shows it again while the value is still rejected is
+        not overruled on the next update.
+        """
+        entry = self.registry_entry
+        if self.hass is None or entry is None:
+            return
+        hours, why = prime_runtime_hours(self._shadows())
+        options = entry.options.get(DOMAIN)
+        ours = bool(options and options.get(RUNTIME_HIDDEN_OPTION))
+        registry = er.async_get(self.hass)
+        if why is not None and not ours and entry.hidden_by is None:
+            registry.async_update_entity(
+                entry.entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION
+            )
+            registry.async_update_entity_options(
+                entry.entity_id, DOMAIN, {RUNTIME_HIDDEN_OPTION: True}
+            )
+        elif why is None and hours is not None and ours:
+            if entry.hidden_by is er.RegistryEntryHider.INTEGRATION:
+                registry.async_update_entity(entry.entity_id, hidden_by=None)
+            registry.async_update_entity_options(entry.entity_id, DOMAIN, None)
+
+    def _shadows(self) -> Any:
+        """The status coordinator's shadows. Why a runtime is not believed
+        is const.prime_runtime_hours, shared with the reset service."""
+        coordinator = self._config_entry.runtime_data.prime_status_coordinator
+        return getattr(coordinator, "data", None) if coordinator is not None else None
 
 
 class PrimeFirmwareVersionSensor(IRobotEntity, SensorEntity):

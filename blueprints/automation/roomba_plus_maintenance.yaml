@@ -21,8 +21,10 @@ blueprint:
     Variables for your own notification action:
     {{ notification_title }}, {{ notification_message }},
     {{ notification_url }} (the care guide, a path that opens in the
-    companion app and the browser), {{ notification_actions }} (the
-    buttons, for `data: actions:` of a mobile app notification).
+    companion app and the browser), {{ notification_help_url }}
+    (iRobot's article for the error that brought the entry, empty
+    otherwise), {{ notification_actions }} (the buttons, for
+    `data: actions:` of a mobile app notification).
 
     Full integration: https://github.com/johnnyh1975/ha_roomba_plus
   domain: automation
@@ -90,7 +92,10 @@ blueprint:
               {{ notification_message }}{% if notification_url %}
 
 
-              [{{ guide_text }}]({{ notification_url }}){% endif %}
+              [{{ guide_text }}]({{ notification_url }}){% endif %}{% if notification_help_url %}
+
+
+              [{{ help_text }}]({{ notification_help_url }}){% endif %}
       selector:
         action:
 
@@ -123,6 +128,12 @@ blueprint:
     guide_text:
       name: Label of the guide link
       default: How to do it
+      selector:
+        text:
+    help_text:
+      name: Label of iRobot's article
+      description: Shown for an entry an error brought, where iRobot has an article for it.
+      default: iRobot's article on the error
       selector:
         text:
     send_from:
@@ -174,6 +185,7 @@ variables:
   snoozed_text: !input snoozed_text
   error_text: !input error_text
   guide_text: !input guide_text
+  help_text: !input help_text
   replaced_button: !input replaced_button
   cleaned_button: !input cleaned_button
   only_cleaned_button: !input only_cleaned_button
@@ -248,6 +260,7 @@ actions:
                             "done": done_text, "snoozed": snoozed_text} %}
             {% if error %}{{ error_text }} {{ error }}: {% endif %}{{ what }} {{ words.get(event, event) }}
           notification_url: "{{ trigger.to_state.attributes.guide or '' }}"
+          notification_help_url: "{{ trigger.to_state.attributes.help_url or '' }}"
           notification_actions: >-
             {% set base = vacuum_entity ~ "|" ~ item %}
             {% set replace = item.startswith("replace.") %}

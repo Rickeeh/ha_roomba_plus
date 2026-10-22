@@ -1683,6 +1683,29 @@ class TestAWrongLibrarySaysSo:
         # And the thing he got wrong, said plainly:
         assert "version makes no difference" in text
 
+    def test_the_abort_text_does_not_stop_at_deleting_the_entry(self) -> None:
+        """@gdenas deleted the built-in entry, as the text then said, and
+        restarted several times. Discovery still prepares the built-in
+        setup dialog after every restart, and that loads roombapy 1.x
+        before Roomba+ can be added. The text has to say so and point
+        to the workaround that stops it."""
+        import json
+        import pathlib
+
+        data = json.loads(
+            pathlib.Path(
+                "custom_components/roomba_plus/strings.json"
+            ).read_text(encoding="utf-8")
+        )
+        text = data["config"]["abort"]["wrong_roombapy"]
+
+        assert "not always enough" in text
+        assert "finds your robot on the network" in text
+        assert "{troubleshooting_url}" in text
+        assert "A workaround, if you do not use the built-in integration" in text
+        guide = pathlib.Path("docs/TROUBLESHOOTING.md").read_text(encoding="utf-8")
+        assert "#### A workaround, if you do not use the built-in integration" in guide
+
     def test_setup_fails_with_the_reason_too(self) -> None:
         """An existing install that breaks after an update never reaches
         the config flow."""
@@ -2796,6 +2819,13 @@ class TestUserAndManual:
                 DOMAIN, context={"source": config_entries.SOURCE_USER}
             )
         assert result["reason"] == "wrong_roombapy"
+        assert result["description_placeholders"] == {
+            "error": "roombapy 1.9 found",
+            "troubleshooting_url": (
+                "https://github.com/johnnyh1975/ha_roomba_plus/blob/main/"
+                "docs/TROUBLESHOOTING.md"
+            ),
+        }
 
     @pytest.mark.asyncio
     async def test_unknown_skus_are_reported_not_offered(self, hass, caplog):

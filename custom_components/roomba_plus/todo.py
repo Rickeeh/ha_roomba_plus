@@ -221,6 +221,8 @@ class MaintenanceWording:
             for key, url in (
                 ("link_care_guide", ours),
                 ("link_guide", item.guide_url),
+                # iRobot's article for the error that brought it (4.5.0b4).
+                ("link_help", item.help_url),
                 ("link_buy", item.buy_url),
             )
             if url

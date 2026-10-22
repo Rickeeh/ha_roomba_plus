@@ -95,7 +95,15 @@ from .const import (
 from .entity import IRobotEntity
 from .geometry_utils import pose_point_to_map_mm
 from .cloud_coordinator import requested_position_turn
-from .position_room import PositionRoomTracker, in_room_by_turn, room_at_position
+from .position_room import (
+    PathTurnLearner,
+    PositionRoomTracker,
+    auto_position_turn,
+    in_room_by_turn,
+    nearest_turn_angle,
+    room_at_position,
+    turn_map_key,
+)
 from .room_layout import (
     DEFAULT_ROBOT_DIAMETER_MM,
     PolygonWalls,
@@ -2563,23 +2571,43 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             return
         tracker.observe(room_at_position(data, x, y, frame=frame))
 
-    def _observe_turn_candidates(self, x: float, y: float) -> None:
+    def _observe_turn_candidates(self, x: float, y: float) -> bool:
         """Count, per angle, whether this position lies in a room (4.4.2).
 
         As the robot answered, before the turn. Only while cleaning, as
-        room tracking itself (_observe_position_room).
+        room tracking itself (_observe_position_room). For the mission's
+        diagnostics, and per map for "Automatic" (4.5.0b3): True when the
+        counts just changed the angle Automatic stands for.
         """
         data = (
             getattr(self._config_entry, "runtime_data", None)
             if self._config_entry is not None
             else None
         )
-        tracker = getattr(data, "position_room", None)
-        if not isinstance(tracker, PositionRoomTracker) or self._last_phase != "run":
-            return
+        if self._last_phase != "run":
+            return False
         tried = in_room_by_turn(data, x, y)
-        if tried is not None:
+        if tried is None:
+            return False
+        tracker = getattr(data, "position_room", None)
+        if isinstance(tracker, PositionRoomTracker):
             tracker.observe_turns(tried)
+        learner = getattr(data, "path_turn", None)
+        if not isinstance(learner, PathTurnLearner):
+            return False
+        umf = self._cloud_umf()
+        header = auto_position_turn(None, umf)[0]
+        return learner.add(turn_map_key(umf, header), tried, nearest_turn_angle(header))
+
+    def _cloud_umf(self) -> Any:
+        """The cloud map the coordinator holds, or None."""
+        entry = self._config_entry
+        coordinator = (
+            getattr(getattr(entry, "runtime_data", None), "cloud_coordinator", None)
+            if entry is not None
+            else None
+        )
+        return getattr(coordinator, "umf_data", None) if coordinator is not None else None
 
     @callback
     def _handle_live_position(self, position: Any) -> None:
@@ -2618,7 +2646,12 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
         x, y = position.x * 1000.0, position.y * 1000.0
         heading = math.degrees(position.theta)
         # Every angle tried before this mission's is applied (4.4.2).
-        self._observe_turn_candidates(x, y)
+        if self._observe_turn_candidates(x, y) and self._live_position_turn_rad is not None:
+            # THE PATH SHOWED ANOTHER TURN (4.5.0b3, @nareso): Automatic
+            # follows it now, and the path drawn so far turns with it, as
+            # for a changed setting. A fixed angle is not touched.
+            self._live_turn_auto_rad = None
+            self._sync_live_turn(write_state=False)
         turn = self._live_position_turn()
         if turn:
             # TURNED BACK INTO THE MAP'S OWN FRAME (4.3.4, @frnchfrgg):
@@ -2668,13 +2701,13 @@ class RoombaMapImage(IRobotEntity, ImageEntity):
             else DEFAULT_LIVE_PATH_TURN
         )
         if self._live_turn_auto_rad is None:
-            coordinator = (
-                getattr(getattr(entry, "runtime_data", None), "cloud_coordinator", None)
+            # The header's turn, or what this map's path showed (4.5.0b3).
+            self._live_turn_auto_rad = auto_position_turn(
+                getattr(getattr(entry, "runtime_data", None), "path_turn", None)
                 if entry is not None
-                else None
-            )
-            umf = getattr(coordinator, "umf_data", None) if coordinator is not None else None
-            self._live_turn_auto_rad = requested_position_turn("auto", umf)[0]
+                else None,
+                self._cloud_umf(),
+            )[0]
         if setting in LIVE_PATH_TURN_CHOICES and setting != "auto":
             return requested_position_turn(setting, None)[0]
         return self._live_turn_auto_rad

@@ -1095,3 +1095,63 @@ class TestEnergyWithoutAStore:
         e = _ent(robot_profile=None, robot_profile_store=None)
         e.battery_stats = {}
         assert sh._total_energy_consumed_kwh(e) == round(3000 * 14.8 * 100 / 1_000_000, 3)
+
+
+class TestIrobotsArticleAndTheAppsWordsOnTheStatusSensors:
+    """4.5.0b4: *Error – Last code* carried iRobot's article for the
+    error since b2, the sensor people look at did not; and readiness
+    named a refusal by the firmware's word ("SM bus permanent failure")
+    where the app says what to do. Placeholder URLs, keyed as the help
+    catalogue is (parts_catalog.help_key)."""
+
+    CATALOGUE = {
+        "error2": "https://example.com/error-2",
+        "start-refuse7": "https://example.com/start-refuse-7",
+    }
+
+    def _entity(self, status, *, language="de"):
+        entity = MagicMock()
+        entity.clean_mission_status = status
+        entity.vacuum_state = {"sku": "R980020"}
+        entity.vacuum.error_message = None
+        entity._config_entry.title = "Robbie"
+        entity._config_entry.runtime_data.help_catalogue = dict(self.CATALOGUE)
+        entity.hass.config.language = language
+        return entity
+
+    @staticmethod
+    def _attrs(key, entity):
+        description = next(d for d in SENSORS if d.key == key)
+        return description.extra_attributes_fn(entity)
+
+    def test_the_error_sensor_links_the_article_while_it_shows_the_error(self):
+        running = self._entity({"cycle": "clean", "phase": "run", "error": 2})
+        assert self._attrs("error", running)["help_url"] == "https://example.com/error-2"
+
+    def test_no_link_for_an_error_the_state_does_not_show(self):
+        """Docked after a failure the firmware keeps the code; the state
+        is empty, and so is the link."""
+        docked = self._entity({"cycle": "none", "phase": "charge", "error": 2})
+        assert "help_url" not in self._attrs("error", docked)
+        unknown = self._entity({"cycle": "clean", "phase": "run", "error": 3})
+        assert "help_url" not in self._attrs("error", unknown)
+
+    def test_readiness_says_what_the_app_says_and_links_the_article(self):
+        attrs = self._attrs("readiness", self._entity({"notReady": 7}))
+        assert attrs == {
+            "app_label": "Der Auffangbehälter von Robbie fehlte.",
+            "description": "Setzen Sie den Auffangbehälter Ihres Roboters wieder ein.",
+            "text_source": "classic_app",
+            "help_url": "https://example.com/start-refuse-7",
+        }
+
+    def test_the_text_is_keyed_by_the_wire_value(self):
+        """Wire 37 is the battery: "SM bus permanent failure" by the
+        firmware's name, "battery is not detected" by the app's."""
+        attrs = self._attrs("readiness", self._entity({"notReady": 37}, language="en"))
+        assert attrs["description"] == "Robbie's battery is not detected."
+        assert "help_url" not in attrs  # no article in this catalogue
+
+    def test_ready_or_odd_values_carry_nothing(self):
+        for raw in (0, None, "7", True, 99999):
+            assert self._attrs("readiness", self._entity({"notReady": raw})) == {}, raw

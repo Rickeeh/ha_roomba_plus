@@ -18,6 +18,7 @@ from roombapy_prime.vendor_errors import prime_help_id, vendor_error
 from roombapy_prime.vendor_errors_classic import (
     classic_dock_text,
     classic_help_id,
+    classic_not_ready_text,
     classic_vendor_error,
 )
 
@@ -119,6 +120,14 @@ PRIME_PLATFORMS: Final[list[Platform]] = [
 #: resolve itself -- an unrecognised robot SKU, for instance. Kept here
 #: rather than inline so it stays in step with manifest.json.
 ISSUE_TRACKER_URL: Final = "https://github.com/johnnyh1975/ha_roomba_plus/issues"
+
+#: The troubleshooting guide. The library-conflict abort links to it: the
+#: way out when the built-in Roomba integration keeps loading roombapy 1.x
+#: (its discovery does that even with no entry of its own) takes two files
+#: and their caveats, which do not fit in a setup dialog.
+TROUBLESHOOTING_URL: Final = (
+    "https://github.com/johnnyh1975/ha_roomba_plus/blob/main/docs/TROUBLESHOOTING.md"
+)
 
 CONF_IROBOT_USERNAME: Final = "irobot_username"
 CONF_IROBOT_PASSWORD: Final = "irobot_password"
@@ -1000,17 +1009,18 @@ SQFT_TO_M2: Final = 0.09290304   # exact SI definition: 1 ft² = 0.09290304 m²
 #: emits the raw value labelled as square metres. Which of those is the
 #: later understanding is unknown.
 #:
-#: The official iRobot app does not read `bbrun.sqft` at all, so it
-#: documents no unit -- an APK search established that and nothing more.
+#: THE CLASSIC APP DOES THE SAME (APK research, 21 Oct 2026,
+#: claude/APK_RUNTIMESTATS_RECHERCHE.md, [C]). iRobot Home 7.18.0 reads
+#: `bbrun` and `runtimeStats` in one branch of its native
+#: `RoombaBlackBoxRunDataDeserializer` and multiplies `sqft` by 100
+#: before it becomes the total area in the app's performance log. An
+#: earlier note here said the official app did not read `bbrun.sqft`
+#: at all: that search had covered the Java side only, and the reading
+#: is in `libcore_base.so`.
 #:
-#: NOT PROTOCOL-PROVEN. Two field observations and one prior
-#: implementation. Applied anyway because the uncorrected value has no
-#: reading under which it is true, and a lifetime-area sensor showing
-#: 181 m² after 450 hours is wrong in a way a user can see.
-#:
-#: To settle it: a diagnostics download before and after one completed
-#: mission. The prediction is that `sqft` rises by about 0.108 per
-#: square metre actually cleaned.
+#: Still a reading of the app, not of the firmware: the app could be
+#: wrong too. Two field observations, one prior implementation and the
+#: app's own code now agree.
 BBRUN_SQFT_SCALE: Final = 100
 
 # ── RF0 — Robot manufacturer reference profiles ────────────────────────────────
@@ -2291,37 +2301,48 @@ def error_label(
     ).get("label")
 
 
+def not_ready_entry(
+    raw: Any,
+    language: str | None,
+    *,
+    sku: str | None = None,
+    robot_name: str | None = None,
+) -> dict[str, str]:
+    """What the Classic app says to a refusal to start (4.5.0b4).
+
+    `raw` is `notReady` as the robot sends it: the app keys its texts by
+    that wire value, not by the index READINESS_STATE_LABELS uses. Only
+    for the attributes; the readiness state stays its slug. `label` is
+    the app's short line, `description` what it says to do. Empty for
+    0, for anything that is not a whole number, and for a value the app
+    has no text for.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return {}
+    text = classic_not_ready_text(raw, _short_language(language), sku=sku)
+    if not text:
+        return {}
+    name = robot_name if isinstance(robot_name, str) and robot_name else "Roomba"
+    return {
+        key: text[app].replace("@val", name)
+        for key, app in (("label", "label"), ("description", "content"))
+        if text.get(app)
+    }
+
+
+def not_ready_help_id(raw: Any) -> str | None:
+    """The help catalogue's key for a Classic refusal to start."""
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return None
+    help_id = classic_help_id(not_ready=raw)
+    return help_id if isinstance(help_id, str) else None
+
+
 def error_help_id(code: Any, *, prime: bool) -> str | None:
     """The key iRobot's help catalogue files the error under: the Classic
     and Prime catalogues number the charging errors differently."""
     help_id = prime_help_id(code) if prime else classic_help_id(code)
     return help_id if isinstance(help_id, str) else None
-
-
-def warm_error_tables() -> None:
-    """Read the Classic app's error table, off the event loop.
-
-    roombapy-prime 0.8.0 reads `vendor_errors_classic.json` (500 KB) at
-    the first lookup and caches it for the process. That first lookup
-    was an entity's first state write, in the loop, and Home Assistant
-    said so on the first install of 4.5.0b2:
-
-        Detected blocking call to read_text ... inside the event loop
-        by custom integration 'roomba_plus' at const.py ...
-        classic_vendor_error(number, lang, sku=sku, clean_base=clean_base)
-
-    Both generations read it (Prime falls back to it), so `async_setup`
-    calls this once per start, in the executor. A failure is not fatal:
-    the first lookup then reads the file itself, and HA warns again.
-
-    0.8.1 reads the table at import, so with it this is one dictionary
-    lookup. It stays: it keeps the promise "no file in the loop" ours,
-    whatever a later library version does about loading.
-    """
-    try:
-        classic_vendor_error(1)
-    except Exception:  # noqa: BLE001 -- texts are optional, setup is not
-        _LOGGER.warning("Roomba+: the Classic error texts could not be read", exc_info=True)
 
 
 #: Robot phase -> translation state key.
@@ -2979,6 +3000,53 @@ def reports_local_pose(state: dict[str, Any]) -> bool:
     it is".
     """
     return state.get("pose") is not None
+
+
+#: How far a Prime robot's runtime may run ahead of its powered-on hours
+#: before it is not believed (prime_runtime_hours).
+RUNTIME_SLACK_HOURS: Final = 24
+#: Ten years without a break: the bound when no powered-on hours are known.
+RUNTIME_CEILING_HOURS: Final = 24 * 365 * 10
+
+
+def prime_runtime_hours(shadows: Any) -> tuple[int | None, str | None]:
+    """A Prime robot's runtime hours, and why they are not believed.
+
+    From `ro-currentstate.runtimeStats.hr`, the meter the *Lifetime
+    runtime* sensor shows. The Classic app reads it as runtime hours
+    with `min` the minutes left over (APK research, 21 Oct 2026); the
+    Prime app never shows it.
+
+    A ROBOT CANNOT HAVE CLEANED LONGER THAN IT WAS SWITCHED ON
+    (4.5.0b4, @jdmasuta: `hr` 497874 on a Roomba Plus 410 Combo beside
+    `bbsys.hr` 476). `ro-stats.bbsys.hr`, the powered-on hours, bounds
+    it with a day's slack, since the two come in different shadows; ten
+    years without `ro-stats`.
+
+    Returns (hours, None) for a value that holds, (hours, reason) for
+    one that does not, and (None, None) when there is none.
+    """
+    if not isinstance(shadows, Mapping):
+        return None, None
+    current = shadows.get("ro-currentstate")
+    runtime = current.get("runtimeStats") if isinstance(current, Mapping) else None
+    hours = runtime.get("hr") if isinstance(runtime, Mapping) else None
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)):
+        return None, None
+    hours = int(hours)
+    if hours < 0:
+        return hours, "negative"
+    stats = shadows.get("ro-stats")
+    bbsys = stats.get("bbsys") if isinstance(stats, Mapping) else None
+    powered = bbsys.get("hr") if isinstance(bbsys, Mapping) else None
+    if (
+        isinstance(powered, (int, float)) and not isinstance(powered, bool)
+        and hours > int(powered) + RUNTIME_SLACK_HOURS
+    ):
+        return hours, "longer_than_powered_on"
+    if hours > RUNTIME_CEILING_HOURS:
+        return hours, "longer_than_ten_years"
+    return hours, None
 
 
 def lifetime_hours(state: Mapping[str, Any]) -> int:

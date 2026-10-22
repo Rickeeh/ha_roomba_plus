@@ -20,13 +20,14 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .live_position import LivePositionStream
-from .position_room import PositionRoomTracker
+from .position_room import PathTurnLearner, PositionRoomTracker, auto_position_turn, turn_map_key
 from .structural_failures import diagnostic_info
 from .prime_parts import prime_part_role
 from .prime_favorites import _raw_favorite_is_for
 from .const import (
     CONF_DOOR_WIDTH_CM,
     CONF_LIVE_PATH_TURN,
+    LIVE_PATH_TURN_CHOICES,
     CONF_PRIME_FAVORITE_BUTTONS,
     CONF_WALL_THICKNESS_CM,
     DEFAULT_DOOR_WIDTH_CM,
@@ -299,6 +300,15 @@ def _maintenance_report(data: Any) -> dict[str, Any]:
             if isinstance(entry, dict)
         },
     }
+
+
+def _prime_reconnect_log(data: Any) -> list[dict[str, Any]]:
+    """The robot's last reconnects after a drop (roombapy-prime 0.8.2):
+    when, why and how long each stage took. No topic or id is in them."""
+    log = getattr(getattr(data, "prime_robot", None), "reconnect_log", None)
+    if not isinstance(log, (list, tuple)):
+        return []
+    return [dict(entry) for entry in log if isinstance(entry, dict)]
 
 
 def _prime_token_expiry(data: Any) -> dict[str, Any]:
@@ -947,7 +957,9 @@ def _drawn_path_turn_deg(data: Any, options: Any) -> float | None:
     )
     cc = getattr(data, "cloud_coordinator", None)
     umf = getattr(cc, "umf_data", None) if cc is not None else None
-    return round(math.degrees(requested_position_turn(setting, umf)[0]), 1)
+    if setting in LIVE_PATH_TURN_CHOICES and setting != "auto":
+        return round(math.degrees(requested_position_turn(setting, umf)[0]), 1)
+    return round(math.degrees(auto_position_turn(getattr(data, "path_turn", None), umf)[0]), 1)
 
 
 def _position_chain(data: Any, options: Any = None) -> dict[str, Any]:
@@ -981,13 +993,27 @@ def _position_chain(data: Any, options: Any = None) -> dict[str, Any]:
             and isinstance((umf.get("poses") or {}).get("orientation_rad"), dict)
             else None
         ),
-        # WHICH MAP VERSION THAT TURN CAME FROM, AND WHAT IS DRAWN
-        # (4.4.0): "robot_version" (the map the robot saved itself),
-        # "map_version" (the committed one, 4.3.4-4.3.7) or "setting"
-        # when the user chose an angle. The setting is in "options" too.
+        # WHERE AUTOMATIC'S TURN CAME FROM (4.4.0): "robot_version" (the
+        # map the robot saved itself), "map_version" (the committed one,
+        # 4.3.4-4.3.7), or "learned" (4.5.0b3) where this map's path
+        # showed another angle. The setting is in "options".
         "requested_path_turn_source": (
-            umf_position_turn(getattr(cc, "umf_data", None))[1]
+            auto_position_turn(
+                getattr(data, "path_turn", None), getattr(cc, "umf_data", None)
+            )[1]
             if (cc := getattr(data, "cloud_coordinator", None)) is not None
+            else None
+        ),
+        # THE COUNTS AUTOMATIC DECIDES FROM (4.5.0b3): positions tried on
+        # this map and how many each angle put in a room, summed over
+        # its runs, and the angle they chose. Counts only, no map id.
+        "path_turn_learning": (
+            data.path_turn.diagnostics(
+                turn_map_key(umf, umf_position_turn(umf)[0])
+            )
+            if isinstance(getattr(data, "path_turn", None), PathTurnLearner)
+            and (cc := getattr(data, "cloud_coordinator", None)) is not None
+            and isinstance(umf := getattr(cc, "umf_data", None), dict)
             else None
         ),
         "requested_path_turn_drawn_deg": _drawn_path_turn_deg(data, options),
@@ -1909,6 +1935,10 @@ async def _build_diagnostics(
                 # to schedule against", and a raw epoch makes that a
                 # subtraction rather than an answer.
                 "token_expiry": _prime_token_expiry(data),
+                # WHERE EACH RECONNECT SPENT ITS TIME (roombapy-prime
+                # 0.8.2, @glowpartyy): the last 20 resumes after a drop,
+                # durations, counts and the broker's reason only.
+                "mqtt_reconnects": _prime_reconnect_log(data),
                 "serial_info_resolved": data.prime_serial_info is not None,
                 "model_sku": getattr(data.prime_serial_info, "sku", None),
                 "family": getattr(data.prime_serial_info, "family", None),

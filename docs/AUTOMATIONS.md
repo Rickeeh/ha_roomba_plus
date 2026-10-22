@@ -438,6 +438,10 @@ data:
     actions: "{{ notification_actions }}"
 ```
 
+For an entry an error brought, `{{ notification_help_url }}` is iRobot's
+article for that error (empty otherwise); the persistent notification
+links it below the guide.
+
 The buttons work after a restart too: they carry the robot and the entry.
 The words ("is due", "Done", ...) are inputs, so the message can be in
 your language; the part's name comes in Home Assistant's language already

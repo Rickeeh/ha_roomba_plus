@@ -5660,6 +5660,159 @@ class TestTheTurnFollowsTheSetting:
         )
 
 
+class TestAutomaticLearnsTheTurnFromThePath:
+    """4.5.0b3, @nareso (j7+): Automatic took 180 degrees from the map the
+    robot saved, and the path lay turned against correctly drawn rooms;
+    0 by hand fixed it. @Thonno's i7+ read -90 where 0 was right. The
+    header is wrong on two of the three robots checked, so Automatic now
+    follows what the robot's own path shows: per map, the angle that
+    puts its positions in the rooms, once that is clear."""
+
+    _setting = TestTheTurnFollowsTheSetting()
+    _pos = _setting._pos
+    _close = staticmethod(TestTheTurnFollowsTheSetting._close)
+    #: The header says 180, as on his j7+.
+    HALF = {"pmap_id": "p1", **TestTheRequestedPathTurnsBackWithTheApp._turned(math.pi, 0.0)}
+
+    @staticmethod
+    def _learner():
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        return PathTurnLearner()
+
+    @staticmethod
+    def _feed(learner, n, inside, header="180", key="p1|180"):
+        changed = []
+        for _ in range(n):
+            changed.append(learner.add(key, {a: a in inside for a in ("0", "90", "180", "270")}, header))
+        return changed
+
+    def test_the_header_stands_until_the_path_has_shown_enough(self):
+        from custom_components.roomba_plus.position_room import TURN_LEARN_MIN_POSITIONS
+
+        learner = self._learner()
+        self._feed(learner, TURN_LEARN_MIN_POSITIONS - 1, {"0"})
+        assert learner.angle("p1|180", "180") == "180"
+        changed = self._feed(learner, 1, {"0"})
+        assert changed == [True]
+        assert learner.angle("p1|180", "180") == "0"
+
+    def test_a_path_that_agrees_with_the_header_changes_nothing(self):
+        learner = self._learner()
+        assert not any(self._feed(learner, 400, {"180"}))
+        assert learner.learned("p1|180") is None
+
+    def test_close_counts_do_not_overrule_it(self):
+        """Half of the positions in a room is not enough when the
+        header's angle does nearly as well: a margin, not a majority."""
+        learner = self._learner()
+        for i in range(400):
+            learner.add("p1|180", {"0": True, "90": False, "180": i % 4 != 0, "270": False}, "180")
+        assert learner.learned("p1|180") is None
+
+    def test_a_learned_angle_is_not_given_up_for_a_slight_lead(self):
+        learner = self._learner()
+        self._feed(learner, 400, {"0"})
+        assert learner.learned("p1|180") == "0"
+        for i in range(400):
+            learner.add("p1|180", {"0": i % 2 == 0, "90": False, "180": True, "270": False}, "180")
+        assert learner.learned("p1|180") == "0"
+
+    def test_a_map_turned_in_the_app_starts_afresh(self):
+        """A new header is a new question: the verdict about the old one
+        is not carried over."""
+        from custom_components.roomba_plus.position_room import turn_map_key
+
+        assert turn_map_key(self.HALF, math.pi) == "p1|180"
+        assert turn_map_key(self.HALF, math.pi / 2) == "p1|90"
+        assert turn_map_key({}, 0.0) is None and turn_map_key(None, 0.0) is None
+
+    def test_automatic_takes_the_learned_angle_and_says_so(self):
+        from custom_components.roomba_plus.position_room import auto_position_turn
+
+        learner = self._learner()
+        assert auto_position_turn(learner, self.HALF)[1] == "map_version"
+        self._feed(learner, 300, {"0"})
+        turn, source = auto_position_turn(learner, self.HALF)
+        assert turn == pytest.approx(0.0) and source == "learned"
+
+    def _nareso(self, setting="auto"):
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        m, entry, _s = self._setting._entity(setting)
+        entry.runtime_data.cloud_coordinator.umf_data = self.HALF
+        entry.runtime_data.umf_aligner = TestRequestedPositionsOnTheCleaningMap._square_aligner()
+        entry.runtime_data.path_turn = PathTurnLearner()
+        m._last_phase = "run"
+        return m
+
+    def _run(self, m, n=300):
+        for _ in range(n):
+            m._handle_live_position(self._pos(0.5, 0.5))
+
+    def test_his_path_turns_onto_the_rooms_during_the_first_run(self):
+        """The positions lie in the room unturned. Drawn at 180 first,
+        the path turns to 0 once the counts are clear -- the path drawn
+        so far as well, as for a changed setting."""
+        m = self._nareso()
+        self._run(m, 299)
+        assert m._live_position_turn_rad == pytest.approx(math.pi)
+        self._run(m, 1)
+        assert m._live_position_turn_rad == pytest.approx(0.0)
+        fixed, _e, _s = self._setting._entity("0")
+        for _ in range(300):
+            fixed._handle_live_position(self._pos(0.5, 0.5))
+        assert self._close(m._renderer._points, fixed._renderer._points)
+
+    def test_the_next_run_starts_with_the_learned_angle(self):
+        m = self._nareso()
+        self._run(m)
+        # A new mission: the turn is read again at its first position.
+        m._live_position_turn_rad = None
+        m._live_turn_auto_rad = None
+        self._run(m, 1)
+        assert m._live_position_turn_rad == pytest.approx(0.0)
+
+    def test_an_angle_set_by_hand_is_not_touched(self):
+        """It is counted all the same, for when Automatic is chosen again."""
+        m = self._nareso("180")
+        self._run(m)
+        assert m._live_position_turn_rad == pytest.approx(math.pi)
+        assert m._config_entry.runtime_data.path_turn.learned("p1|180") == "0"
+
+    async def test_the_counts_are_kept_and_odd_ones_dropped(self, hass, hass_storage):
+        from custom_components.roomba_plus.position_room import (
+            PathTurnLearner,
+            path_turn_store_key,
+        )
+
+        hass_storage[path_turn_store_key("e1")] = {
+            "version": 1,
+            "data": {"maps": {
+                "p1|180": {"positions": 400, "0": 400, "90": 0, "180": 0, "270": 0, "decided": "0"},
+                "p2|0": {"positions": "lots", "0": 1, "90": 0, "180": 0, "270": 0},
+                "p3|0": {"positions": 5, "0": 1, "90": 0, "180": 0, "270": 0, "decided": "45"},
+            }},
+        }
+        learner = PathTurnLearner()
+        await learner.async_load(hass, "e1")
+        assert learner.learned("p1|180") == "0"
+        assert learner.diagnostics("p2|0") is None
+        assert learner.learned("p3|0") is None and learner.diagnostics("p3|0")["positions"] == 5
+
+    async def test_a_count_is_saved(self, hass, monkeypatch):
+        from homeassistant.helpers.storage import Store
+
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        saved = []
+        monkeypatch.setattr(Store, "async_delay_save", lambda self, fn, delay=0: saved.append(fn()))
+        learner = PathTurnLearner()
+        await learner.async_load(hass, "e2")
+        self._feed(learner, 1, {"0"})
+        assert saved[-1]["maps"]["p1|180"]["0"] == 1
+
+
 class TestRequestedPathReviewFindings:
     """Found in the independent review of the first version."""
 
@@ -6469,3 +6622,86 @@ class TestTheRoomsMapDrawsWallsAndDoors:
     def test_the_settings_are_part_of_the_cache_key(self):
         entity, _img = self._png({"wall_thickness_cm": 24, "door_width_cm": 90})
         assert entity._room_render_cache_key[-2:] == (240.0, 900.0)
+
+
+class TestPrimeBorderInteriorRendering:
+    """Bundle border interior rings reach the existing outline renderer."""
+
+    @staticmethod
+    async def _render(hass, *, include_hole=True, floor_plan=False, include_live=False,
+                      second_component=False):
+        import tarfile
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        def ring(x, y, size):
+            return [[x, y], [x + size, y], [x + size, y + size],
+                    [x, y + size], [x, y]]
+        outer, hole = ring(0, 0, 12), ring(3, 3, 2)
+        components = [[outer, hole] if include_hole else [outer]]
+        if second_component:
+            other = [ring(14, 0, 4)]
+            if include_hole:
+                other.append(ring(15, 1, 2))
+            components.append(other)
+        parsed = {
+            "rooms": {"features": [{"id": "synthetic-room",
+                "geometry": {"type": "Polygon", "coordinates": [outer]},
+                "properties": {"name": "Synthetic room"}}]},
+            "borders": {"type": "Feature", "geometry": {
+                "type": "MultiPolygon", "coordinates": components}},
+        }
+        if floor_plan:
+            parsed["floorPlan"] = {"features": [{"geometry": {
+                "type": "MultiLineString", "coordinates": [
+                    [[8, 0], [8, 4]], [[8, 6], [8, 12]]]} }]}
+        archive = io.BytesIO()
+        with tarfile.open(fileobj=archive, mode="w:gz") as tar:
+            for name, content in parsed.items():
+                raw = json.dumps(content).encode()
+                member = tarfile.TarInfo(name + ".geojson")
+                member.size = len(raw)
+                tar.addfile(member, io.BytesIO(raw))
+        robot = SimpleNamespace(
+            get_map_geojson_link=AsyncMock(return_value={"map_url": "https://example.invalid/map"}),
+            download_map_bundle=AsyncMock(return_value=archive.getvalue()),
+        )
+        entry = MockConfigEntry(domain="roomba_plus", title="Synthetic robot", data={})
+        entry.runtime_data = SimpleNamespace(prime_robot=robot, prime_positions=[],
+            prime_serial_info=None, prime_status_coordinator=None)
+        plan = await prime_room_map.async_build_prime_floor_plan(entry, "synthetic-map", "v1")
+        entity = img.PrimeRoomsImage("0123456789ABCDEF", entry, hass, include_live=include_live)
+        entity._show_live_overlay = False
+        entity._floor_plan = plan
+        entity._polygons = plan.room_polygons
+        entity._names = plan.room_names
+        png = entity._render_png()
+        robot.download_map_bundle.assert_awaited_once()
+        return entity, png
+
+    @staticmethod
+    def _pixel(entity, png, x, y):
+        point = entity._renderer._mm_to_px_fit(x * 1000, y * 1000)
+        return _decode(png).convert("RGB").getpixel(tuple(round(v) for v in point))
+
+    @pytest.mark.parametrize("include_live", [False, True])
+    @pytest.mark.parametrize("floor_plan", [False, True])
+    async def test_interior_boundary_is_visible_and_room_fill_is_not_erased(self, hass, include_live, floor_plan):
+        entity, png = await self._render(hass, include_live=include_live, floor_plan=floor_plan)
+        baseline, old_png = await self._render(hass, include_hole=False, include_live=include_live, floor_plan=floor_plan)
+        assert self._pixel(entity, png, 3, 4) == (90, 90, 90)
+        assert self._pixel(baseline, old_png, 3, 4) != (90, 90, 90)
+        assert self._pixel(entity, png, 4, 4) == self._pixel(baseline, old_png, 4, 4)
+        assert entity.extra_state_attributes == baseline.extra_state_attributes
+        assert entity._polygons == baseline._polygons
+        assert entity._floor_plan.floor_plan == baseline._floor_plan.floor_plan
+        if floor_plan:
+            assert self._pixel(entity, png, 8, 2) == (175, 175, 175)
+            assert self._pixel(entity, png, 8, 5) == self._pixel(baseline, old_png, 8, 5)
+        else:
+            assert not entity._floor_plan.floor_plan
+
+    async def test_all_border_components_are_outlined_without_joining_them(self, hass):
+        entity, png = await self._render(hass, second_component=True)
+        assert self._pixel(entity, png, 3, 4) == (90, 90, 90)
+        assert self._pixel(entity, png, 15, 2) == (90, 90, 90)
+        assert self._pixel(entity, png, 13, 2) == (30, 30, 30)

@@ -44,7 +44,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
-from .const import error_help_id, maintenance_changed_signal
+from .const import error_help_id, maintenance_changed_signal, not_ready_help_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -176,6 +176,16 @@ def help_url_for(runtime_data: Any, code: Any, *, prime: bool) -> str | None:
     """iRobot's article for an error code on this robot's model, if the
     catalogue has one."""
     help_id = error_help_id(code, prime=prime)
+    if help_id is None:
+        return None
+    catalogue = getattr(runtime_data, "help_catalogue", None) or {}
+    return catalogue.get(help_key(help_id)) if isinstance(catalogue, dict) else None
+
+
+def not_ready_help_url_for(runtime_data: Any, raw: Any) -> str | None:
+    """iRobot's article for a Classic robot's refusal to start
+    ("Start-Refuse n", by the wire value), if the catalogue has one."""
+    help_id = not_ready_help_id(raw)
     if help_id is None:
         return None
     catalogue = getattr(runtime_data, "help_catalogue", None) or {}

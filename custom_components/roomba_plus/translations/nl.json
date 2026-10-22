@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Kamerschema's vereisen een robot die kamergegevens rapporteert.",
       "no_rooms_to_name": "Geen kamers gevonden om te benoemen. De kamers van deze robot verschijnen zodra hij minstens één keer specifieke kamers heeft schoongemaakt, of zodra zijn kaart beschikbaar is via je iRobot-account.",
       "all_rooms_named": "Elke kamer heeft al een naam. Hernoem er een via de zoneselector op de apparaatpagina.",
-      "wrong_roombapy": "Roomba+ heeft het asynchrone `roombapy` 2.x nodig; de door Home Assistant geïnstalleerde versie is ouder:\n\n`{error}`\n\n**Start Home Assistant eerst opnieuw op** — dan wordt de versie geïnstalleerd die Roomba+ vraagt.\n\nKomt de fout daarna terug, dan installeert de **ingebouwde Roomba-integratie** van Home Assistant de oude bibliotheek eroverheen. Beide kunnen niet naast elkaar: verwijder de ingebouwde (Instellingen → Apparaten en diensten → Roomba → verwijderen) en start opnieuw op. Roomba+ doet alles wat zij doet.\n\nDe Roomba+-versie maakt hier niets uit — elke 4.2.x vraagt dezelfde bibliotheek.",
+      "wrong_roombapy": "Roomba+ heeft het asynchrone `roombapy` 2.x nodig; de door Home Assistant geladen versie is ouder:\n\n`{error}`\n\n**Start Home Assistant eerst opnieuw op** — dan wordt de versie geïnstalleerd die Roomba+ vraagt.\n\nKomt de fout daarna terug, dan heeft de **ingebouwde Roomba-integratie** van Home Assistant haar oudere bibliotheek eerst geladen. Python houdt van een bibliotheek maar één kopie tegelijk, dus Roomba+ kan de eigene niet gebruiken. De vermelding van de ingebouwde integratie verwijderen is niet altijd genoeg: als Home Assistant je robot op het netwerk vindt, bereidt het na elke herstart het ingebouwde instellingsvenster voor, en dat laadt de oude bibliotheek opnieuw. De probleemoplossingsgids legt uit hoe je dat stopt, onder \"A workaround, if you do not use the built-in integration\": [{troubleshooting_url}]({troubleshooting_url})\n\nDe Roomba+-versie maakt hier niets uit — elke versie sinds 4.2.0 vraagt dezelfde bibliotheek.",
       "robot_not_on_account": "Deze robot staat niet meer op het iRobot-account. Als hij naar een ander account is verplaatst, stel hem dan daarmee in."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "De live reinigingskaart inschakelen voor robots met positiebepaling (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Alleen aangeboden voor robots die hun positie niet zelf doorgeven. Vraagt de robot tijdens het schoonmaken ongeveer eens per seconde naar zijn positie om de route live te tekenen. Uit: de kaart toont in plaats daarvan de laatste voltooide missie uit de iRobot-cloud, als cloudtoegang is ingesteld.",
-          "live_path_turn": "Alleen met de optie hierboven. Draait het schoonmaakpad ten opzichte van de plattegrond tot het op zijn kamers ligt. Kamerherkenning gebruikt dezelfde gedraaide posities, dus een verkeerde hoek noemt ook de verkeerde kamer. Niet hetzelfde als ‘Kaartafbeelding draaien’, dat de hele afbeelding draait en het pad nooit ten opzichte van de kamers verschuift. Automatisch haalt de draaiing uit de kaart die de robot heeft opgeslagen, inclusief een draaiing uit de iRobot-app. Loopt het pad door muren of naast zijn kamers, probeer dan de hoeken: het al getekende pad draait zodra je opslaat. Voeg daarna de diagnose toe aan een issue zodat de automatische instelling voor je robot kan worden verbeterd.",
+          "live_path_turn": "Alleen met de optie hierboven. Draait het schoonmaakpad ten opzichte van de plattegrond tot het op zijn kamers ligt. Kamerherkenning gebruikt dezelfde gedraaide posities, dus een verkeerde hoek noemt ook de verkeerde kamer. Niet hetzelfde als ‘Kaartafbeelding draaien’, dat de hele afbeelding draait en het pad nooit ten opzichte van de kamers verschuift. Automatisch begint met de draaiing uit de kaart die de robot heeft opgeslagen, inclusief een draaiing uit de iRobot-app, en gaat over op de hoek die het pad van de robot in de kamers legt zodra een schoonmaakbeurt dat duidelijk heeft laten zien; het al getekende pad draait mee. Loopt het pad nog steeds door muren of naast zijn kamers, kies dan een hoek: het al getekende pad draait zodra je opslaat.",
           "map_size_px": "Kaartcanvasgrootte in pixels (400–1200). Standaard: 600.",
           "map_scale_mm_per_px": "Millimeter per pixel (5–30). Standaard 10 = 6 m × 6 m bij 600 px.",
           "floor_label": "Vrije tekst, bijvoorbeeld Begane grond. Groepeert robots in het vlootoverzicht.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "De robot meldt fout {code}.",
         "link_guide": "Handleiding van iRobot",
+        "link_help": "Artikel van iRobot over de fout",
         "link_buy": "Onderdeel kopen",
         "part_main_brush": "hoofdborstels",
         "part_side_brush": "zijborstel",

@@ -715,6 +715,7 @@ ENGLISH_WORDING: dict[str, str] = {
     "part_dock_washing_system": "dock washing system",
     "link_care_guide": "How to do it",
     "link_guide": "iRobot's guide",
+    "link_help": "iRobot's article on the error",
     "link_buy": "Buy the part",
     "reconfigure_rooms": "Name the rooms",
     "reconfigure_rooms_description": (

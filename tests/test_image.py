@@ -5660,6 +5660,159 @@ class TestTheTurnFollowsTheSetting:
         )
 
 
+class TestAutomaticLearnsTheTurnFromThePath:
+    """4.5.0b3, @nareso (j7+): Automatic took 180 degrees from the map the
+    robot saved, and the path lay turned against correctly drawn rooms;
+    0 by hand fixed it. @Thonno's i7+ read -90 where 0 was right. The
+    header is wrong on two of the three robots checked, so Automatic now
+    follows what the robot's own path shows: per map, the angle that
+    puts its positions in the rooms, once that is clear."""
+
+    _setting = TestTheTurnFollowsTheSetting()
+    _pos = _setting._pos
+    _close = staticmethod(TestTheTurnFollowsTheSetting._close)
+    #: The header says 180, as on his j7+.
+    HALF = {"pmap_id": "p1", **TestTheRequestedPathTurnsBackWithTheApp._turned(math.pi, 0.0)}
+
+    @staticmethod
+    def _learner():
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        return PathTurnLearner()
+
+    @staticmethod
+    def _feed(learner, n, inside, header="180", key="p1|180"):
+        changed = []
+        for _ in range(n):
+            changed.append(learner.add(key, {a: a in inside for a in ("0", "90", "180", "270")}, header))
+        return changed
+
+    def test_the_header_stands_until_the_path_has_shown_enough(self):
+        from custom_components.roomba_plus.position_room import TURN_LEARN_MIN_POSITIONS
+
+        learner = self._learner()
+        self._feed(learner, TURN_LEARN_MIN_POSITIONS - 1, {"0"})
+        assert learner.angle("p1|180", "180") == "180"
+        changed = self._feed(learner, 1, {"0"})
+        assert changed == [True]
+        assert learner.angle("p1|180", "180") == "0"
+
+    def test_a_path_that_agrees_with_the_header_changes_nothing(self):
+        learner = self._learner()
+        assert not any(self._feed(learner, 400, {"180"}))
+        assert learner.learned("p1|180") is None
+
+    def test_close_counts_do_not_overrule_it(self):
+        """Half of the positions in a room is not enough when the
+        header's angle does nearly as well: a margin, not a majority."""
+        learner = self._learner()
+        for i in range(400):
+            learner.add("p1|180", {"0": True, "90": False, "180": i % 4 != 0, "270": False}, "180")
+        assert learner.learned("p1|180") is None
+
+    def test_a_learned_angle_is_not_given_up_for_a_slight_lead(self):
+        learner = self._learner()
+        self._feed(learner, 400, {"0"})
+        assert learner.learned("p1|180") == "0"
+        for i in range(400):
+            learner.add("p1|180", {"0": i % 2 == 0, "90": False, "180": True, "270": False}, "180")
+        assert learner.learned("p1|180") == "0"
+
+    def test_a_map_turned_in_the_app_starts_afresh(self):
+        """A new header is a new question: the verdict about the old one
+        is not carried over."""
+        from custom_components.roomba_plus.position_room import turn_map_key
+
+        assert turn_map_key(self.HALF, math.pi) == "p1|180"
+        assert turn_map_key(self.HALF, math.pi / 2) == "p1|90"
+        assert turn_map_key({}, 0.0) is None and turn_map_key(None, 0.0) is None
+
+    def test_automatic_takes_the_learned_angle_and_says_so(self):
+        from custom_components.roomba_plus.position_room import auto_position_turn
+
+        learner = self._learner()
+        assert auto_position_turn(learner, self.HALF)[1] == "map_version"
+        self._feed(learner, 300, {"0"})
+        turn, source = auto_position_turn(learner, self.HALF)
+        assert turn == pytest.approx(0.0) and source == "learned"
+
+    def _nareso(self, setting="auto"):
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        m, entry, _s = self._setting._entity(setting)
+        entry.runtime_data.cloud_coordinator.umf_data = self.HALF
+        entry.runtime_data.umf_aligner = TestRequestedPositionsOnTheCleaningMap._square_aligner()
+        entry.runtime_data.path_turn = PathTurnLearner()
+        m._last_phase = "run"
+        return m
+
+    def _run(self, m, n=300):
+        for _ in range(n):
+            m._handle_live_position(self._pos(0.5, 0.5))
+
+    def test_his_path_turns_onto_the_rooms_during_the_first_run(self):
+        """The positions lie in the room unturned. Drawn at 180 first,
+        the path turns to 0 once the counts are clear -- the path drawn
+        so far as well, as for a changed setting."""
+        m = self._nareso()
+        self._run(m, 299)
+        assert m._live_position_turn_rad == pytest.approx(math.pi)
+        self._run(m, 1)
+        assert m._live_position_turn_rad == pytest.approx(0.0)
+        fixed, _e, _s = self._setting._entity("0")
+        for _ in range(300):
+            fixed._handle_live_position(self._pos(0.5, 0.5))
+        assert self._close(m._renderer._points, fixed._renderer._points)
+
+    def test_the_next_run_starts_with_the_learned_angle(self):
+        m = self._nareso()
+        self._run(m)
+        # A new mission: the turn is read again at its first position.
+        m._live_position_turn_rad = None
+        m._live_turn_auto_rad = None
+        self._run(m, 1)
+        assert m._live_position_turn_rad == pytest.approx(0.0)
+
+    def test_an_angle_set_by_hand_is_not_touched(self):
+        """It is counted all the same, for when Automatic is chosen again."""
+        m = self._nareso("180")
+        self._run(m)
+        assert m._live_position_turn_rad == pytest.approx(math.pi)
+        assert m._config_entry.runtime_data.path_turn.learned("p1|180") == "0"
+
+    async def test_the_counts_are_kept_and_odd_ones_dropped(self, hass, hass_storage):
+        from custom_components.roomba_plus.position_room import (
+            PathTurnLearner,
+            path_turn_store_key,
+        )
+
+        hass_storage[path_turn_store_key("e1")] = {
+            "version": 1,
+            "data": {"maps": {
+                "p1|180": {"positions": 400, "0": 400, "90": 0, "180": 0, "270": 0, "decided": "0"},
+                "p2|0": {"positions": "lots", "0": 1, "90": 0, "180": 0, "270": 0},
+                "p3|0": {"positions": 5, "0": 1, "90": 0, "180": 0, "270": 0, "decided": "45"},
+            }},
+        }
+        learner = PathTurnLearner()
+        await learner.async_load(hass, "e1")
+        assert learner.learned("p1|180") == "0"
+        assert learner.diagnostics("p2|0") is None
+        assert learner.learned("p3|0") is None and learner.diagnostics("p3|0")["positions"] == 5
+
+    async def test_a_count_is_saved(self, hass, monkeypatch):
+        from homeassistant.helpers.storage import Store
+
+        from custom_components.roomba_plus.position_room import PathTurnLearner
+
+        saved = []
+        monkeypatch.setattr(Store, "async_delay_save", lambda self, fn, delay=0: saved.append(fn()))
+        learner = PathTurnLearner()
+        await learner.async_load(hass, "e2")
+        self._feed(learner, 1, {"0"})
+        assert saved[-1]["maps"]["p1|180"]["0"] == 1
+
+
 class TestRequestedPathReviewFindings:
     """Found in the independent review of the first version."""
 

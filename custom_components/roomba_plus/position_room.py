@@ -220,6 +220,162 @@ def in_room_by_turn(data: Any, x_mm: float, y_mm: float) -> dict[str, bool] | No
     return result
 
 
+#: LEARNING THE TURN FROM THE PATH (4.5.0b3). "Automatic" took the turn
+#: from the header of the map the robot saved, and on two of three robots
+#: whose owners checked, that was wrong: @Thonno's i7+ (-90 read, 0
+#: right; his positions in no room fell from 1413 to 140) and @nareso's
+#: j7+ (180 read, 0 right). @frnchfrgg's i7+ is the one where it holds.
+#: The robot's own path says which turn fits: the counts of
+#: in_room_by_turn(), summed per map, decide once they are clear.
+#:
+#: Positions per map before the counts may overrule the header. A run
+#: answers about one a second while cleaning, so this is five minutes.
+TURN_LEARN_MIN_POSITIONS = 300
+#: The winning angle must put at least this share of them in a room ...
+TURN_LEARN_MIN_SHARE = 0.5
+#: ... and this many times as many as the angle in force (the header's,
+#: or one learned before), so that two close angles do not take turns.
+TURN_LEARN_MARGIN = 1.5
+#: Counts are halved above this, so a map that changed is relearned
+#: within a few runs rather than outvoted by months of old ones.
+TURN_LEARN_CAP = 20000
+_TURN_STORE_VERSION = 1
+_TURN_SAVE_DELAY_S = 300
+
+
+def path_turn_store_key(entry_id: str) -> str:
+    """The storage key of the learned turns (removed with the entry)."""
+    return f"roomba_plus_path_turn_{entry_id}"
+
+
+def nearest_turn_angle(turn_rad: float) -> str:
+    """The angle of the setting nearest to a turn, in its sense."""
+    degrees = math.degrees(turn_rad) % 360.0
+    return min(
+        TURN_ANGLES,
+        key=lambda a: min(abs(degrees - int(a)), 360.0 - abs(degrees - int(a))),
+    )
+
+
+def turn_map_key(umf: Any, header_turn_rad: float) -> str | None:
+    """Which map the counts belong to: its id and the header's turn.
+
+    A map turned in the iRobot app gets a new header, and whether the
+    robot's answers turn with it is exactly what the header got wrong.
+    So a new header starts its counts afresh instead of inheriting a
+    verdict about the old one. None without a cloud map.
+    """
+    if not isinstance(umf, dict) or not umf.get("pmap_id"):
+        return None
+    return f"{umf['pmap_id']}|{round(math.degrees(header_turn_rad)) % 360}"
+
+
+class PathTurnLearner:
+    """Per map, how many positions each angle puts in a room, and the
+    angle those counts chose (4.5.0b3). Counts and map ids only: no
+    position is kept."""
+
+    def __init__(self) -> None:
+        self._maps: dict[str, dict[str, Any]] = {}
+        self._store: Any = None
+
+    def add(self, key: str | None, in_room: dict[str, bool], header_angle: str) -> bool:
+        """One position tried at every angle. True when the angle in
+        force for the map changed with it."""
+        if key is None:
+            return False
+        entry = self._maps.setdefault(
+            key, {"positions": 0, **{angle: 0 for angle in TURN_ANGLES}}
+        )
+        before = self.angle(key, header_angle)
+        entry["positions"] += 1
+        for angle, inside in in_room.items():
+            if inside and angle in TURN_ANGLES:
+                entry[angle] += 1
+        if entry["positions"] > TURN_LEARN_CAP:
+            for name in ("positions", *TURN_ANGLES):
+                entry[name] //= 2
+        positions = entry["positions"]
+        if positions >= TURN_LEARN_MIN_POSITIONS:
+            best = max(TURN_ANGLES, key=lambda a: entry[a])
+            if (
+                best != before
+                and entry[best] >= TURN_LEARN_MIN_SHARE * positions
+                and entry[best] >= TURN_LEARN_MARGIN * entry[before]
+            ):
+                entry["decided"] = best
+        if self._store is not None:
+            self._store.async_delay_save(self._payload, _TURN_SAVE_DELAY_S)
+        return self.angle(key, header_angle) != before
+
+    def angle(self, key: str | None, header_angle: str) -> str:
+        """The angle in force: the one learned, else the header's."""
+        decided = self._maps.get(key, {}).get("decided") if key is not None else None
+        return decided if decided in TURN_ANGLES else header_angle
+
+    def learned(self, key: str | None) -> str | None:
+        """The angle the counts chose for the map, or None."""
+        decided = self._maps.get(key, {}).get("decided") if key is not None else None
+        return decided if decided in TURN_ANGLES else None
+
+    def diagnostics(self, key: str | None) -> dict[str, Any] | None:
+        """The counts for one map, without its id."""
+        entry = self._maps.get(key) if key is not None else None
+        if entry is None:
+            return None
+        return {
+            "positions": entry["positions"],
+            **{angle: entry[angle] for angle in TURN_ANGLES},
+            "learned": self.learned(key),
+        }
+
+    def _payload(self) -> dict[str, Any]:
+        return {"maps": self._maps}
+
+    async def async_load(self, hass: Any, entry_id: str) -> None:
+        """Read the counts kept for this entry; anything odd is dropped."""
+        from homeassistant.helpers.storage import Store
+
+        self._store = Store(hass, _TURN_STORE_VERSION, path_turn_store_key(entry_id))
+        stored = await self._store.async_load()
+        maps = stored.get("maps") if isinstance(stored, dict) else None
+        if not isinstance(maps, dict):
+            return
+        for key, entry in maps.items():
+            if not isinstance(key, str) or not isinstance(entry, dict):
+                continue
+            counts = {
+                name: entry.get(name) for name in ("positions", *TURN_ANGLES)
+            }
+            if not all(
+                isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                for v in counts.values()
+            ):
+                continue
+            if entry.get("decided") in TURN_ANGLES:
+                counts["decided"] = entry["decided"]
+            self._maps[key] = counts
+
+
+def auto_position_turn(learner: Any, umf: Any) -> tuple[float, str | None]:
+    """What "Automatic" turns requested positions by (4.5.0b3).
+
+    The header's turn (cloud_coordinator.umf_position_turn), unless this
+    map's path has shown another angle clearly: source "learned" then.
+    The header's exact turn is kept where the counts agree with it.
+    """
+    from .cloud_coordinator import umf_position_turn
+
+    header, source = umf_position_turn(umf)
+    if not isinstance(learner, PathTurnLearner):
+        return header, source
+    learned = learner.learned(turn_map_key(umf, header))
+    if learned is None or learned == nearest_turn_angle(header):
+        return header, source
+    turn = math.radians(int(learned))
+    return math.atan2(math.sin(turn), math.cos(turn)), "learned"
+
+
 def room_at_position(data: Any, x_mm: float, y_mm: float, *, frame: str) -> str | None:
     """The room a position lies in, or None where none can be said.
 

@@ -332,3 +332,47 @@ class TestTheMaintenanceBlueprint:
             "Replace the filter is due\n\n"
             "[How to do it](/api/roomba_plus/care/E1/replace_filter?sig=x)"
         )
+
+    async def test_irobots_article_for_the_error_is_linked_too(self, hass):
+        """4.5.0b4: an entry an error brought carries iRobot's article for
+        the error; the notification links it below our guide, and the
+        variable is there for one of your own."""
+        import shutil
+        from pathlib import Path
+
+        from homeassistant.setup import async_setup_component
+
+        source = Path(__file__).parent.parent / "blueprints" / "automation" / "roomba_plus_maintenance.yaml"
+        target = Path(hass.config.path("blueprints", "automation", "roomba_plus", source.name))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(source, target)
+        hass.states.async_set("event.robo_maintenance", "2026-10-17T10:00:00+00:00", {})
+        assert await async_setup_component(hass, "persistent_notification", {})
+        assert await async_setup_component(hass, "automation", {"automation": {
+            "use_blueprint": {"path": f"roomba_plus/{source.name}", "input": {
+                "maintenance_event": "event.robo_maintenance",
+                "vacuum_entity": "vacuum.robo",
+                "send_from": "00:00:00",
+                "send_until": "00:00:00",
+            }},
+        }})
+        self._fire(hass, "2026-10-17T11:00:00+00:00", id="check.bin", error=14,
+                   guide_title="Check the bin", help_url="https://example.com/error-14")
+        await hass.async_block_till_done()
+        from homeassistant.components import persistent_notification as pn
+
+        notes = list(pn._async_get_or_create_notifications(hass).values())
+        assert notes[0]["message"] == (
+            "Error 14: Check the bin is due\n\n"
+            "[How to do it](/api/roomba_plus/care/E1/replace_filter?sig=x)\n\n"
+            "[iRobot's article on the error](https://example.com/error-14)"
+        )
+
+    async def test_the_article_is_a_variable_for_your_own_action(self, hass):
+        sent, _done, _later = await self._automation(hass, notify_action=[
+            {"action": "notify.phone", "data": {"message": "{{ notification_help_url }}"}},
+        ])
+        self._fire(hass, "2026-10-17T11:00:00+00:00", help_url="https://example.com/a")
+        self._fire(hass, "2026-10-17T12:00:00+00:00")
+        await hass.async_block_till_done()
+        assert [c.data["message"] for c in sent] == ["https://example.com/a", ""]

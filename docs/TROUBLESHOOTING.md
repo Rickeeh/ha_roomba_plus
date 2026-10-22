@@ -59,6 +59,42 @@ stable line, not something you did wrong.
 
 ---
 
+### Adding Roomba+ fails with `cannot import name 'RoombaClient' from 'roombapy'`
+
+The setup dialog stops with "Roomba+ needs the asynchronous `roombapy`
+2.x", and restarting does not help, even after deleting the built-in
+Roomba integration's entry (@gdenas).
+
+**Why.** This is the other side of the conflict in the next section.
+Home Assistant 2026.10 and earlier ship the built-in Roomba integration
+with `roombapy` 1.9.1; Roomba+ needs 2.0.2. Python loads one copy of a
+library per run, and the integration that loads it first keeps it until
+the next restart.
+
+When Home Assistant finds your robot on the network, it prepares the
+built-in integration's setup dialog shortly after every restart, whether
+or not that integration has an entry. Preparing it installs 1.9.1 and
+loads it. Home Assistant logs installs only at info level, so the
+default log shows nothing. When you then add Roomba+, Home Assistant
+installs 2.0.2 again, but the old copy is already loaded and Roomba+
+cannot import what it needs.
+
+Once Roomba+ is set up the order reverses: configured integrations load
+before discovery runs, so Roomba+ gets 2.0.2 and the built-in setup
+dialog is the one that fails (next section). The two installs still
+swap the library on disk at every restart.
+
+**What to do.** Use the workaround in the next section ("A workaround,
+if you do not use the built-in integration"), restart, then add
+Roomba+.
+
+**Home Assistant 2026.11.** Its development branch already moves the
+built-in integration to `roombapy` 2.0.2, the version Roomba+ pins. If
+that ships as planned, both integrations ask for the same library and
+neither replaces the other's; the workaround folder can then be deleted.
+
+---
+
 ### `Error occurred loading flow for integration roomba` in your log, or a Roomba card you cannot dismiss
 
 Two symptoms of the same cause. In the log:
@@ -162,9 +198,11 @@ integration with an empty one:
   has not tested. That warning is correct and expected here.
 - It is yours to maintain. Delete the folder to undo it, and check it
   still behaves after Home Assistant upgrades.
-- Roomba+ neither ships nor requires this. Removing the built-in
-  integration through Settings is the supported route; this is for
-  people who would rather not have it reappear through discovery.
+- Roomba+ neither ships nor requires this. Deleting the built-in
+  integration's entry through Settings stops it running, but not its
+  discovery. This is for people who would rather not have it reappear
+  through discovery, or who cannot add Roomba+ because of it (previous
+  section).
 
 
 ---

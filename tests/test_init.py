@@ -207,67 +207,36 @@ class TestTheTlsContextIsBuiltOffTheLoop:
         assert "raise" not in source
 
 
-class TestTheClassicErrorTableIsReadOffTheLoop:
+class TestNoErrorLookupOpensAFile:
     """4.5.0b2 on a live install, at the first entity state write:
 
         Detected blocking call to read_text ... inside the event loop
         by custom integration 'roomba_plus' at const.py, line 2268:
         classic_vendor_error(number, lang, sku=sku, clean_base=clean_base)
 
-    roombapy-prime 0.8.0 reads its Classic table (500 KB of JSON) at the
-    first lookup and caches it. The suite never saw it: HA's loop guard
-    does not report in tests, and whichever test looked an error up
-    first had filled the cache for every later one. So this test watches
-    the read itself."""
+    roombapy-prime 0.8.0 read its Classic table (500 KB of JSON) at the
+    first lookup; 0.8.1 reads it when the module is imported, which Home
+    Assistant does in its executor. This holds the pinned library to
+    that, so a pin to a version that reads lazily again fails here
+    rather than in a user's log. HA's loop guard does not report in
+    tests, and an earlier test would have filled the cache anyway: the
+    module is imported afresh and the read itself is watched."""
 
-    @staticmethod
-    def _watch_reads(monkeypatch) -> list[str]:
-        import asyncio
+    async def test_a_lookup_in_the_event_loop_reads_no_file(self, hass, monkeypatch) -> None:
+        import importlib
 
         from roombapy_prime import vendor_errors_classic as table
 
-        table._table.cache_clear()
-        reads: list[str] = []
-        real = type(table._TABLE).read_text
-
-        def read_text(self, *args, **kwargs):
-            if self == table._TABLE:
-                try:
-                    asyncio.get_running_loop()
-                    reads.append("event loop")
-                except RuntimeError:
-                    reads.append("executor")
-            return real(self, *args, **kwargs)
-
-        monkeypatch.setattr(type(table._TABLE), "read_text", read_text)
-        return reads
-
-    async def test_setup_reads_it_in_the_executor_once(self, hass, monkeypatch) -> None:
-        from custom_components.roomba_plus import async_setup
         from custom_components.roomba_plus.const import error_label
 
-        reads = self._watch_reads(monkeypatch)
-        await async_setup(hass, {})
-        # What the sensors do when they are added, in the event loop:
+        importlib.reload(table)  # what Home Assistant's import does
+
+        def no_reading(*_a, **_kw):
+            raise AssertionError("an error lookup opened a file")
+
+        monkeypatch.setattr(type(table._TABLE), "read_text", no_reading)
         assert error_label(2, prime=False) == "Brushes need cleaning"
         assert error_label(3, prime=True)  # Prime falls back to it
-        assert reads == ["executor"]
-
-    def test_a_failure_to_read_it_is_not_fatal(self, monkeypatch, caplog) -> None:
-        from roombapy_prime import vendor_errors_classic as table
-
-        from custom_components.roomba_plus.const import warm_error_tables
-
-        table._table.cache_clear()
-
-        def broken(*_a, **_kw):
-            raise OSError("gone")
-
-        monkeypatch.setattr(type(table._TABLE), "read_text", broken)
-        warm_error_tables()  # must not raise
-        assert "could not be read" in caplog.text
-        monkeypatch.undo()
-        table._table.cache_clear()
 
 
 class TestSavingAnEntityOptionTakesEffect:
@@ -848,8 +817,11 @@ class TestStorageKeyRegistry:
         of their home stays behind.
 
         Bumping this number is the point at which you confirm you added
-        the entry deliberately rather than making a test pass."""
-        assert len(_STORAGE_KEYS_TO_REMOVE) == 18
+        the entry deliberately rather than making a test pass.
+
+        19 (4.5.0b3): the turns of requested positions learned per map,
+        `roomba_plus_path_turn_<entry>` -- map ids and counts."""
+        assert len(_STORAGE_KEYS_TO_REMOVE) == 19
 
     def test_no_duplicate_keys(self):
         templates = [k for _, k in _STORAGE_KEYS_TO_REMOVE]
@@ -2953,6 +2925,31 @@ class TestPhaseFinalizeCreatesTheLivePositionStream:
         # The unload hook is the synchronous stop.
         hooks = [c.args[0] for c in ctx.config_entry.async_on_unload.call_args_list]
         assert stream.stop in hooks
+
+    @pytest.mark.asyncio
+    async def test_the_learned_turns_are_loaded_before_the_platforms(
+        self, hass: Any, hass_storage: Any
+    ) -> None:
+        """4.5.0b3: what earlier runs showed about the turn of the path
+        is there when the map entity draws its first position."""
+        from custom_components.roomba_plus import _phase_finalize
+        from custom_components.roomba_plus.position_room import (
+            PathTurnLearner,
+            path_turn_store_key,
+        )
+
+        ctx = self._ctx(hass, renderer=MagicMock())
+        hass_storage[path_turn_store_key(ctx.config_entry.entry_id)] = {
+            "version": 1,
+            "data": {"maps": {"p1|180": {
+                "positions": 300, "0": 300, "90": 0, "180": 0, "270": 0, "decided": "0",
+            }}},
+        }
+        learner = PathTurnLearner()
+        ctx.config_entry.runtime_data.path_turn = learner
+        await _phase_finalize(ctx)
+        TestPhaseFinalizeWiresTheRobotUp._teardown(ctx)
+        assert learner.learned("p1|180") == "0"
 
     @pytest.mark.asyncio
     async def test_none_without_a_map(self, hass: Any) -> None:

@@ -57,10 +57,6 @@ class TestServicesRegistration:
         class _FakeHass:
             services = _Services()
 
-            async def async_add_executor_job(self, target, *args):
-                # async_setup reads the Classic error table here (4.5.0b2).
-                return target(*args)
-
         return _FakeHass(), registered
 
     def test_registers_all_expected_services(self):
@@ -3226,7 +3222,13 @@ def _maint_entity(hass, *, prime, store=True, hours=None):
     data = SimpleNamespace(
         connection_type=ConnectionType.CLOUD_ONLY if prime else ConnectionType.LOCAL_PUSH,
         maintenance_store=maint, blid="B",
-        prime_status_coordinator=SimpleNamespace(data={"ro-stats": {"runtimeStats": {"hours": hours}}}),
+        # The shapes the robots send (4.5.0b4): the fixture used to build
+        # `ro-stats.runtimeStats.hours`, the key the code wrongly read, and
+        # so passed while every real Prime reset was booked at 0.
+        prime_status_coordinator=SimpleNamespace(data={
+            "ro-currentstate": {"runtimeStats": {"hr": hours, "min": 12}},
+            "ro-stats": {"runtimestats": {"hr": 7, "min": 57}, "bbsys": {"hr": 7354, "min": 0}},
+        }),
         roomba_reported_state=lambda: {"bbrun": {"hr": hours}})
     entry.runtime_data = data
     eid = er.async_get(hass).async_get_or_create("vacuum", DOMAIN, "B_vac", config_entry=entry,
@@ -3552,6 +3554,18 @@ class TestMaintenanceResetHours:
         await svc._handle_reset_service(hass, _call(hass, entity_id=eid), "filter")
         maint.reset_filter.assert_called_once_with(412)
         maint.async_save.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_prime_meter_that_cannot_be_true_is_not_the_baseline(self, hass, monkeypatch):
+        """@jdmasuta's 497874 hours beside 7354 powered-on hours: booked at
+        0 and announced without hours, never written in as the baseline."""
+        announced = []
+        monkeypatch.setattr(svc, "_fire_maintenance_reset_event", lambda *a: announced.append(a[3]))
+        monkeypatch.setattr(svc, "_async_push_part_reset_to_cloud", AsyncMock(), raising=False)
+        eid, maint = _maint_entity(hass, prime=True, hours=497874)
+        await svc._handle_reset_service(hass, _call(hass, entity_id=eid), "filter")
+        maint.reset_filter.assert_called_once_with(0)
+        assert announced == [None]
 
     @pytest.mark.asyncio
     async def test_no_maintenance_store_is_a_translated_refusal(self, hass):

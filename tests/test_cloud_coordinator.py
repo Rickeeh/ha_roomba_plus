@@ -2329,9 +2329,12 @@ class TestNormalizeMissionHistory:
     # ── Structure A: lifetime accumulator with runtimeStats ───────────────────
 
     def test_runtimeStats_sqft(self):
+        """The robot's counter is in units of 100 ft² (Classic app, APK
+        research 21 Oct 2026); the key it lands under carries genuine
+        square feet (4.5.0b4)."""
         raw = {"runtimeStats": {"sqft": 12345, "hr": 42, "min": 30}}
         result = _normalize_mission_history(raw)
-        assert result["runtimeStats"]["sqft"] == 12345
+        assert result["runtimeStats"]["sqft"] == 1234500
         assert result["runtimeStats"]["hr"] == 42
         assert result["runtimeStats"]["min"] == 30
 
@@ -2341,7 +2344,7 @@ class TestNormalizeMissionHistory:
             "bbmssn": {"nMssn": 500},
         }
         result = _normalize_mission_history(raw)
-        assert result["runtimeStats"]["sqft"] == 10000
+        assert result["runtimeStats"]["sqft"] == 1000000
         assert result["bbmssn"]["nMssn"] == 500
 
     # ── Structure B: individual mission record with bbrun lifetime snapshot ───
@@ -2354,8 +2357,9 @@ class TestNormalizeMissionHistory:
             "bbmssn": {"nMssn": 779},
         }
         result = _normalize_mission_history(raw)
-        # bbrun.sqft = lifetime total — should be preferred over top-level sqft
-        assert result["runtimeStats"]["sqft"] == 12345
+        # bbrun.sqft = lifetime total, in 100 ft² -- preferred over the
+        # mission's own sqft, and scaled to square feet
+        assert result["runtimeStats"]["sqft"] == 1234500
         assert result["runtimeStats"]["hr"] == 428
         assert result["bbmssn"]["nMssn"] == 779
 
@@ -2371,7 +2375,7 @@ class TestNormalizeMissionHistory:
         """Last resort: top-level sqft when neither runtimeStats nor bbrun has it."""
         raw = {"sqft": 9999, "nMssn": 100}
         result = _normalize_mission_history(raw)
-        assert result["runtimeStats"]["sqft"] == 9999
+        assert result["runtimeStats"]["sqft"] == 9999  # a mission's own: not scaled
         assert result["bbmssn"]["nMssn"] == 100
 
     def test_top_level_nMssn_fallback(self):
@@ -2403,14 +2407,14 @@ class TestNormalizeMissionHistory:
             "bbrun":        {"sqft": 999, "hr": 99, "min": 0},
         }
         result = _normalize_mission_history(raw)
-        assert result["runtimeStats"]["sqft"] == 100
+        assert result["runtimeStats"]["sqft"] == 100 * 100  # runtimeStats', scaled
         assert result["runtimeStats"]["hr"] == 10
 
     def test_bbrun_preferred_over_top_level(self):
         """bbrun wins over top-level sqft."""
         raw = {"sqft": 45, "bbrun": {"sqft": 12345}}
         result = _normalize_mission_history(raw)
-        assert result["runtimeStats"]["sqft"] == 12345
+        assert result["runtimeStats"]["sqft"] == 12345 * 100
 
     def test_bbmssn_preferred_over_top_level_nMssn(self):
         raw = {"bbmssn": {"nMssn": 779}, "nMssn": 1}

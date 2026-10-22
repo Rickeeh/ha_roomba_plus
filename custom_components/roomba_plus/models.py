@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 
-from .position_room import PositionRoomTracker
+from .position_room import PathTurnLearner, PositionRoomTracker
 
 if TYPE_CHECKING:
     from .mission_archive import MissionArchive
@@ -320,6 +320,9 @@ class RoombaData:
     #: The room the robot's position puts it in (4.4.0, position_room.py),
     #: fed by the map from either kind of position.
     position_room: PositionRoomTracker = field(default_factory=PositionRoomTracker)
+    #: Per map, which turn puts requested positions in the rooms
+    #: (4.5.0b3): what "Automatic" follows once the counts are clear.
+    path_turn: PathTurnLearner = field(default_factory=PathTurnLearner)
     geometry_store: GeometryStore | None = None
     maintenance_store: MaintenanceStore | None = None
     #: The maintenance entries (maintenance_model.py, 4.5.0), on both

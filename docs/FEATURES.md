@@ -50,7 +50,7 @@ marked in their own headings.
 |---|---|
 | Phase | Idle / Stopped detection beyond the standard HA states |
 | Error code | The robot's own app's text: the Classic app's on a Classic robot, the Prime app's on a Prime robot, ours only for the battery and charging errors (101-121). `help_url` links iRobot's article for the error where its help catalogue has one |
-| Readiness | Whether the robot is ready to start, and why not. **The state is a key, not the displayed text** — `ready`, `off_dock`, `bin_full` — so an automation compares against those, never against the translated label. A value this integration cannot name yet reads as `not_ready_<number>` rather than a guess |
+| Readiness | Whether the robot is ready to start, and why not. **The state is a key, not the displayed text** — `ready`, `off_dock`, `bin_full` — so an automation compares against those, never against the translated label. A value this integration cannot name yet reads as `not_ready_<number>` rather than a guess. On a refusal, the attributes carry the Classic app's words (`app_label`, `description`: what to do, in Home Assistant's language) and iRobot's article for it (`help_url`) where the help catalogue has one (4.5.0) |
 | Job initiator | Who triggered the current mission (`schedule`, `manual`, `demand`) |
 | Next scheduled clean | From `cleanSchedule2` or legacy `cleanSchedule` |
 | Battery level | Charge percentage |
@@ -432,6 +432,16 @@ an angle can be checked against the floor plan; `requested_path_turn_in_picture_
 of the path shown. Room tracking uses the same turned positions, so a path that lies beside its
 rooms also puts the robot in the wrong room; *Rotate the map picture* turns the whole picture and
 does not change that.
+
+**Automatic learns the turn from the path (4.5.0).** The map's own angles were wrong on two of the
+three robots whose owners checked (an i7+ read −90° where 0° was right, a j7+ 180°). So every
+requested position is also tried at 0°, 90°, 180° and 270°, and counted per map: how many land in a
+room. Once a map has 300 positions (about five minutes of cleaning) and one angle puts at least
+half of them in a room and half as many again as the angle in force, *Automatic* takes that angle,
+and the path already drawn turns with it, during the run. A map turned in the iRobot app gets new
+angles and starts its counts afresh. A fixed angle is never changed; its positions are counted all
+the same. The diagnostics show the counts (`path_turn_learning`, no map id) and
+`requested_path_turn_source: learned` once they decide.
 
 **Seen through (4.4.1).** The cleaned area is laid over the floor plan at half opacity, so the rooms
 show through; the path stays opaque, and the room names are drawn over it.
@@ -894,7 +904,7 @@ Every reset above (button or service) writes a searchable Logbook entry and fire
 
 - **One item per entry**: every part the robot has (filter, main brushes, side brush, Clean Base bag or dust bag, the mop pad on a Braava; on Prime every part the robot reports), and with care reminders on every care task.
 - **Open from "due"**, not from "soon": while nothing is due the list has nothing open. An item not due is listed as done, with its due date; a snoozed one stays done until its snooze ends.
-- **The description** says what is left (or how often a care task comes round), the error that brought the item, and links: our care guide, and iRobot's guide and the part where the parts catalogue has them. The list shows it as formatted text with clickable links, in the browser and the companion app.
+- **The description** says what is left (or how often a care task comes round), the error that brought the item, and links: our care guide, iRobot's guide and the part where the parts catalogue has them, and iRobot's article for the error that brought the item where its help catalogue has one. The list shows it as formatted text with clickable links, in the browser and the companion app.
 - **Ticking an item off** is `roomba_plus.maintenance_done`: counter, Logbook entry, `roomba_plus_maintenance_reset`, iRobot's counter where the account has one. **On Prime the reset goes to iRobot** (until 4.5.0 the Prime list was read-only); if iRobot applies it to no part, the list shows the error.
 - **A robot error that points to a care task** brings a "check" item while the robot reports it — "Check the main brushes" for a brush error, "Check the bin" for a bin error — and it goes when the error does. Where the task has an item of its own, that item carries the error instead: never two items for one task. With care reminders on, a dirt error (filter, main brushes, side brush, cliff sensors) makes the cleaning due until it is ticked off; a wheel or contact error only points to the task, and so do a Classic robot's 6 and 25 ("stuck near a cliff", usually a real edge). Which error points to which task follows iRobot's help page for the code; on Prime errors 2, 4, 5, 6, 14, 26, 104, 105, 119, 121, 201, 517, 1000 and 1001.
 - Item ids are the ones the list used before (`filter_maintenance`, `care_wheel`, `part_147`, …); new kinds use the entry id (`check.bin`).
@@ -1476,7 +1486,7 @@ Settings → Devices → Roomba+ → Configure
 |---|---|---|
 | Map enabled | `true` | Enable live map rendering (900-series) |
 | Ask the robot for its position | `true` | Robots that report no position themselves only (4.3): asked about once a second while cleaning, for the live path |
-| Align the path with the rooms | Automatic | Same robots (4.4.0; *Turn of the live path* before 4.4.2): how far requested positions are turned to lie on the rooms map. Room tracking uses the same positions. Automatic reads the map the robot saved itself; 0°/90°/180°/270° fix it |
+| Align the path with the rooms | Automatic | Same robots (4.4.0; *Turn of the live path* before 4.4.2): how far requested positions are turned to lie on the rooms map. Room tracking uses the same positions. Automatic starts from the map the robot saved itself and changes to the angle the robot's path shows (4.5.0); 0°/90°/180°/270° fix it |
 | Map size (px) | `600` | Rendered map image size (400–1200) |
 | Map scale (mm/px) | `10.0` | Millimetres per pixel |
 
@@ -1524,7 +1534,9 @@ help article for the code. A code no source has a text for — error 236 has tur
 robot — shows as its number rather than an invented name.
 
 **iRobot's article for the error** is one tap away: `help_url`, from iRobot's help catalogue for the
-model, on the error sensors and the vacuum and as *Learn more* on a repair issue an error brings.
+model, on the error sensors (*Status – Error* while it shows the error, *Error – Last code*), on
+the vacuum, on the readiness sensor for a refusal to start, in the maintenance list and event for
+an entry an error brought, and as *Learn more* on a repair issue an error brings.
 
 Part names follow the same rule: **"Maintenance – High-Efficiency Filter"** keeps this integration's
 grouping and takes iRobot's word for the part. So do the maintenance units — `evacs` reads "Dust

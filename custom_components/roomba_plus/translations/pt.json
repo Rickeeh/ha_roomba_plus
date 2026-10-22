@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Os agendamentos por divisão exigem um robô que comunique dados de divisões.",
       "no_rooms_to_name": "Não foram encontradas divisões para nomear. As divisões deste robô aparecem depois de ter limpo divisões específicas pelo menos uma vez, ou quando o mapa estiver disponível na sua conta iRobot.",
       "all_rooms_named": "Cada divisão já tem nome. Mude um a partir do seletor de zonas na página do dispositivo.",
-      "wrong_roombapy": "O Roomba+ precisa do `roombapy` 2.x (assíncrono); a cópia instalada pelo Home Assistant é mais antiga:\n\n`{error}`\n\n**Reinicie primeiro o Home Assistant** — assim instala a versão que o Roomba+ pede.\n\nSe o erro voltar após reiniciar, a **integração Roomba incorporada** do Home Assistant está a instalar a biblioteca antiga por cima. Não podem coexistir: remova a incorporada (Definições → Dispositivos e serviços → Roomba → eliminar) e reinicie. O Roomba+ cobre tudo o que ela faz.\n\nA versão do Roomba+ não influencia — todas as 4.2.x pedem a mesma biblioteca.",
+      "wrong_roombapy": "O Roomba+ precisa do `roombapy` 2.x (assíncrono); a cópia carregada pelo Home Assistant é mais antiga:\n\n`{error}`\n\n**Reinicie primeiro o Home Assistant** — assim instala a versão que o Roomba+ pede.\n\nSe o erro voltar após reiniciar, a **integração Roomba incorporada** do Home Assistant carregou primeiro a sua biblioteca antiga. O Python mantém uma só cópia de cada biblioteca de cada vez, por isso o Roomba+ não pode usar a sua. Eliminar a entrada da integração incorporada nem sempre chega: quando o Home Assistant encontra o robô na rede, prepara a janela de configuração incorporada após cada reinício, e isso volta a carregar a biblioteca antiga. O guia de resolução de problemas explica como evitá-lo, em «A workaround, if you do not use the built-in integration»: [{troubleshooting_url}]({troubleshooting_url})\n\nA versão do Roomba+ não influencia — todas as versões desde a 4.2.0 pedem a mesma biblioteca.",
       "robot_not_on_account": "Este robô já não está na conta iRobot. Se foi movido para outra conta, configura-o com essa."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "Ativar o mapa de limpeza em tempo real para robôs com deteção de posição (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Apenas para robôs que não informam a sua posição por si próprios. Pergunta ao robô cerca de uma vez por segundo durante a limpeza para desenhar o percurso em direto. Desligado: o mapa mostra em vez disso a última missão concluída a partir da cloud da iRobot, se o acesso à cloud estiver configurado.",
-          "live_path_turn": "Só com a opção acima. Roda o percurso de limpeza em relação à planta até ficar sobre as suas divisões. A deteção da divisão usa as mesmas posições rodadas, por isso um ângulo errado também indica a divisão errada. Não é o mesmo que «Rodar a imagem do mapa», que roda a imagem inteira e nunca move o percurso em relação às divisões. Automático obtém a rotação do mapa que o robô guardou, incluindo uma rotação definida na app iRobot. Se o percurso atravessar paredes ou ficar ao lado das suas divisões, experimente os ângulos: o percurso já desenhado roda assim que guardar. Depois anexe o diagnóstico a um pedido para que a definição automática possa ser corrigida para o seu robô.",
+          "live_path_turn": "Só com a opção acima. Roda o percurso de limpeza em relação à planta até ficar sobre as suas divisões. A deteção da divisão usa as mesmas posições rodadas, por isso um ângulo errado também indica a divisão errada. Não é o mesmo que «Rodar a imagem do mapa», que roda a imagem inteira e nunca move o percurso em relação às divisões. Automático parte da rotação do mapa que o robô guardou, incluindo uma rotação definida na app iRobot, e passa para o ângulo que coloca o percurso do robô nas divisões assim que uma limpeza o tenha mostrado claramente; o percurso já desenhado roda com ele. Se o percurso continuar a atravessar paredes ou a ficar ao lado das suas divisões, escolha um ângulo: o percurso já desenhado roda assim que guardar.",
           "map_size_px": "Tamanho do canvas do mapa em píxeis (400–1200). Predefinição: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predefinição 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto livre, por exemplo Rés-do-chão. Agrupa os robôs na vista de frota.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "O robô indica o erro {code}.",
         "link_guide": "Guia da iRobot",
+        "link_help": "Artigo da iRobot sobre o erro",
         "link_buy": "Comprar a peça",
         "part_main_brush": "escovas principais",
         "part_side_brush": "escova lateral",

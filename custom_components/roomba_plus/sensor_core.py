@@ -80,7 +80,9 @@ from .sensor_helpers import (
     _consumable_days_until_due,
     _consumable_max_hours,
     _consumable_wear_rate,
+    _error_help_attributes,
     _error_value,
+    _readiness_attributes,
     _estcap_to_mah,
     _estimated_battery_eol,
     _expire_minutes_remaining,
@@ -290,7 +292,8 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
         # counts as a lot: nobody has field values for that yet, and a
         # threshold picked without them would be a guess dressed as a
         # warning.
-        extra_attributes_fn=lambda e: (
+        extra_attributes_fn=lambda e: {
+            **(
             {
                 "recent_pause_reasons": _pauses,
                 "most_frequent_pause_reason": (
@@ -305,7 +308,10 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
                 ),
             }
             if (_pauses := recent_pause_reasons(e)) else {}
-        ),
+            ),
+            # iRobot's article for the error shown (4.5.0b4).
+            **_error_help_attributes(e),
+        },
     ),
 
     # GROUP 2 — Operational (DIAGNOSTIC, enabled)
@@ -317,6 +323,8 @@ SENSORS: tuple[RoombaSensorDescription, ...] = (
         name="Status – Readiness",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=_not_ready_value,
+        # The Classic app's words and iRobot's article (4.5.0b4).
+        extra_attributes_fn=_readiness_attributes,
     ),
     RoombaSensorDescription(
         key="job_initiator",

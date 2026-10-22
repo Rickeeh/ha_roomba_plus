@@ -41,6 +41,7 @@ from .dirt_threshold_manager import async_read_prime_clean_scores, qualified_roo
 from .prime_dirt import dirty_rooms
 from .const import (
     lifetime_hours,
+    prime_runtime_hours,
     CONF_SMART_ZONE_ALIASES,
     maintenance_changed_signal,
     PRIME_ERROR_SEVERITY,
@@ -1486,22 +1487,33 @@ async def _handle_reset_service(
         # the filter was changed" can be computed later.
         #
         # Classic reads it from the MQTT state; Prime reports the same
-        # thing in a named shadow instead. Without the Prime branch this
-        # recorded 0, which would have made every interval since the
-        # reset read as the robot's entire lifetime.
+        # thing in a named shadow instead.
+        #
+        # THE PRIME BRANCH READ A KEY NO ROBOT SENDS, from 4.0.0a14 to
+        # 4.5.0b3: `ro-stats` -> `runtimeStats` -> `hours`. That shadow
+        # spells it `runtimestats`, the field is `hr`, and so every Prime
+        # reset was booked at 0 -- what the comment here said the branch
+        # prevented. Its test built the same wrong shape. Now the meter
+        # the Lifetime runtime sensor shows, with its check
+        # (const.prime_runtime_hours): a value that cannot be true is
+        # booked as 0 and announced without hours rather than written in
+        # as a baseline (@jdmasuta's robot reports 497874).
         current_hr = 0
+        announced_hr: int | None = 0
         if data.connection_type is ConnectionType.CLOUD_ONLY:
             coordinator = getattr(data, "prime_status_coordinator", None)
-            shadow = (coordinator.data or {}).get("ro-stats") if coordinator else None
-            runtime = (shadow or {}).get("runtimeStats") or {}
-            current_hr = int(runtime.get("hours") or 0)
+            hours, why = prime_runtime_hours(getattr(coordinator, "data", None))
+            if hours is not None and why is None:
+                current_hr = announced_hr = hours
+            else:
+                announced_hr = None
         else:
-            current_hr = lifetime_hours(data.roomba_reported_state())
+            current_hr = announced_hr = lifetime_hours(data.roomba_reported_state())
         getattr(data.maintenance_store, f"reset_{part}")(current_hr)
         await data.maintenance_store.async_save(hass, config_entry.entry_id)
         if part == "battery":
             await async_forget_old_battery(hass, config_entry)
-        _fire_maintenance_reset_event(hass, config_entry, part, current_hr)
+        _fire_maintenance_reset_event(hass, config_entry, part, announced_hr)
 
         # PUSH THE RESET TO IROBOT TOO, so the app and this integration
         # do not disagree about a part the user just replaced. Best

@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Raumzeitpläne brauchen einen Roboter, der Raumdaten meldet.",
       "no_rooms_to_name": "Es wurden keine Räume zum Benennen gefunden. Die Räume erscheinen, sobald der Roboter mindestens einmal gezielt Räume gereinigt hat oder die Karte aus deinem iRobot-Konto vorliegt.",
       "all_rooms_named": "Alle Räume haben bereits einen Namen. Umbenennen geht über die Zonenauswahl auf der Geräteseite.",
-      "wrong_roombapy": "Roomba+ benötigt das asynchrone `roombapy` 2.x; installiert ist eine ältere Fassung:\n\n`{error}`\n\n**Starten Sie zuerst Home Assistant neu** – dabei wird die von Roomba+ verlangte Fassung installiert.\n\nKehrt der Fehler danach zurück, installiert Home Assistants **eingebaute Roomba-Integration** die ältere Bibliothek darüber. Beide können nicht nebeneinander bestehen: Entfernen Sie die eingebaute (Einstellungen → Geräte & Dienste → Roomba → löschen) und starten Sie erneut. Roomba+ deckt alles ab, was sie kann.\n\nDie Roomba+-Version spielt dabei keine Rolle – alle 4.2.x verlangen dieselbe Bibliothek.",
+      "wrong_roombapy": "Roomba+ benötigt das asynchrone `roombapy` 2.x; geladen ist eine ältere Fassung:\n\n`{error}`\n\n**Starten Sie zuerst Home Assistant neu** – dabei wird die von Roomba+ verlangte Fassung installiert.\n\nKehrt der Fehler danach zurück, hat Home Assistants **eingebaute Roomba-Integration** ihre ältere Bibliothek zuerst geladen. Python hält von einer Bibliothek nur eine Fassung zur selben Zeit, deshalb kann Roomba+ die eigene nicht verwenden. Den Eintrag der eingebauten Integration zu löschen reicht nicht immer: Findet Home Assistant Ihren Roboter im Netzwerk, bereitet es nach jedem Neustart den eingebauten Einrichtungsdialog vor, und der lädt die ältere Bibliothek erneut. Wie Sie das abstellen, beschreibt die Fehlerbehebung unter „A workaround, if you do not use the built-in integration“: [{troubleshooting_url}]({troubleshooting_url})\n\nDie Roomba+-Version spielt dabei keine Rolle – alle Versionen seit 4.2.0 verlangen dieselbe Bibliothek.",
       "robot_not_on_account": "Dieser Roboter gehört nicht mehr zum iRobot-Konto. Wurde er in ein anderes Konto verschoben, richten Sie ihn mit diesem ein."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "Aktiviert die Live-Reinigungskarte für Roboter mit Positionserkennung (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Nur für Roboter, die ihre Position nicht selbst melden. Fragt den Roboter während der Reinigung etwa einmal pro Sekunde, um den Reinigungsweg live zu zeichnen. Aus: Die Karte zeigt stattdessen die letzte abgeschlossene Mission aus der iRobot-Cloud, sofern der Cloud-Zugang eingerichtet ist.",
-          "live_path_turn": "Nur mit der Option darüber. Dreht den Reinigungsweg gegen den Grundriss, bis er auf seinen Räumen liegt. Die Raumerkennung nutzt dieselben gedrehten Positionen, ein falscher Winkel nennt also auch den falschen Raum. Nicht dasselbe wie „Kartenbild drehen“: Das dreht das ganze Bild und verschiebt den Weg nie gegen die Räume. Automatisch nimmt die Drehung aus der Karte, die der Roboter gespeichert hat, einschließlich einer Drehung aus der iRobot-App. Läuft der Weg durch Wände oder neben seinen Räumen, probiere die Winkel durch: Der schon gezeichnete Weg dreht sich, sobald du speicherst. Hänge dann bitte die Diagnose an ein Issue, damit die Automatik für deinen Roboter korrigiert werden kann.",
+          "live_path_turn": "Nur mit der Option darüber. Dreht den Reinigungsweg gegen den Grundriss, bis er auf seinen Räumen liegt. Die Raumerkennung nutzt dieselben gedrehten Positionen, ein falscher Winkel nennt also auch den falschen Raum. Nicht dasselbe wie „Kartenbild drehen“: Das dreht das ganze Bild und verschiebt den Weg nie gegen die Räume. Automatisch beginnt mit der Drehung aus der Karte, die der Roboter gespeichert hat, einschließlich einer Drehung aus der iRobot-App, und wechselt zu dem Winkel, der den Weg des Roboters in die Räume legt, sobald ein Lauf das deutlich gezeigt hat; der schon gezeichnete Weg dreht sich mit. Läuft der Weg trotzdem durch Wände oder neben seinen Räumen, stelle einen Winkel ein: Der schon gezeichnete Weg dreht sich, sobald du speicherst.",
           "map_size_px": "Bildgröße der Karte in Pixel (400–1200). Standard: 600 px.",
           "map_scale_mm_per_px": "Millimeter pro Pixel (5–30). Standard 10 entspricht 6 m × 6 m bei 600 Pixel.",
           "floor_label": "Freitext, zum Beispiel Erdgeschoss. Gruppiert Roboter in der Flottenansicht.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "Der Roboter meldet Fehler {code}.",
         "link_guide": "Anleitung von iRobot",
+        "link_help": "Artikel von iRobot zum Fehler",
         "link_buy": "Ersatzteil kaufen",
         "part_main_brush": "Hauptbürsten",
         "part_side_brush": "Seitenbürste",

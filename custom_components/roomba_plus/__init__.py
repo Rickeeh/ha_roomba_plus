@@ -65,7 +65,6 @@ from .room_cleaning import region_names_across_maps
 from .prime_room_map import async_restore_prime_room_names
 from .room_times import learn_via, robot_default_mode
 from .const import (
-    warm_error_tables,
     CARE_ENTITY_KEYS,
     CONF_CARE_REMINDERS,
     DEFAULT_CARE_REMINDERS,
@@ -147,6 +146,7 @@ from .map_renderer import (
 from .migrations import async_migrate_entry  # noqa: F401 -- re-exported for HA's own lookup
 from .structural_failures import record_failure, record_success
 from .live_position import LivePositionStream
+from .position_room import PathTurnLearner
 from .models import ConnectionType, MapCapability, RoombaConfigEntry, RoombaData
 from .services import async_register_services
 from .geometry_store import GeometryStore
@@ -1276,6 +1276,11 @@ async def _phase_finalize(ctx: _SetupContext) -> None:
     config_entry.runtime_data.loaded_platforms = list(platforms)
     await async_setup_care_guides(hass)
     await _async_setup_map_fonts(hass)
+    _path_turn = getattr(config_entry.runtime_data, "path_turn", None)
+    if _live_position is not None and isinstance(_path_turn, PathTurnLearner):
+        # The turns this robot's path showed per map (4.5.0b3), before
+        # the map entity draws the first requested position.
+        await _path_turn.async_load(hass, config_entry.entry_id)
     _attach_maintenance(hass, config_entry)
     await hass.config_entries.async_forward_entry_setups(config_entry, platforms)
     _start_maintenance(config_entry)
@@ -1505,13 +1510,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     one could not be validated while the integration was down. A call for
     a robot whose entry is not loaded is refused in service_guard.py,
     with a translated message, before any handler runs.
-
-    The Classic error table is read here, in the executor, before any
-    entry sets up: its first lookup would otherwise read 500 KB in the
-    event loop (`const.warm_error_tables`).
     """
     async_register_services(hass)
-    await hass.async_add_executor_job(warm_error_tables)
     return True
 
 
@@ -2677,6 +2677,8 @@ _STORAGE_KEYS_TO_REMOVE: Final[list[tuple[str, str]]] = [
     ("image (prime live bundle)", "roomba_plus_prime_live_bundle_{entry_id}"),
     # Prime room names kept across restarts (4.2.22).
     ("prime room names", "roomba_plus_prime_room_names_{entry_id}"),
+    # The turn of requested positions, learned per map (4.5.0b3).
+    ("path turn", "roomba_plus_path_turn_{entry_id}"),
 ]
 
 

@@ -39,7 +39,7 @@ from roombapy_prime import (
 
 from . import cloud_errors
 from .cloud_account import async_acquire, async_release, cloud_country
-from .const import DOMAIN, LIVE_PATH_TURN_CHOICES, SQFT_TO_M2
+from .const import BBRUN_SQFT_SCALE, DOMAIN, LIVE_PATH_TURN_CHOICES, SQFT_TO_M2
 
 if TYPE_CHECKING:
     from .mission_store import MissionStore
@@ -181,7 +181,17 @@ def _normalize_mission_history(raw: dict[str, Any]) -> dict[str, Any]:
     bbmssn  = raw.get("bbmssn") or {}
 
     # Try legacy/accumulator paths first (some account types return summary dict)
-    sqft = runtime.get("sqft") or bbrun.get("sqft")
+    #
+    # THE ROBOT'S COUNTER IS IN UNITS OF 100 FT² (4.5.0b4). The Classic
+    # app multiplies `runtimeStats.sqft` and `bbrun.sqft` by 100 (APK
+    # research, 21 Oct 2026), and so does total_cleaned_area
+    # (BBRUN_SQFT_SCALE). This branch put the raw counter under the key
+    # _aggregate_history() fills with genuine square feet summed over
+    # missions, and every reader treats it as such: a summary answer
+    # would have shown a hundredth of its area. Scaled here, once; a
+    # single record's own `sqft` below is genuine square feet.
+    counter_sqft = runtime.get("sqft") or bbrun.get("sqft")
+    sqft = counter_sqft * BBRUN_SQFT_SCALE if isinstance(counter_sqft, (int, float)) else None
     hr   = runtime.get("hr")   or bbrun.get("hr")
     mn   = runtime.get("min")  or bbrun.get("min")
     n_mssn = bbmssn.get("nMssn") or raw.get("nMssn")

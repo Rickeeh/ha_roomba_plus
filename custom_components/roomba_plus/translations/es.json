@@ -168,7 +168,7 @@
       "room_schedule_not_supported": "Las programaciones por habitación requieren un robot que informe de datos de habitaciones.",
       "no_rooms_to_name": "No se encontraron habitaciones para nombrar. Las habitaciones de este robot aparecen cuando ha limpiado habitaciones concretas al menos una vez, o cuando su mapa está disponible en tu cuenta de iRobot.",
       "all_rooms_named": "Cada habitación ya tiene nombre. Cambia uno desde el selector de zonas en la página del dispositivo.",
-      "wrong_roombapy": "Roomba+ necesita `roombapy` 2.x (asíncrono); la copia instalada por Home Assistant es anterior:\n\n`{error}`\n\n**Reinicie Home Assistant primero**: así se instala la versión que Roomba+ solicita.\n\nSi el error vuelve tras reiniciar, la **integración Roomba incorporada** de Home Assistant está instalando la biblioteca antigua encima. No pueden coexistir: elimine la incorporada (Ajustes → Dispositivos y servicios → Roomba → eliminar) y reinicie de nuevo. Roomba+ cubre todo lo que hace.\n\nLa versión de Roomba+ no influye: todas las 4.2.x necesitan la misma biblioteca.",
+      "wrong_roombapy": "Roomba+ necesita `roombapy` 2.x (asíncrono); la copia que ha cargado Home Assistant es anterior:\n\n`{error}`\n\n**Reinicie Home Assistant primero**: así se instala la versión que Roomba+ solicita.\n\nSi el error vuelve tras reiniciar, la **integración Roomba incorporada** de Home Assistant cargó primero su biblioteca antigua. Python mantiene una sola copia de cada biblioteca a la vez, así que Roomba+ no puede usar la suya. Eliminar la entrada de la integración incorporada no siempre basta: cuando Home Assistant encuentra su robot en la red, prepara el diálogo de configuración incorporado tras cada reinicio, y eso vuelve a cargar la biblioteca antigua. La guía de solución de problemas explica cómo evitarlo, en «A workaround, if you do not use the built-in integration»: [{troubleshooting_url}]({troubleshooting_url})\n\nLa versión de Roomba+ no influye: todas las versiones desde la 4.2.0 necesitan la misma biblioteca.",
       "robot_not_on_account": "Este robot ya no está en la cuenta de iRobot. Si se ha movido a otra cuenta, configúralo con esa."
     },
     "flow_title": "{name}"
@@ -223,7 +223,7 @@
         "data_description": {
           "map_enabled": "Activar el mapa de limpieza en tiempo real para robots con detección de posición (Roomba 900, i, s, j, Braava m).",
           "live_position_requests": "Solo se ofrece para robots que no informan de su posición por sí mismos. Pregunta al robot aproximadamente una vez por segundo durante la limpieza para dibujar el recorrido en directo. Desactivado: el mapa muestra en su lugar la última misión terminada desde la nube de iRobot, si el acceso a la nube está configurado.",
-          "live_path_turn": "Solo con la opción de arriba. Gira el recorrido de limpieza respecto al plano hasta que quede sobre sus habitaciones. La detección de habitación usa las mismas posiciones giradas, así que un ángulo incorrecto también indica la habitación equivocada. No es lo mismo que «Girar la imagen del mapa», que gira la imagen entera y nunca mueve el recorrido respecto a las habitaciones. Automático toma el giro del mapa que guardó el robot, incluido un giro ajustado en la app de iRobot. Si el recorrido atraviesa paredes o queda junto a sus habitaciones, prueba los ángulos: el recorrido ya dibujado gira en cuanto guardas. Después adjunta el diagnóstico a una incidencia para que el ajuste automático pueda corregirse para tu robot.",
+          "live_path_turn": "Solo con la opción de arriba. Gira el recorrido de limpieza respecto al plano hasta que quede sobre sus habitaciones. La detección de habitación usa las mismas posiciones giradas, así que un ángulo incorrecto también indica la habitación equivocada. No es lo mismo que «Girar la imagen del mapa», que gira la imagen entera y nunca mueve el recorrido respecto a las habitaciones. Automático parte del giro del mapa que guardó el robot, incluido un giro ajustado en la app de iRobot, y pasa al ángulo que coloca el recorrido del robot sobre las habitaciones en cuanto una limpieza lo ha mostrado con claridad; el recorrido ya dibujado gira con él. Si el recorrido sigue atravesando paredes o queda junto a sus habitaciones, elige un ángulo: el recorrido ya dibujado gira en cuanto guardas.",
           "map_size_px": "Tamaño del lienzo del mapa en píxeles (400–1200). Predeterminado: 600.",
           "map_scale_mm_per_px": "Milímetros por píxel (5–30). Predeterminado 10 = 6 m × 6 m a 600 px.",
           "floor_label": "Texto libre, por ejemplo Planta baja. Agrupa los robots en la vista de flota.",
@@ -2636,6 +2636,7 @@
         "unit_sqft": "ft²",
         "error_line": "El robot indica el error {code}.",
         "link_guide": "Guía de iRobot",
+        "link_help": "Artículo de iRobot sobre el error",
         "link_buy": "Comprar la pieza",
         "part_main_brush": "cepillos principales",
         "part_side_brush": "cepillo lateral",

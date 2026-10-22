@@ -2689,7 +2689,11 @@ class TestMaintenanceTracker:
         store = MaintenanceStore()
         store.profile_hours = {"filter": 50}
         tracker = _tracker(hass, store=store)
-        await tracker.async_refresh(_NOW)
+        # The snooze and the level count from the wall clock, so the
+        # whole test does. Starting at the fixed _NOW made the entry
+        # "overdue" instead of "due" from 2026-10-21 on: a week after
+        # _NOW had passed by the second refresh.
+        await tracker.async_refresh(dt_util.now())
         got = _listen(hass, "snoozed")
         await tracker.async_snooze("replace.filter", 2)
         await hass.async_block_till_done()
@@ -2843,6 +2847,15 @@ class TestErrorsPointToCareTasks:
             i.id for i in mm.classic_items(store, self._state(14, "none", "charge"), {}, now=_NOW)
         }
 
+    def test_the_entry_an_error_brings_carries_irobots_article(self, hass):
+        """4.5.0b4: for the list's link and the event's notification; on
+        no entry the error did not bring."""
+        tracker = _tracker(hass, state=self._state(14))
+        tracker.config_entry.runtime_data.help_catalogue = {"error14": "https://example.com/error-14"}
+        items = {i.id: i for i in tracker.compute(_NOW)}
+        assert items["check.bin"].help_url == "https://example.com/error-14"
+        assert all(i.help_url is None for k, i in items.items() if k != "check.bin")
+
     def test_a_camera_refusal_has_nothing_to_record(self):
         """Error 68 no longer points to the camera (4.5.0b2): the Classic
         app says hold CLEAN 10 s, a reboot. A refusal for a dead camera
@@ -2863,6 +2876,14 @@ class TestErrorsPointToCareTasks:
         assert mm.ERROR_CARE_TASKS_CLASSIC[121] == "contact"
         for code in (11, 20, 27, 38, 68, 78, 79, 102, 103):
             assert code not in mm.ERROR_CARE_TASKS_CLASSIC, code
+
+    def test_a_blocked_path_does_not_send_anyone_to_the_camera(self):
+        """4.5.0b4, checked and left out: 17 is "Path blocked". Eight of
+        the ten steps on iRobot's page are about the room, the app names
+        no part, and a robot without a camera would be told to clean one.
+        iRobot's article comes with the error instead (help_url)."""
+        assert 17 not in mm.ERROR_CARE_TASKS_CLASSIC
+        assert not any(i.action == "check" for i in mm.classic_items(MaintenanceStore(), self._state(17), {}, now=_NOW))
 
     def test_with_the_task_its_own_entry_carries_the_error(self):
         """Never two entries for one task."""

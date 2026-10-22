@@ -87,6 +87,149 @@ class TestPrimeRuntimeHoursSensor:
         assert sensor.native_value == 44
         assert sensor.extra_state_attributes == {"minutes": 44}
 
+    @staticmethod
+    def _sensor(current, stats=None):
+        config_entry = MagicMock()
+        data = {"ro-currentstate": current}
+        if stats is not None:
+            data["ro-stats"] = stats
+        config_entry.runtime_data.prime_status_coordinator.data = data
+        return PrimeRuntimeHoursSensor("BLID123", config_entry)
+
+    def test_a_runtime_longer_than_the_robot_was_on_is_not_believed(self):
+        """4.5.0b4, @jdmasuta's Roomba Plus 410 Combo: 497874 hours
+        (56.8 years) on a robot set up three weeks before, beside 476
+        powered-on hours. Unknown rather than a total_increasing value
+        that stays in the statistics; what it said stays readable."""
+        sensor = self._sensor({"runtimeStats": {"hr": 497874, "min": 56}}, {"bbsys": {"hr": 476, "min": 0}})
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes == {
+            "minutes": 56, "reported_hours": 497874, "rejected": "longer_than_powered_on",
+        }
+
+    def test_a_plausible_runtime_stands(self):
+        sensor = self._sensor({"runtimeStats": {"hr": 44, "min": 44}}, {"bbsys": {"hr": 476, "min": 0}})
+        assert sensor.native_value == 44
+        assert sensor.extra_state_attributes == {"minutes": 44}
+
+    def test_a_days_slack_for_shadows_that_arrive_apart(self):
+        assert self._sensor({"runtimeStats": {"hr": 500}}, {"bbsys": {"hr": 476}}).native_value == 500
+        assert self._sensor({"runtimeStats": {"hr": 501}}, {"bbsys": {"hr": 476}}).native_value is None
+
+    def test_without_powered_on_hours_ten_years_is_the_bound(self):
+        assert self._sensor({"runtimeStats": {"hr": 497874}}).native_value is None
+        assert self._sensor({"runtimeStats": {"hr": 497874}}).extra_state_attributes["rejected"] == "longer_than_ten_years"
+        assert self._sensor({"runtimeStats": {"hr": 8000}}).native_value == 8000
+
+    def test_a_missing_or_odd_count_is_unknown_not_a_crash(self):
+        for hr in (None, "44", True):
+            sensor = self._sensor({"runtimeStats": {"hr": hr, "min": 1}}, {"bbsys": {"hr": 476}})
+            assert sensor.native_value is None, hr
+            assert "rejected" not in sensor.extra_state_attributes
+        assert self._sensor({"runtimeStats": {"hr": -3}}).native_value is None
+
+
+class TestPrimeRuntimeHoursSensorHides:
+    """4.5.0b4, @jdmasuta: the counter counts correctly from an impossible
+    start, so the sensor would read unknown for good. Hidden while that
+    holds; shown again only by the sensor that hid it."""
+
+    @staticmethod
+    def _registered(hass, current, stats=None):
+        from homeassistant.helpers import entity_registry as er
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.roomba_plus.const import DOMAIN
+
+        entry = MockConfigEntry(domain=DOMAIN)
+        entry.add_to_hass(hass)
+        data = {"ro-currentstate": current}
+        if stats is not None:
+            data["ro-stats"] = stats
+        config_entry = MagicMock()
+        config_entry.runtime_data.prime_status_coordinator.data = data
+        sensor = PrimeRuntimeHoursSensor("BLID123", config_entry)
+        registry = er.async_get(hass)
+        reg = registry.async_get_or_create(
+            "sensor", DOMAIN, sensor.unique_id, config_entry=entry,
+        )
+        sensor.hass = hass
+        sensor.entity_id = reg.entity_id
+        sensor.registry_entry = reg
+        return sensor, registry, config_entry
+
+    @staticmethod
+    def _sync(sensor, registry):
+        sensor._sync_hidden()
+        sensor.registry_entry = registry.async_get(sensor.entity_id)
+        return sensor.registry_entry
+
+    @staticmethod
+    def _set(config_entry, hr):
+        config_entry.runtime_data.prime_status_coordinator.data = {
+            "ro-currentstate": {"runtimeStats": {"hr": hr, "min": 5}},
+            "ro-stats": {"bbsys": {"hr": 497}},
+        }
+
+    @pytest.mark.asyncio
+    async def test_hidden_while_impossible_and_shown_again_when_believable(self, hass):
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.roomba_plus.const import DOMAIN
+
+        sensor, registry, config_entry = self._registered(
+            hass, {"runtimeStats": {"hr": 497876, "min": 5}}, {"bbsys": {"hr": 497}},
+        )
+        reg = self._sync(sensor, registry)
+        assert reg.hidden_by is er.RegistryEntryHider.INTEGRATION
+        assert reg.options[DOMAIN] == {sp.RUNTIME_HIDDEN_OPTION: True}
+
+        # No data for a moment: nothing to decide on, it stays hidden.
+        config_entry.runtime_data.prime_status_coordinator.data = None
+        assert self._sync(sensor, registry).hidden_by is er.RegistryEntryHider.INTEGRATION
+
+        self._set(config_entry, 480)
+        reg = self._sync(sensor, registry)
+        assert reg.hidden_by is None
+        assert DOMAIN not in reg.options
+
+    @pytest.mark.asyncio
+    async def test_a_plausible_runtime_is_left_alone(self, hass):
+        sensor, registry, _ = self._registered(
+            hass, {"runtimeStats": {"hr": 44, "min": 44}}, {"bbsys": {"hr": 476}},
+        )
+        assert self._sync(sensor, registry).hidden_by is None
+
+    @pytest.mark.asyncio
+    async def test_the_users_choice_stands(self, hass):
+        from homeassistant.helpers import entity_registry as er
+
+        from custom_components.roomba_plus.const import DOMAIN
+
+        # Hidden by the user: never touched, either way.
+        sensor, registry, config_entry = self._registered(
+            hass, {"runtimeStats": {"hr": 497876}}, {"bbsys": {"hr": 497}},
+        )
+        registry.async_update_entity(sensor.entity_id, hidden_by=er.RegistryEntryHider.USER)
+        sensor.registry_entry = registry.async_get(sensor.entity_id)
+        reg = self._sync(sensor, registry)
+        assert reg.hidden_by is er.RegistryEntryHider.USER
+        assert DOMAIN not in reg.options
+        self._set(config_entry, 480)
+        assert self._sync(sensor, registry).hidden_by is er.RegistryEntryHider.USER
+
+    @pytest.mark.asyncio
+    async def test_shown_again_by_the_user_is_not_hidden_again(self, hass):
+        from homeassistant.helpers import entity_registry as er
+
+        sensor, registry, _ = self._registered(
+            hass, {"runtimeStats": {"hr": 497876}}, {"bbsys": {"hr": 497}},
+        )
+        assert self._sync(sensor, registry).hidden_by is er.RegistryEntryHider.INTEGRATION
+        registry.async_update_entity(sensor.entity_id, hidden_by=None)
+        sensor.registry_entry = registry.async_get(sensor.entity_id)
+        assert self._sync(sensor, registry).hidden_by is None
+
 
 def _make_mission_timeline_report(event_type: str, **event_kwargs):
     from roombapy_prime.models import MissionTimelineEvent, MissionTimelineReport

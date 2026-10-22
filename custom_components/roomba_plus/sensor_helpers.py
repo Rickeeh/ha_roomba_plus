@@ -34,8 +34,10 @@ from .const import (
     decode_not_ready,
     error_label,
     has_clean_base,
+    not_ready_entry,
 )
 from .entity import IRobotEntity, mission_in_progress
+from .parts_catalog import help_url_for, not_ready_help_url_for
 
 
 def _carpet_boost_mode(entity: IRobotEntity) -> str:
@@ -179,6 +181,62 @@ def _error_value(entity: "IRobotEntity") -> str | None:
         robot_name=getattr(getattr(entity, "_config_entry", None), "title", None),
     ) or (entity.vacuum.error_message or None)
     return label if label and label != "None" else None
+
+
+def _error_help_attributes(entity: "IRobotEntity") -> dict[str, Any]:
+    """iRobot's article for the error the state shows (4.5.0b4).
+
+    Only while the state shows one: a stale error after docking has no
+    state, so it has no link either. *Error – Last code* has carried the
+    link since b2; this is the sensor people look at.
+    """
+    if _error_value(entity) is None:
+        return {}
+    code = entity.clean_mission_status.get("error", 0)
+    if isinstance(code, bool) or not isinstance(code, int) or code <= 0:
+        return {}
+    url = help_url_for(
+        getattr(getattr(entity, "_config_entry", None), "runtime_data", None),
+        code,
+        prime=False,
+    )
+    return {"help_url": url} if url else {}
+
+
+def _readiness_attributes(entity: "IRobotEntity") -> dict[str, Any]:
+    """What the Classic app says to a refusal to start (4.5.0b4).
+
+    The state stays the slug, translated by Home Assistant. Beside it
+    the app's own line and what to do, in Home Assistant's language,
+    and iRobot's article for it. The labels this integration gives the
+    states come from the firmware's names ("SM bus permanent failure");
+    the app tells the user something they can act on ("Re-install the
+    bin.").
+    """
+    raw = entity.clean_mission_status.get("notReady", 0)
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        return {}
+    entry = getattr(entity, "_config_entry", None)
+    hass = getattr(entity, "hass", None)
+    text = not_ready_entry(
+        raw,
+        getattr(getattr(hass, "config", None), "language", None),
+        sku=(getattr(entity, "vacuum_state", None) or {}).get("sku"),
+        robot_name=getattr(entry, "title", None),
+    )
+    attrs: dict[str, Any] = {}
+    if text:
+        attrs.update(
+            {
+                "app_label": text.get("label", ""),
+                "description": text.get("description", ""),
+                "text_source": "classic_app",
+            }
+        )
+    url = not_ready_help_url_for(getattr(entry, "runtime_data", None), raw)
+    if url:
+        attrs["help_url"] = url
+    return attrs
 
 
 #: How long a robot may go quiet before the status says so rather than

@@ -59,6 +59,17 @@ _CLOUD_POLL_IDLE = timedelta(hours=24)
 # not cost a day of room features.
 _CLOUD_LOGIN_RETRY = timedelta(minutes=10)
 
+# THE ROOM OUTLINES GET THE SAME (4.5.0b5, @pk-1966). A Smart Map robot's
+# map is read once at setup; if that request fails, or the answer has no
+# outlines, the rooms under the cleaning path, room tracking and the room
+# map stay empty until the next refresh -- after a mission, or a day
+# later. He saw the path on a blank background after updating, and the
+# rooms back after a restart into the previous version. Asked again this
+# often, at most this many times in a row, then the daily poll takes over:
+# a map that really has no outlines does not keep the cloud busy.
+_CLOUD_UMF_RETRY = timedelta(minutes=10)
+_UMF_RETRY_LIMIT = 6
+
 # F-RB-4 — suppress UpdateFailed for this long after the last success.
 # Avoids entity unavailability on transient cloud outages (< 2 min).
 _MIN_UNAVAILABLE = timedelta(minutes=2)
@@ -724,6 +735,8 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         #: The header angles of the robot's own map version, by
         #: (pmap_id, version_id); see _robot_version_orientation().
         self._robot_version_angles: dict[tuple[str, str], dict[str, Any] | None] = {}
+        #: Refreshes in a row whose map had no room outlines (_CLOUD_UMF_RETRY).
+        self._umf_retries = 0
         _LOGGER.debug(
             "iRobot cloud: using country_code=%s, has_pmaps=%s for %s",
             cloud_country(hass), has_pmaps, blid,
@@ -780,6 +793,41 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._api = account.classic_rest()
         self.update_interval = _CLOUD_POLL_IDLE
+
+    def _note_room_outlines(self, loaded: bool) -> None:
+        """Ask again soon when a Smart Map robot's map came without its
+        room outlines (_CLOUD_UMF_RETRY), and say so once, at info level:
+        the failed request itself is logged at debug only, so a report of
+        an empty map showed nothing."""
+        name = getattr(self.config_entry, "title", None) or "the robot"
+        if loaded:
+            if self._umf_retries:
+                _LOGGER.info(
+                    "iRobot cloud: the room outlines of %s loaded on attempt %d",
+                    name, self._umf_retries + 1,
+                )
+            self._umf_retries = 0
+            if self.update_interval == _CLOUD_UMF_RETRY:
+                self.update_interval = _CLOUD_POLL_IDLE
+            return
+        if self._umf_retries >= _UMF_RETRY_LIMIT:
+            if self.update_interval == _CLOUD_UMF_RETRY:
+                self.update_interval = _CLOUD_POLL_IDLE
+                _LOGGER.info(
+                    "iRobot cloud: still no room outlines for %s after %d "
+                    "attempts; trying again after the next mission or in a day",
+                    name, self._umf_retries + 1,
+                )
+            return
+        if self._umf_retries == 0:
+            _LOGGER.info(
+                "iRobot cloud: the map of %s came without its room outlines, "
+                "so the rooms under the cleaning path and the room map stay "
+                "empty until they load; trying again in %d minutes",
+                name, int(_CLOUD_UMF_RETRY.total_seconds() // 60),
+            )
+        self._umf_retries += 1
+        self.update_interval = _CLOUD_UMF_RETRY
 
     @callback
     def _async_release_account(self) -> None:
@@ -1123,6 +1171,7 @@ class IrobotCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "obstacle data unavailable this cycle",
                     self.blid,
                 )
+            self._note_room_outlines(bool((result.get("umf") or {}).get("points2d")))
 
         # CR3 — when cloud mission history is empty but MissionStore has enriched
         # records (from a previous successful cloud fetch + merge), serve them as

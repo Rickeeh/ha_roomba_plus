@@ -1877,9 +1877,14 @@ class TestMissionHistoryIsNotWrappedInDict:
 # failing fetch give no geometry, never a partial or wrong one.
 
 def _coordinator(hass, umf=None, error=None):
-    c = IrobotCloudCoordinator.__new__(IrobotCloudCoordinator)
-    c.hass = hass
-    c.blid = "CLOUDBLID1"
+    # THROUGH THE CONSTRUCTOR (AGENTS.md rule 3). Built with __new__, this
+    # helper had no _umf_retries, the attribute 4.5.0b5 added, and every
+    # refresh test failed on it -- the hand-set attributes were a copy of
+    # __init__ that nobody kept in step.
+    c = IrobotCloudCoordinator(
+        hass, MagicMock(), "CLOUDBLID1", "user@example.com", "secret",
+        has_pmaps=True,
+    )
     c._api = MagicMock()
     c.api.get_pmap_umf = AsyncMock(side_effect=error, return_value=umf)
     c._robot_version_angles = {}
@@ -2214,6 +2219,72 @@ class TestCloudUpdateShapes:
         assert data["umf"] == {"keepoutzones": [], "observed_zones": []}
 
 
+class TestRoomOutlinesAreAskedAgain:
+    """4.5.0b5, @pk-1966: after an update the cleaning path stood on a
+    blank background; back on 4.4.4 the rooms were there again. A map
+    request that fails at setup used to wait for the next mission or a
+    day, logged at debug only."""
+
+    @staticmethod
+    def _robot(hass):
+        c = _full(hass, get_pmaps={"return_value": [_pmap()]})
+        c.config_entry.title = "Robo"
+        return c
+
+    @pytest.mark.asyncio
+    async def test_a_failed_map_is_asked_again_in_minutes(self, hass, caplog):
+        from custom_components.roomba_plus.cloud_coordinator import _CLOUD_UMF_RETRY
+
+        c = self._robot(hass)
+        c._fetch_active_umf = AsyncMock(side_effect=TimeoutError("boot"))
+        with caplog.at_level("INFO"):
+            await c._async_update_data()
+            await c._async_update_data()
+        assert c.update_interval == _CLOUD_UMF_RETRY
+        said = [r for r in caplog.records if "without its room outlines" in r.getMessage()]
+        assert len(said) == 1 and said[0].levelname == "INFO"
+        assert "Robo" in said[0].getMessage()
+
+        c._fetch_active_umf = AsyncMock(return_value={"points2d": [[0, 0]], "regions": []})
+        with caplog.at_level("INFO"):
+            await c._async_update_data()
+        assert c.update_interval == _CLOUD_POLL_IDLE
+        assert any("loaded on attempt 3" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_an_answer_without_outlines_counts_as_missing(self, hass):
+        from custom_components.roomba_plus.cloud_coordinator import _CLOUD_UMF_RETRY
+
+        c = self._robot(hass)
+        c._fetch_active_umf = AsyncMock(return_value={"keepoutzones": [], "observed_zones": []})
+        await c._async_update_data()
+        assert c.update_interval == _CLOUD_UMF_RETRY
+
+    @pytest.mark.asyncio
+    async def test_a_map_that_has_none_stops_asking(self, hass, caplog):
+        from custom_components.roomba_plus.cloud_coordinator import _UMF_RETRY_LIMIT
+
+        c = self._robot(hass)
+        c._fetch_active_umf = AsyncMock(return_value=None)
+        for _ in range(_UMF_RETRY_LIMIT):
+            await c._async_update_data()
+        with caplog.at_level("INFO"):
+            await c._async_update_data()
+        assert c.update_interval == _CLOUD_POLL_IDLE
+        assert any("still no room outlines" in r.getMessage() for r in caplog.records)
+        await c._async_update_data()
+        assert c.update_interval == _CLOUD_POLL_IDLE
+
+    @pytest.mark.asyncio
+    async def test_a_robot_without_a_smart_map_is_not_asked(self, hass):
+        c = self._robot(hass)
+        c._has_pmaps = False
+        c._fetch_active_umf = AsyncMock(return_value=None)
+        await c._async_update_data()
+        assert c.update_interval == _CLOUD_POLL_IDLE
+        c._fetch_active_umf.assert_not_awaited()
+
+
 class TestPropertiesWithoutData:
     """Before the first refresh, or after a failed one, every accessor
     gives an empty answer — callers create nothing from it."""
@@ -2280,14 +2351,15 @@ class TestDailyDirtDensity:
 # No HA or roombapy installation required — uses conftest.py stubs.
 
 def _bare_coordinator_m(has_pmaps: bool = False) -> IrobotCloudCoordinator:
-    """Create a coordinator instance without HA setup, with _has_pmaps set."""
-    cc = object.__new__(IrobotCloudCoordinator)
-    cc.data = None
-    cc.blid = "testblid"
-    cc._has_pmaps = has_pmaps
-    cc._mission_store = None   # CR3 fallback — not needed in these tests
-    cc._mission_archive = None  # ARC1 — v2.8.0
-    return cc
+    """A coordinator through its constructor (AGENTS.md rule 3; see
+    _coordinator), with _has_pmaps set."""
+    hass = hass_mock()
+    hass.config.country = "US"
+    return IrobotCloudCoordinator(
+        hass=hass, config_entry=entry_mock(), blid="testblid",
+        username="user@example.com", password="secret",
+        has_pmaps=has_pmaps, mission_store=None,
+    )
 
 
 class _FakeApi:
